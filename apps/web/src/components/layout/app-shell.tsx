@@ -1,11 +1,10 @@
-import { Bell, Bot, BriefcaseBusiness, FileSearch, GitBranch, LayoutDashboard, Library, MessageSquareText, Settings, Sparkles, Users } from "lucide-react";
+import { Bell, Bot, BriefcaseBusiness, LayoutDashboard, Library, Settings, Sparkles, Users } from "lucide-react";
 import Link from "next/link";
 import React, { type ReactNode } from "react";
 import { SessionSummary } from "./session-summary";
 
 const navItems = [
-  ["概览", LayoutDashboard, "/"], ["智能招聘", Sparkles, "/recruitment"], ["JD生成", GitBranch, "/recruitment"],
-  ["简历筛选", FileSearch, "/recruitment"], ["AI面试出题", MessageSquareText, "/recruitment"], ["AI招聘工作流", Bot, "/recruitment"],
+  ["概览", LayoutDashboard, "/"], ["智能招聘", Sparkles, "/recruitment"], ["AI招聘工作流", Bot, "/recruitment"],
   ["职位库", BriefcaseBusiness, "/jobs"], ["人才库", Users, "/candidates"], ["面试题库", Library, "/interviews"], ["设置", Settings, "/settings"],
 ] as const;
 
@@ -20,7 +19,7 @@ export function AppShell({ children, activeItem = "概览" }: { children: ReactN
     </header>
     <div className="grid min-h-[calc(100vh-66px)] grid-cols-1 lg:grid-cols-[210px_minmax(0,1fr)]">
       <aside className="hidden border-r border-[#dbe9f8] bg-white px-3 py-4 lg:flex lg:flex-col">
-        <nav className="space-y-1" aria-label="主导航">{navItems.map(([label, Icon, href], index) => <Link key={label} href={href} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] transition ${index === 9 ? "mt-5" : ""} ${activeItem === label ? "bg-[#ddf8ef] font-semibold text-[#07945f]" : "text-[#27477f] hover:bg-[#f3f8fe]"}`}><Icon aria-hidden="true" size={18} strokeWidth={1.9}/>{label}</Link>)}</nav>
+        <nav className="space-y-1" aria-label="主导航">{navItems.map(([label, Icon, href]) => <Link key={label} href={href} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] transition ${label === "设置" ? "mt-5" : ""} ${activeItem === label ? "bg-[#ddf8ef] font-semibold text-[#07945f]" : "text-[#27477f] hover:bg-[#f3f8fe]"}`}><Icon aria-hidden="true" size={18} strokeWidth={1.9}/>{label}</Link>)}</nav>
         <div className="mt-auto overflow-hidden rounded-xl bg-gradient-to-br from-[#d8fff6] to-[#d7efff] p-4"><p className="m-0 text-sm font-bold text-[#087aa4]">AI助力招聘</p><p className="mb-0 mt-2 text-xs font-medium text-[#2788a8]">更高效 · 更精准</p><Bot className="ml-auto -mt-3 text-[#236ee8]" size={42}/></div>
       </aside>
       <main className="min-w-0 p-4 sm:p-5 xl:p-6">{children}</main>

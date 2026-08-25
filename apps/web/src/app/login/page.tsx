@@ -1,6 +1,7 @@
 "use client";
 
 import { Bot, BriefcaseBusiness, FileCheck2, LockKeyhole, Phone, ScanSearch, Workflow } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { apiFetch, ApiError, setAccessToken } from "@/lib/api-client";
@@ -12,7 +13,6 @@ export default function LoginPage() {
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [challengeId, setChallengeId] = useState<string | null>(null);
-  const [mockCode, setMockCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
@@ -30,7 +30,7 @@ export default function LoginPage() {
       const result = await apiFetch<{ challenge_id: string; mock_code?: string }>("/auth/challenges", {
         method: "POST", body: JSON.stringify({ phone }),
       }, false);
-      setChallengeId(result.challenge_id); setMockCode(result.mock_code ?? null);
+      setChallengeId(result.challenge_id);
       setSeconds(60);
       setMessage(result.mock_code ? `开发验证码：${result.mock_code}` : "验证码已发送");
     } catch (error) { setMessage(error instanceof ApiError ? error.message : "验证码发送失败"); }
@@ -39,7 +39,7 @@ export default function LoginPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!agreed) { setMessage("请先同意用户协议和隐私政策"); return; }
+    if (!agreed) { setMessage("请先同意用户服务协议和隐私政策"); return; }
     if (!challengeId) { setMessage("请先获取验证码"); return; }
     setLoading(true); setMessage(null);
     try {
@@ -55,16 +55,23 @@ export default function LoginPage() {
   return <main className="login-canvas min-h-screen p-5 text-[#10285b] lg:p-10">
     <div className="mx-auto grid min-h-[calc(100vh-40px)] max-w-[1500px] gap-6 lg:grid-cols-[460px_minmax(0,1fr)]">
       <section className="flex flex-col rounded-[26px] border border-white/80 bg-white/90 p-7 shadow-[0_18px_60px_rgba(39,100,180,0.09)] sm:p-10">
-        <div><span className="flex items-center gap-3 text-lg font-bold text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>AI招聘工作台</span><h1 className="mb-0 mt-10 text-[34px] font-bold tracking-tight text-[#071b4b]">欢迎登录</h1><p className="mt-3 text-sm text-[#607697]">首次手机号验证后将自动注册，无需邀请码</p></div>
+        <div><span className="flex items-center gap-3 text-lg font-bold text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>AI招聘工作台</span><h1 className="mb-0 mt-10 text-[34px] font-bold tracking-tight text-[#071b4b]">欢迎登录</h1><p className="mt-3 text-sm text-[#607697]">首次手机号验证后将自动注册</p></div>
         <div className="mt-8 flex border-b border-[#dbe5f2]"><button className="login-tab-active" type="button">验证码登录</button><button className="login-tab" type="button" disabled>密码登录（暂未开放）</button></div>
         <form className="mt-8 space-y-5" onSubmit={submit}>
           <label className="block"><span className="mb-2 block text-sm font-medium">手机号</span><span className="login-input"><Phone size={18}/><input value={phone} onChange={event => setPhone(event.target.value)} type="tel" inputMode="numeric" autoComplete="tel" placeholder="请输入手机号" aria-label="手机号" maxLength={11}/></span></label>
           <label className="block"><span className="mb-2 block text-sm font-medium">验证码</span><span className="login-input"><LockKeyhole size={18}/><input value={code} onChange={event => setCode(event.target.value)} type="text" inputMode="numeric" autoComplete="one-time-code" placeholder="请输入验证码" aria-label="验证码" maxLength={6}/><button type="button" onClick={sendCode} disabled={loading || phone.length !== 11 || seconds > 0} className="whitespace-nowrap border-l border-[#dbe5f2] pl-4 text-sm font-semibold text-[#176ce5] disabled:text-[#9aabc0]">{seconds>0?`${seconds}秒后重试`:"获取验证码"}</button></span></label>
-          <p className="rounded-lg bg-[#f2f8ff] px-3 py-2 text-xs text-[#60799f]">{message ?? "Phase 2 开发环境使用 Mock 验证码，真实短信接口已预留。"}{mockCode && code !== mockCode ? "，请填入上方开发验证码" : ""}</p>
-          <label className="flex items-start gap-2 text-xs leading-5 text-[#60799f]"><input checked={agreed} onChange={event=>setAgreed(event.target.checked)} className="mt-0.5" type="checkbox"/><span>我已阅读并同意《用户协议》和《隐私政策》</span></label>
+          {message && <p className="rounded-lg bg-[#f2f8ff] px-3 py-2 text-xs text-[#60799f]">{message}</p>}
+          <label className="flex items-start gap-2 text-xs leading-5 text-[#60799f]">
+            <input checked={agreed} onChange={event => setAgreed(event.target.checked)} className="mt-0.5" type="checkbox" />
+            <span>
+              我已阅读并同意
+              <Link href="/terms" className="text-[#176ce5] hover:underline" onClick={event => event.stopPropagation()} target="_blank">《用户服务协议》</Link>
+              和
+              <Link href="/privacy" className="text-[#176ce5] hover:underline" onClick={event => event.stopPropagation()} target="_blank">《隐私政策》</Link>
+            </span>
+          </label>
           <button className="login-submit disabled:opacity-60" disabled={loading || !agreed} type="submit">{loading ? "处理中…" : "登录 / 注册"}</button>
         </form>
-        <p className="mt-auto pt-10 text-center text-xs leading-6 text-[#8393ad]">登录即代表您同意 <a href="#" className="text-[#176ce5]">《用户协议》</a> 和 <a href="#" className="text-[#176ce5]">《隐私政策》</a></p>
       </section>
 
       <section className="hidden min-w-0 flex-col justify-center px-8 lg:flex">

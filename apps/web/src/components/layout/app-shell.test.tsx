@@ -9,5 +9,8 @@ describe("AppShell", () => {
     expect(screen.getByText("AI招聘工作台")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument();
     expect(screen.getByText("智能招聘")).toBeInTheDocument();
+    expect(screen.queryByText("JD生成")).not.toBeInTheDocument();
+    expect(screen.queryByText("简历筛选")).not.toBeInTheDocument();
+    expect(screen.queryByText("AI面试出题")).not.toBeInTheDocument();
   });
 });

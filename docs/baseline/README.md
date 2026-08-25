@@ -1,6 +1,6 @@
 # AI 智能招聘第一阶段产品与架构基线
 
-版本：V0.1  
+版本：V0.2  
 状态：评审稿  
 日期：2026-08-21
 
@@ -36,12 +36,12 @@ AI 负责生成、分析和建议，招聘人员负责确认业务记录和招�
 ## 3. 架构原则
 
 1. 客户端只调用 AI 招聘业务服务，不直连 AI Platform。
-2. AI 招聘业务服务是用户、企业、职位、候选人、任务、结果和客户账单的事实源。
+2. AI 招聘业务服务是用户、Company/Workspace、职位、候选人、任务、结果和客户账单的事实源。
 3. AI Platform 负责模型、Agent、Skill、Tool、供应商调用和供应商成本统计。
 4. AI 返回必须结构化并经过契约校验，不能只有自然语言。
 5. 长任务可恢复、可查询、可取消，并处理重复请求、重复回调和部分成功。
 6. AI 供应商成本与面向客户的产品计费分离。
-7. 候选人数据默认脱敏，跨企业严格隔离，敏感操作有审计。
+7. 候选人数据默认脱敏；个人 Workspace、同一企业内不同 Workspace 及不同企业之间均严格隔离，敏感操作有审计。
 8. 第一阶段使用模块化单体和异步 Worker，不提前拆业务微服务。
 
 ## 4. 文档导航
@@ -56,7 +56,7 @@ AI 负责生成、分析和建议，招聘人员负责确认业务记录和招�
 | [06-ai-platform-contract-draft.md](06-ai-platform-contract-draft.md) | AI 能力、任务、回调、错误、Usage | 双方研发 |
 | [07-quality-and-acceptance.md](07-quality-and-acceptance.md) | 安全、质量、测试和阶段验收 | 产品、研发、测试 |
 | [08-open-decisions.md](08-open-decisions.md) | 必须确认、可延后、默认假设 | 决策人 |
-| [09-development-phases.md](09-development-phases.md) | 前后端开发阶段、依赖、里程碑和完成标准 | 产品、研发、测试 |
+| [09-development-phases.md](09-development-phases.md) | Phase 3—8 修订设计、依赖、数据 Scope、开发门禁和完成标准 | 产品、研发、测试 |
 | [../architecture/technical-stack.md](../architecture/technical-stack.md) | 技术栈及不采用项 | 技术负责人 |
 
 ## 5. 需求来源和解释规则
