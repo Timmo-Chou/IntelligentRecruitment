@@ -1,0 +1,5 @@
+interface:
+  display_name: "AI招聘产品"
+  short_description: "定义MVP范围、招聘业务规则、流程和验收标准"
+  default_prompt: "使用 $ai-recruitment-product 设计或评审AI招聘产品需求。"
+

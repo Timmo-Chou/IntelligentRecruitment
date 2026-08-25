@@ -1,0 +1,5 @@
+interface:
+  display_name: "AI招聘前端"
+  short_description: "设计、开发和评审AI招聘Web客户端"
+  default_prompt: "使用 $ai-recruitment-frontend 设计或实现AI招聘客户端。"
+

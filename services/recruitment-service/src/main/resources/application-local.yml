@@ -1,0 +1,8 @@
+logging:
+  level:
+    com.intelligentrecruitment: INFO
+app:
+  auth:
+    expose-mock-code: true
+    secure-cookie: false
+  platform-admin-key: ${PLATFORM_ADMIN_KEY:phase2-local-admin}

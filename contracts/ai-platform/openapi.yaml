@@ -1,0 +1,159 @@
+openapi: 3.1.0
+info:
+  title: AI Platform Contract for Intelligent Recruitment
+  version: 0.1.0
+  description: >-
+    Development contract used by the recruitment business service and its mock
+    adapter. Partner review is required before v1.0.0.
+servers:
+  - url: https://ai-platform.example.invalid/api/v1
+paths:
+  /tasks/{aiTaskId}:
+    get:
+      operationId: getAiTask
+      parameters:
+        - name: aiTaskId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Current task state
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+  /tasks/{aiTaskId}/cancel:
+    post:
+      operationId: cancelAiTask
+      parameters:
+        - name: aiTaskId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Cancellation accepted or resolved
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+  /jd-generations:
+    post:
+      operationId: createJdGeneration
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [context, requirement]
+              properties:
+                context: { $ref: "./schemas/request-context.schema.json" }
+                requirement: { type: object, additionalProperties: true }
+      responses:
+        "202":
+          description: Generation accepted
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+  /resume-parse-tasks:
+    post:
+      operationId: createResumeParseTask
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [context, files]
+              properties:
+                context: { $ref: "./schemas/request-context.schema.json" }
+                files:
+                  type: array
+                  minItems: 1
+                  items: { $ref: "./schemas/file-reference.schema.json" }
+      responses:
+        "202":
+          description: Parse task accepted
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+  /screening-tasks:
+    post:
+      operationId: createScreeningTask
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [context, job_version_ref, screening_plan_version_ref, candidates]
+              properties:
+                context: { $ref: "./schemas/request-context.schema.json" }
+                job_version_ref: { type: string }
+                screening_plan_version_ref: { type: string }
+                candidates:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [candidate_ref, resume_parse_version_ref]
+                    properties:
+                      candidate_ref: { type: string }
+                      resume_parse_version_ref: { type: string }
+      responses:
+        "202":
+          description: Screening task accepted
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+  /interview-kit-tasks:
+    post:
+      operationId: createInterviewKitTask
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [context, job_version_ref, candidates]
+              properties:
+                context: { $ref: "./schemas/request-context.schema.json" }
+                job_version_ref: { type: string }
+                candidates:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [candidate_ref, resume_parse_version_ref]
+                    properties:
+                      candidate_ref: { type: string }
+                      resume_parse_version_ref: { type: string }
+                      screening_result_ref: { type: string }
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 200 }
+  responses:
+    Error:
+      description: Typed AI Platform error
+      content:
+        application/json:
+          schema: { $ref: "./schemas/error.schema.json" }
+

@@ -1,0 +1,12 @@
+{
+  "name": "intelligent-recruitment",
+  "private": true,
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "dev:web": "pnpm --filter @intelligent-recruitment/web dev",
+    "build:web": "pnpm --filter @intelligent-recruitment/web build",
+    "lint:web": "pnpm --filter @intelligent-recruitment/web lint",
+    "typecheck:web": "pnpm --filter @intelligent-recruitment/web typecheck",
+    "test:web": "pnpm --filter @intelligent-recruitment/web test"
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI平台集成"
+  short_description: "定义业务服务与AI Platform的契约、Mock和接入边界"
+  default_prompt: "使用 $ai-platform-integration 设计或实现AI Platform集成。"

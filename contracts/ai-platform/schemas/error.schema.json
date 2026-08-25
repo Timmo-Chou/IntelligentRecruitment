@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.local/ai-platform/error.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["code", "message", "retryable", "request_id"],
+  "properties": {
+    "code": {
+      "enum": ["AI_AUTH_FAILED", "AI_QUOTA_EXCEEDED", "AI_RATE_LIMITED", "AI_PROVIDER_UNAVAILABLE", "AI_TIMEOUT", "AI_INVALID_INPUT", "AI_FILE_UNSUPPORTED", "AI_PARSE_FAILED", "AI_CONTENT_REJECTED", "AI_TASK_NOT_FOUND", "AI_TASK_CONFLICT", "AI_CONTRACT_INVALID", "AI_INTERNAL_ERROR"]
+    },
+    "message": { "type": "string", "minLength": 1 },
+    "retryable": { "type": "boolean" },
+    "request_id": { "type": "string", "minLength": 1 },
+    "details": { "type": "object" }
+  }
+}
+

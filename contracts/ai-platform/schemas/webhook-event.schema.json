@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.local/ai-platform/webhook-event.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "event_type", "occurred_at", "sequence", "ai_task_id", "business_task_id", "payload"],
+  "properties": {
+    "event_id": { "type": "string", "minLength": 1 },
+    "event_type": { "enum": ["task.started", "task.progress", "task.waiting_for_input", "task.item_completed", "task.item_failed", "task.partially_completed", "task.completed", "task.failed", "task.cancelled", "usage.reported"] },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "sequence": { "type": "integer", "minimum": 0 },
+    "ai_task_id": { "type": "string", "minLength": 1 },
+    "business_task_id": { "type": "string", "minLength": 1 },
+    "payload": { "type": "object" }
+  }
+}
+

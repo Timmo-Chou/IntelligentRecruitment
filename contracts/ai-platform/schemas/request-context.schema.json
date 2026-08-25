@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.local/ai-platform/request-context.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id", "trace_id", "workspace_id", "actor_id", "business_task_id", "idempotency_key", "locale", "timezone", "contract_version"],
+  "properties": {
+    "request_id": { "type": "string", "minLength": 1 },
+    "trace_id": { "type": "string", "minLength": 1 },
+    "workspace_id": { "type": "string", "minLength": 1 },
+    "company_id": { "type": ["string", "null"], "minLength": 1 },
+    "actor_id": { "type": "string", "minLength": 1 },
+    "business_task_id": { "type": "string", "minLength": 1 },
+    "idempotency_key": { "type": "string", "minLength": 8, "maxLength": 200 },
+    "locale": { "type": "string", "default": "zh-CN" },
+    "timezone": { "type": "string", "default": "Asia/Shanghai" },
+    "contract_version": { "const": "v1" }
+  }
+}

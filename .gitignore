@@ -1,0 +1,31 @@
+.DS_Store
+.idea/
+.vscode/
+
+# JavaScript
+node_modules/
+.next/
+.pnpm-home/
+.pnpm-store/
+.corepack-home/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Java
+target/
+.m2/
+*.iml
+.classpath
+.project
+.settings/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local infrastructure
+.data/
+*.log

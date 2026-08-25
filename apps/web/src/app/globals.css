@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-brand: 47 107 255;
+  --color-ai: 22 184 122;
+  --color-teal: 20 184 166;
+  --color-warning: 245 158 11;
+  --color-danger: 239 68 68;
+  --color-workflow: 139 92 246;
+  --color-bg: 247 250 252;
+  --color-surface: 255 255 255;
+  --color-surface-soft: 250 252 255;
+  --text-primary: 15 23 42;
+  --text-secondary: 51 65 85;
+  --text-muted: 100 116 139;
+  --border-color: 226 232 240;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+.app-header {
+  background: radial-gradient(circle at 48% -80%, rgb(93 229 255 / 50%), transparent 42%), linear-gradient(100deg, #f8fbff 0%, #eaf7ff 52%, #effffc 100%);
+}
+
+.brand-mark { position: relative; display: inline-block; width: 30px; height: 30px; }
+.brand-mark i { position: absolute; bottom: 3px; width: 9px; height: 28px; border-radius: 8px; transform-origin: bottom; }
+.brand-mark i:first-child { left: 8px; background: #2f86ff; transform: rotate(32deg); }
+.brand-mark i:last-child { right: 7px; background: #36d6c1; transform: rotate(-32deg); }
+.top-pill { height: 34px; align-items: center; gap: 5px; border: 1px solid #cddff1; border-radius: 8px; background: rgb(255 255 255 / 72%); padding: 0 12px; }
+.outline-button, .primary-button { height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: 8px; padding: 0 14px; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.outline-button { border: 1px solid #bdd3ef; background: white; color: #294a7e; }
+.primary-button { border: 1px solid #07945f; color: white; background: linear-gradient(135deg, #10aa74, #048e59); box-shadow: 0 5px 12px rgb(5 148 95 / 14%); }
+.metric-card { min-height: 88px; display: flex; align-items: center; gap: 14px; border: 1px solid #d7ebf8; border-radius: 13px; padding: 16px; background: linear-gradient(135deg, #f2fbff, #e8f8ff); }
+.metric-icon { display: grid; place-items: center; width: 35px; height: 35px; flex: 0 0 auto; border-radius: 50%; color: #0789d1; background: #d6f3ff; }
+.table-cell { border-bottom: 1px solid #e4edf7; padding: 12px; }
+.status-live { color: #07945f; font-weight: 600; }
+.status-closed { color: #6f83a6; font-weight: 600; }
+.page-button, .page-active { min-width: 30px; height: 30px; border-radius: 6px; border: 1px solid #d4e3f3; background: white; }
+.page-active { border-color: #07945f; background: #07945f; color: white; }
+.skill-tag { border: 1px solid #cfe0f3; border-radius: 5px; background: #f3f8ff; padding: 1px 7px; color: #1763bc; }
+input[type="checkbox"] { width: 15px; height: 15px; accent-color: #07945f; }
+
+.login-canvas { background: radial-gradient(circle at 82% 18%, rgb(202 255 246 / 70%), transparent 30%), radial-gradient(circle at 42% 44%, rgb(207 229 255 / 72%), transparent 38%), linear-gradient(135deg, #f8fbff, #eef7ff 62%, #f5fffd); }
+.login-tab, .login-tab-active { width: 50%; padding: 12px 8px; border-bottom: 3px solid transparent; color: #5c6e8d; font-size: 15px; }
+.login-tab-active { border-color: #246bf0; color: #1467e8; font-weight: 700; }
+.login-tab:disabled { cursor: not-allowed; opacity: .58; }
+.login-input { display: flex; height: 52px; align-items: center; gap: 11px; border: 1px solid #ced9e7; border-radius: 11px; padding: 0 14px; color: #93a2b8; background: white; }
+.login-input:focus-within { border-color: #4382ed; box-shadow: 0 0 0 3px rgb(47 107 255 / 12%); }
+.login-input input { min-width: 0; flex: 1; border: 0; outline: 0; color: #173568; }
+.login-submit { width: 100%; height: 52px; border: 0; border-radius: 11px; color: white; font-size: 17px; font-weight: 700; background: linear-gradient(100deg, #1e59f4, #158fe0 52%, #0fc976); box-shadow: 0 10px 24px rgb(26 116 223 / 20%); }
+.login-orbit { position: absolute; width: 80%; height: 72%; border: 2px solid rgb(111 160 235 / 20%); border-radius: 50%; transform: rotate(-8deg); }
+.login-screen { z-index: 1; display: flex; width: 390px; height: 230px; flex-direction: column; border: 8px solid rgb(255 255 255 / 70%); border-radius: 18px; background: rgb(255 255 255 / 83%); box-shadow: 0 26px 45px rgb(72 117 191 / 18%); transform: perspective(800px) rotateY(-6deg); }
+.login-robot { position: absolute; z-index: 2; right: 13%; bottom: 24px; display: grid; width: 132px; height: 142px; place-items: center; border: 8px solid white; border-radius: 50% 50% 42% 42%; color: #0865ed; background: linear-gradient(145deg, #effbff, #cce5ff); box-shadow: 0 18px 35px rgb(54 116 207 / 20%); }
+.login-robot strong { position: absolute; bottom: 18px; border-radius: 50%; padding: 6px; color: white; background: #2272ee; }
+
+body {
+  margin: 0;
+  background: rgb(var(--color-bg));
+  color: rgb(var(--text-primary));
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid rgb(var(--color-brand) / 0.3);
+  outline-offset: 2px;
+}

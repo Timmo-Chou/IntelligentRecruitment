@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.local/ai-platform/file-reference.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["file_ref", "download_url", "expires_at", "mime_type", "size_bytes", "sha256", "handling_policy"],
+  "properties": {
+    "file_ref": { "type": "string", "minLength": 1 },
+    "download_url": { "type": "string", "format": "uri" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "mime_type": { "type": "string", "minLength": 1 },
+    "size_bytes": { "type": "integer", "minimum": 1 },
+    "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+    "handling_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contains_pii", "retention", "log_content"],
+      "properties": {
+        "contains_pii": { "type": "boolean" },
+        "retention": { "enum": ["ephemeral"] },
+        "log_content": { "const": false }
+      }
+    }
+  }
+}
+

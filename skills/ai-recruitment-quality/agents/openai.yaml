@@ -1,0 +1,5 @@
+interface:
+  display_name: "AI招聘质量"
+  short_description: "验证AI招聘系统的安全、隐私、计费和可靠性"
+  default_prompt: "使用 $ai-recruitment-quality 测试或评审AI招聘系统质量。"
+
