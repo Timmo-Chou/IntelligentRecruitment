@@ -27,12 +27,13 @@ export function getAccessToken() {
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit, allowRefresh = true): Promise<T> {
+  const multipart = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     credentials: "include",
     headers: {
       Accept: "application/json",
-      "Content-Type": "application/json",
+      ...(multipart ? {} : { "Content-Type": "application/json" }),
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...init?.headers,
     },
@@ -53,6 +54,24 @@ export async function apiFetch<T>(path: string, init?: RequestInit, allowRefresh
 
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+export async function apiDownload(path: string): Promise<Blob> {
+  let response = await fetch(`${apiBaseUrl}${path}`, {
+    credentials: "include",
+    headers: { ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
+  });
+  if (response.status === 401) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) response = await fetch(`${apiBaseUrl}${path}`, {
+      credentials: "include",
+      headers: { Authorization: `Bearer ${refreshed}` },
+    });
+  }
+  if (!response.ok) throw new ApiError(response.status, {
+    code: "DOWNLOAD_FAILED", message: "文件下载失败，请稍后重试",
+  });
+  return response.blob();
 }
 
 type RefreshResponse = { access_token: string };

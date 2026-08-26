@@ -288,6 +288,8 @@ ai_runs            - id, company_id, workspace_id, capability, business_referenc
 
 ## Phase 4：简历上传、解析与人才库
 
+实现状态：**已完成 MVP 代码基线（2026-08-25）**。本地环境使用私有 MinIO 和同步 Mock Parse，以便在伙伴平台未就绪时完整演示上传、文件级失败、解析版本、PII 保护和 Workspace 隔离；真实恶意文件扫描、异步回调及伙伴侧删除确认仍受 Phase 7/8 上线门禁约束。
+
 ### 目标
 
 建立真实候选人数据入口和安全文件链路，为筛选准备不可变解析版本。
@@ -348,6 +350,8 @@ resume_parse_versions - id, company_id, workspace_id, candidate_id, resume_file_
 ---
 
 ## Phase 5：筛选方案、人岗匹配与费用结算
+
+实现状态：**已完成 MVP 代码基线（2026-08-25）**。已实现筛选方案不可变版本、敏感属性拦截、5 分钟费用报价、当前 Workspace 余额校验、预占/部分结算/释放、幂等、失败项重试、取消契约和可解释结果；本地 Mock Screening 同步完成，真实异步 Webhook、乱序事件和 Provider 取消竞态在 Phase 8 按同一契约联调。
 
 ### 目标
 

@@ -1,11 +1,12 @@
-import { Bell, Bot, BriefcaseBusiness, LayoutDashboard, Library, Settings, Sparkles, Users } from "lucide-react";
+import { Bell, Bot, BriefcaseBusiness, Filter, LayoutDashboard, Library, Settings, Sparkles, Users } from "lucide-react";
 import Link from "next/link";
 import React, { type ReactNode } from "react";
 import { SessionSummary } from "./session-summary";
+import { WorkspaceSwitcher } from "./workspace-switcher";
 
 const navItems = [
   ["概览", LayoutDashboard, "/"], ["智能招聘", Sparkles, "/recruitment"], ["AI招聘工作流", Bot, "/recruitment"],
-  ["职位库", BriefcaseBusiness, "/jobs"], ["人才库", Users, "/candidates"], ["面试题库", Library, "/interviews"], ["设置", Settings, "/settings"],
+  ["职位库", BriefcaseBusiness, "/jobs"], ["人才库", Users, "/candidates"], ["简历筛选", Filter, "/screening"], ["面试题库", Library, "/interviews"], ["设置", Settings, "/settings"],
 ] as const;
 
 export function AppShell({ children, activeItem = "概览" }: { children: ReactNode; activeItem?: string }) {
@@ -13,6 +14,7 @@ export function AppShell({ children, activeItem = "概览" }: { children: ReactN
     <header className="app-header flex h-[66px] items-center justify-between border-b border-[#dbe9f8] px-6 lg:px-8">
       <div className="flex items-center gap-3 text-[21px] font-bold tracking-tight text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>AI招聘工作台</div>
       <div className="flex items-center gap-2">
+        <WorkspaceSwitcher />
         <button className="relative grid h-9 w-9 place-items-center rounded-full hover:bg-white/70" type="button" aria-label="通知"><Bell size={19}/><span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white"/></button>
         <SessionSummary/>
       </div>

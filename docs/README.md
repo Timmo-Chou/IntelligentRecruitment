@@ -22,5 +22,5 @@
 
 - Phase 0、Phase 1 已完成，Phase 2 已形成可运行的 MVP 代码基线。
 - 已建立手机号 Mock 验证码登录、Company/Workspace、两级成员权限、Workspace 账本和30/100元试用额度基础。
-- Phase 3—8 开发计划已按最新 Phase 2 的租户、数据隔离和账本规则修订。
+- Phase 3、Phase 4、Phase 5 已形成可运行的 MVP 代码基线；Phase 6—8 计划已按最新租户、数据隔离和账本规则修订。
 - 尚未冻结 AI Platform Contract V1；各阶段开工门禁见 [Phase 3—8 开发门禁与待确认项](baseline/09-development-phases.md#7-phase-38-开发门禁与待确认项)。
