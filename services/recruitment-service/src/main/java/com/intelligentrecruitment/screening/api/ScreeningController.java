@@ -44,6 +44,11 @@ public class ScreeningController {
         return screening.quote(CurrentUser.id(authentication), workspaceId, input);
     }
 
+    @GetMapping("/screening-pricing")
+    ScreeningService.ScreeningPricingView pricing(@PathVariable UUID workspaceId, Authentication authentication) {
+        return screening.pricing(CurrentUser.id(authentication), workspaceId);
+    }
+
     @PostMapping("/screening-runs")
     ScreeningService.ScreeningRunDetail run(@PathVariable UUID workspaceId,
                                              @RequestHeader("Idempotency-Key") String idempotencyKey,
@@ -63,11 +68,18 @@ public class ScreeningController {
         return screening.getRun(CurrentUser.id(authentication), workspaceId, runId);
     }
 
+    @PostMapping("/screening-runs/{runId}/retry-quote")
+    ScreeningService.ScreeningQuoteView retryQuote(@PathVariable UUID workspaceId, @PathVariable UUID runId,
+                                                    Authentication authentication) {
+        return screening.retryQuote(CurrentUser.id(authentication), workspaceId, runId);
+    }
+
     @PostMapping("/screening-runs/{runId}/retry-failed")
     ScreeningService.ScreeningRunDetail retry(@PathVariable UUID workspaceId, @PathVariable UUID runId,
                                                @RequestHeader("Idempotency-Key") String idempotencyKey,
+                                               @RequestBody ScreeningService.RetryInput input,
                                                Authentication authentication) {
-        return screening.retryFailed(CurrentUser.id(authentication), workspaceId, runId, idempotencyKey);
+        return screening.retryFailed(CurrentUser.id(authentication), workspaceId, runId, idempotencyKey, input);
     }
 
     @PostMapping("/screening-runs/{runId}/cancel")

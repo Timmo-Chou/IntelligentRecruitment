@@ -40,17 +40,6 @@ public class PlatformReviewController {
     @PostMapping("/company-verifications/{requestId}/reject")
     void rejectCompany(@PathVariable UUID requestId,@RequestHeader("X-Platform-Admin-Key") String key,@Valid @RequestBody RejectionRequest request){guard.require(key);tenancy.rejectCompanyVerification(requestId,request.reviewer(),request.reason());}
 
-    @PostMapping("/company-membership-applications/{applicationId}/approve")
-    void approveApplication(@PathVariable UUID applicationId,
-                            @RequestHeader("X-Platform-Admin-Key") String key,
-                            @Valid @RequestBody ReviewRequest request) {
-        guard.require(key);
-        tenancy.approveCompanyApplication(applicationId, request.reviewer());
-    }
-
-    @PostMapping("/company-membership-applications/{applicationId}/reject")
-    void rejectApplication(@PathVariable UUID applicationId,@RequestHeader("X-Platform-Admin-Key") String key,@Valid @RequestBody RejectionRequest request){guard.require(key);tenancy.rejectCompanyApplication(applicationId,request.reviewer(),request.reason());}
-
     public record ReviewRequest(@NotBlank String reviewer) {}
     public record RejectionRequest(@NotBlank String reviewer,@NotBlank String reason) {}
 }

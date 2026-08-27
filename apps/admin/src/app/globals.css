@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-brand: 47 107 255;
+  --color-ai: 22 184 122;
+  --color-teal: 20 184 166;
+  --color-warning: 245 158 11;
+  --color-danger: 239 68 68;
+  --color-workflow: 139 92 246;
+  --color-bg: 247 250 252;
+  --color-surface: 255 255 255;
+  --color-surface-soft: 250 252 255;
+  --text-primary: 15 23 42;
+  --text-secondary: 51 65 85;
+  --text-muted: 100 116 139;
+  --border-color: 226 232 240;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: rgb(var(--color-bg));
+  color: rgb(var(--text-primary));
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid rgb(var(--color-brand) / 0.3);
+  outline-offset: 2px;
+}

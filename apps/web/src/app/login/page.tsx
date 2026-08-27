@@ -1,12 +1,14 @@
 "use client";
 
-import { Bot, BriefcaseBusiness, FileCheck2, LockKeyhole, Phone, ScanSearch, Workflow } from "lucide-react";
+import { Bot, BriefcaseBusiness, Eye, EyeOff, FileCheck2, KeyRound, LockKeyhole, Phone, ScanSearch, ShieldCheck, Workflow } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { apiFetch, ApiError, setAccessToken } from "@/lib/api-client";
 
 const features = [["智能生成JD", "对话式生成，自助修改", BriefcaseBusiness], ["精准筛选简历", "多重匹配，智能评分", ScanSearch], ["专业面试出题", "个性化出题，智能复用", FileCheck2], ["自动化工作流", "一键生成流程，高效省心", Workflow]] as const;
+type LoginMode = "code" | "password";
+type AuthResponse = { access_token: string; onboarding_required: boolean; password_setup_required: boolean };
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,6 +19,11 @@ export default function LoginPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
   const [agreed, setAgreed] = useState(false);
+  const [mode, setMode] = useState<LoginMode>("code");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordSetup, setShowPasswordSetup] = useState(false);
+  const [onboardingRequired, setOnboardingRequired] = useState(false);
 
   useEffect(() => {
     if (seconds <= 0) return;
@@ -40,26 +47,40 @@ export default function LoginPage() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!agreed) { setMessage("请先同意用户服务协议和隐私政策"); return; }
-    if (!challengeId) { setMessage("请先获取验证码"); return; }
+    if (mode === "code" && !challengeId) { setMessage("请先获取验证码"); return; }
     setLoading(true); setMessage(null);
     try {
-      const result = await apiFetch<{ access_token: string; onboarding_required: boolean }>("/auth/verify", {
-        method: "POST", body: JSON.stringify({ challenge_id: challengeId, phone, code }),
-      }, false);
+      const result = mode === "code"
+        ? await apiFetch<AuthResponse>("/auth/verify", {
+            method: "POST", body: JSON.stringify({ challenge_id: challengeId, phone, code }),
+          }, false)
+        : await apiFetch<AuthResponse>("/auth/password-login", {
+            method: "POST", body: JSON.stringify({ phone, password }),
+          }, false);
       setAccessToken(result.access_token);
-      router.replace(result.onboarding_required ? "/onboarding" : "/");
+      if (result.password_setup_required) {
+        setOnboardingRequired(result.onboarding_required);
+        setShowPasswordSetup(true);
+      } else {
+        router.replace(result.onboarding_required ? "/onboarding" : "/");
+      }
     } catch (error) { setMessage(error instanceof ApiError ? error.message : "登录失败，请稍后重试"); }
     finally { setLoading(false); }
+  }
+
+  function changeMode(next: LoginMode) {
+    setMode(next); setMessage(null); setPassword(""); setShowPassword(false);
   }
 
   return <main className="login-canvas min-h-screen p-5 text-[#10285b] lg:p-10">
     <div className="mx-auto grid min-h-[calc(100vh-40px)] max-w-[1500px] gap-6 lg:grid-cols-[460px_minmax(0,1fr)]">
       <section className="flex flex-col rounded-[26px] border border-white/80 bg-white/90 p-7 shadow-[0_18px_60px_rgba(39,100,180,0.09)] sm:p-10">
         <div><span className="flex items-center gap-3 text-lg font-bold text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>AI招聘工作台</span><h1 className="mb-0 mt-10 text-[34px] font-bold tracking-tight text-[#071b4b]">欢迎登录</h1><p className="mt-3 text-sm text-[#607697]">首次手机号验证后将自动注册</p></div>
-        <div className="mt-8 flex border-b border-[#dbe5f2]"><button className="login-tab-active" type="button">验证码登录</button><button className="login-tab" type="button" disabled>密码登录（暂未开放）</button></div>
+        <div className="mt-8 flex border-b border-[#dbe5f2]"><button className={mode === "code" ? "login-tab-active" : "login-tab"} onClick={() => changeMode("code")} type="button">验证码登录</button><button className={mode === "password" ? "login-tab-active" : "login-tab"} onClick={() => changeMode("password")} type="button">密码登录</button></div>
         <form className="mt-8 space-y-5" onSubmit={submit}>
           <label className="block"><span className="mb-2 block text-sm font-medium">手机号</span><span className="login-input"><Phone size={18}/><input value={phone} onChange={event => setPhone(event.target.value)} type="tel" inputMode="numeric" autoComplete="tel" placeholder="请输入手机号" aria-label="手机号" maxLength={11}/></span></label>
-          <label className="block"><span className="mb-2 block text-sm font-medium">验证码</span><span className="login-input"><LockKeyhole size={18}/><input value={code} onChange={event => setCode(event.target.value)} type="text" inputMode="numeric" autoComplete="one-time-code" placeholder="请输入验证码" aria-label="验证码" maxLength={6}/><button type="button" onClick={sendCode} disabled={loading || phone.length !== 11 || seconds > 0} className="whitespace-nowrap border-l border-[#dbe5f2] pl-4 text-sm font-semibold text-[#176ce5] disabled:text-[#9aabc0]">{seconds>0?`${seconds}秒后重试`:"获取验证码"}</button></span></label>
+          {mode === "code" ? <label className="block"><span className="mb-2 block text-sm font-medium">验证码</span><span className="login-input"><LockKeyhole size={18}/><input value={code} onChange={event => setCode(event.target.value)} type="text" inputMode="numeric" autoComplete="one-time-code" placeholder="请输入验证码" aria-label="验证码" maxLength={6}/><button type="button" onClick={sendCode} disabled={loading || phone.length !== 11 || seconds > 0} className="whitespace-nowrap border-l border-[#dbe5f2] pl-4 text-sm font-semibold text-[#176ce5] disabled:text-[#9aabc0]">{seconds>0?`${seconds}秒后重试`:"获取验证码"}</button></span></label>
+          : <label className="block"><span className="mb-2 block text-sm font-medium">密码</span><span className="login-input"><KeyRound size={18}/><input value={password} onChange={event => setPassword(event.target.value)} type={showPassword ? "text" : "password"} autoComplete="current-password" placeholder="请输入登录密码" aria-label="密码" maxLength={64}/><button type="button" onClick={() => setShowPassword(value => !value)} className="text-[#6d82a2]" aria-label={showPassword ? "隐藏密码" : "显示密码"}>{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></span><button className="mt-2 text-xs font-medium text-[#176ce5] hover:underline" type="button" onClick={() => changeMode("code")}>忘记密码？使用验证码登录</button></label>}
           {message && <p className="rounded-lg bg-[#f2f8ff] px-3 py-2 text-xs text-[#60799f]">{message}</p>}
           <label className="flex items-start gap-2 text-xs leading-5 text-[#60799f]">
             <input checked={agreed} onChange={event => setAgreed(event.target.checked)} className="mt-0.5" type="checkbox" />
@@ -70,7 +91,7 @@ export default function LoginPage() {
               <Link href="/privacy" className="text-[#176ce5] hover:underline" onClick={event => event.stopPropagation()} target="_blank">《隐私政策》</Link>
             </span>
           </label>
-          <button className="login-submit disabled:opacity-60" disabled={loading || !agreed} type="submit">{loading ? "处理中…" : "登录 / 注册"}</button>
+          <button className="login-submit disabled:opacity-60" disabled={loading || !agreed || phone.length !== 11 || (mode === "code" ? code.length !== 6 : password.length < 8)} type="submit">{loading ? "处理中…" : mode === "code" ? "登录 / 注册" : "登录"}</button>
         </form>
       </section>
 
@@ -80,5 +101,45 @@ export default function LoginPage() {
         <div className="grid grid-cols-4 divide-x divide-[#e2eaf5] rounded-[24px] border border-white bg-white/80 p-5 shadow-[0_14px_50px_rgba(39,100,180,0.07)]">{features.map(([title,desc,Icon]) => <article key={title} className="px-4 text-center"><span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#edf5ff] text-[#296fee]"><Icon size={23}/></span><h3 className="mb-0 mt-3 text-sm font-bold text-[#102d64]">{title}</h3><p className="mb-0 mt-1 text-xs text-[#7187a8]">{desc}</p></article>)}</div>
       </section>
     </div>
+    {showPasswordSetup && <PasswordSetupDialog
+      onboardingRequired={onboardingRequired}
+      onComplete={() => router.replace(onboardingRequired ? "/onboarding" : "/")}
+    />}
   </main>;
+}
+
+function PasswordSetupDialog({ onboardingRequired, onComplete }: { onboardingRequired: boolean; onComplete: () => void}) {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const valid = password.length >= 8 && password.length <= 64 && /[A-Za-z]/.test(password) && /\d/.test(password);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setMessage(null);
+    if (!valid) { setMessage("密码须为8至64位，并同时包含字母和数字"); return; }
+    if (password !== confirmPassword) { setMessage("两次输入的密码不一致"); return; }
+    setLoading(true);
+    try {
+      await apiFetch<void>("/auth/password", { method: "POST", body: JSON.stringify({ password }) });
+      onComplete();
+    } catch (error) { setMessage(error instanceof ApiError ? error.message : "密码设置失败，请稍后重试"); }
+    finally { setLoading(false); }
+  }
+
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-[#071b4b]/45 p-5 backdrop-blur-sm" role="presentation">
+    <section className="w-full max-w-md rounded-[24px] border border-white bg-white p-7 shadow-[0_24px_80px_rgba(7,27,75,.25)]" role="dialog" aria-modal="true" aria-labelledby="password-setup-title">
+      <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#eaf3ff] text-[#176ce5]"><ShieldCheck size={25}/></span>
+      <h2 id="password-setup-title" className="mb-0 mt-5 text-2xl font-bold text-[#09245d]">设置登录密码</h2>
+      <p className="mt-2 text-sm leading-6 text-[#60799f]">首次验证码登录需要设置密码。完成后将进入{onboardingRequired ? "个人或企业使用方式选择" : "工作台"}。</p>
+      <form className="mt-6 space-y-4" onSubmit={submit}>
+        <label className="block"><span className="mb-2 block text-sm font-medium">登录密码</span><span className="login-input"><KeyRound size={18}/><input autoFocus value={password} onChange={event => setPassword(event.target.value)} type={showPassword ? "text" : "password"} autoComplete="new-password" placeholder="8至64位，包含字母和数字" aria-label="设置登录密码" maxLength={64}/><button type="button" onClick={() => setShowPassword(value => !value)} className="text-[#6d82a2]" aria-label={showPassword ? "隐藏密码" : "显示密码"}>{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></span></label>
+        <label className="block"><span className="mb-2 block text-sm font-medium">确认密码</span><span className="login-input"><LockKeyhole size={18}/><input value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} type={showPassword ? "text" : "password"} autoComplete="new-password" placeholder="请再次输入密码" aria-label="确认登录密码" maxLength={64}/></span></label>
+        <div className="rounded-xl bg-[#f4f8fd] px-4 py-3 text-xs leading-5 text-[#61799c]">密码要求：8至64位，同时包含英文字母和数字。建议加入大小写字母及特殊字符。</div>
+        {message && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{message}</p>}
+        <button className="login-submit disabled:opacity-60" disabled={loading || !valid || password !== confirmPassword} type="submit">{loading ? "正在设置…" : "完成设置并继续"}</button>
+      </form>
+    </section>
+  </div>;
 }

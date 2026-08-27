@@ -9,6 +9,9 @@ export type ScreeningQuote = {
   pricingVersion: string; unitPriceMinor: number; estimatedAmountMinor: number;
   availableAmountMinor: number; expiresAt: string;
 };
+export type ScreeningPricing = {
+  pricingVersion: string; unitPriceMinor: number; quoteTtlSeconds: number;
+};
 export type ScreeningPlan = {
   id: string; jobId: string; jobTitle: string; currentVersionId: string; versionNumber: number;
   dimensions: ScreeningDimension[]; name: string; status: string; updatedAt: string;
@@ -59,19 +62,27 @@ export function createScreeningQuote(workspaceId: string, planId: string, candid
     method: "POST", body: JSON.stringify({ planId, candidateIds }),
   });
 }
-export function startScreeningRun(workspaceId: string, planId: string, candidateIds: string[], scenario: string, quoteId: string) {
+export function fetchScreeningPricing(workspaceId: string) {
+  return apiFetch<ScreeningPricing>(`/workspaces/${workspaceId}/screening-pricing`);
+}
+export function startScreeningRun(workspaceId: string, planId: string, candidateIds: string[], scenario: string, quoteId: string, idempotencyKey: string) {
   return apiFetch<ScreeningRun>(`/workspaces/${workspaceId}/screening-runs`, {
-    method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() },
+    method: "POST", headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({ planId, candidateIds, scenario, quoteId }),
   });
 }
-export function cancelScreeningRun(workspaceId: string, runId: string) {
+export function cancelScreeningRun(workspaceId: string, runId: string, idempotencyKey: string) {
   return apiFetch<ScreeningRun>(`/workspaces/${workspaceId}/screening-runs/${runId}/cancel`, {
-    method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() },
+    method: "POST", headers: { "Idempotency-Key": idempotencyKey },
   });
 }
-export function retryFailedScreening(workspaceId: string, runId: string) {
+export function createRetryScreeningQuote(workspaceId: string, runId: string) {
+  return apiFetch<ScreeningQuote>(`/workspaces/${workspaceId}/screening-runs/${runId}/retry-quote`, {
+    method: "POST",
+  });
+}
+export function retryFailedScreening(workspaceId: string, runId: string, quoteId: string, idempotencyKey: string) {
   return apiFetch<ScreeningRun>(`/workspaces/${workspaceId}/screening-runs/${runId}/retry-failed`, {
-    method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() },
+    method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ quoteId }),
   });
 }

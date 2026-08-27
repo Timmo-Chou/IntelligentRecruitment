@@ -107,37 +107,6 @@ public class TenancyService {
     }
 
     @Transactional
-    public UUID submitCompanyClaim(UUID userId, UUID companyId, String licenseReference, String firstWorkspaceName) {
-        List<ClaimableCompanyRow> companies = jdbc.query("""
-                SELECT legal_name, display_name, credit_code_hash, credit_code_masked, owner_user_id
-                FROM companies WHERE id = ? AND verification_status = 'VERIFIED' FOR UPDATE
-                """, (rs, n) -> new ClaimableCompanyRow(rs.getString("legal_name"), rs.getString("display_name"),
-                        rs.getString("credit_code_hash"), rs.getString("credit_code_masked"),
-                        rs.getObject("owner_user_id", UUID.class)), companyId);
-        if (companies.isEmpty()) throw new ApiException("COMPANY_NOT_FOUND", "企业不存在", HttpStatus.NOT_FOUND);
-        ClaimableCompanyRow company = companies.getFirst();
-        if (company.ownerUserId() != null) {
-            throw new ApiException("COMPANY_ALREADY_CLAIMED", "该企业已有 Owner，请申请加入企业", HttpStatus.CONFLICT);
-        }
-        UUID requestId = UUID.randomUUID();
-        try {
-            jdbc.update("""
-                    INSERT INTO company_verification_requests
-                    (id, applicant_user_id, company_id, request_type, legal_name, display_name, credit_code_hash,
-                     credit_code_masked, license_reference, first_workspace_name, status, created_at)
-                    VALUES (?, ?, ?, 'CLAIM', ?, ?, ?, ?, ?, ?, 'PENDING', ?)
-                    """, requestId, userId, companyId, company.legalName(), company.displayName(),
-                    company.creditCodeHash(), company.creditCodeMasked(),
-                    required(licenseReference, "企业认领材料不能为空"), requiredName(firstWorkspaceName),
-                    timestamp(Instant.now()));
-        } catch (org.springframework.dao.DuplicateKeyException exception) {
-            throw new ApiException("CLAIM_ALREADY_PENDING", "该企业已有待审核的认领申请", HttpStatus.CONFLICT);
-        }
-        audit(userId, companyId, null, "COMPANY_CLAIM_SUBMITTED", "COMPANY_CLAIM", requestId.toString());
-        return requestId;
-    }
-
-    @Transactional
     public CompanyApproval approveCompanyVerification(UUID requestId, String reviewer) {
         List<CompanyRequestRow> rows = jdbc.query("""
                 SELECT applicant_user_id, company_id, request_type, legal_name, display_name,
@@ -255,6 +224,25 @@ public class TenancyService {
                         rs.getString("legal_name"), rs.getString("verification_status"), rs.getString("role")), userId);
     }
 
+    public List<CompanySearchResult> searchCompanies(String query) {
+        String q = "%" + query.trim() + "%";
+        return jdbc.query("""
+                SELECT c.id, c.display_name, c.legal_name, c.verification_status,
+                  (SELECT count(*) FROM company_memberships cm WHERE cm.company_id=c.id AND cm.status='ACTIVE') member_count
+                FROM companies c
+                WHERE c.verification_status = 'VERIFIED'
+                  AND (c.display_name ILIKE ? OR c.legal_name ILIKE ?)
+                ORDER BY c.created_at DESC
+                LIMIT 20
+                """, (rs, n) -> new CompanySearchResult(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("display_name"),
+                        rs.getString("legal_name"),
+                        rs.getString("verification_status"),
+                        rs.getInt("member_count")),
+                q, q);
+    }
+
     @Transactional
     public UUID applyToCompany(UUID userId, UUID companyId, String evidence) {
         ensureCompany(companyId);
@@ -266,6 +254,44 @@ public class TenancyService {
                 """, id, companyId, userId, required(evidence, "请填写与企业关系的证明说明"), timestamp(Instant.now()));
         if (inserted == 0) throw new ApiException("APPLICATION_ALREADY_PENDING", "已有待审核的加入申请", HttpStatus.CONFLICT);
         return id;
+    }
+
+    public List<MembershipApplicationView> listCompanyApplications(UUID userId, UUID companyId) {
+        requireCompanyAdmin(userId, companyId);
+        return jdbc.query("""
+                SELECT ma.id, ma.applicant_user_id, u.phone_last_four, ma.evidence, ma.status, ma.created_at
+                FROM membership_applications ma JOIN users u ON u.id = ma.applicant_user_id
+                WHERE ma.company_id=? ORDER BY ma.created_at DESC
+                """, (rs, n) -> new MembershipApplicationView(rs.getObject("id", UUID.class),
+                rs.getObject("applicant_user_id", UUID.class), rs.getString("phone_last_four"),
+                rs.getString("evidence"), rs.getString("status"), rs.getTimestamp("created_at").toInstant()), companyId);
+    }
+
+    @Transactional
+    public void approveCompanyApplication(UUID userId, UUID applicationId) {
+        ApplicationRow application = pendingApplication(applicationId);
+        requireCompanyAdmin(userId, application.companyId());
+        addCompanyMembership(application.companyId(), application.userId(), "COMPANY_MEMBER");
+        jdbc.update("UPDATE membership_applications SET status='APPROVED', reviewed_by_user_id=?, reviewed_at=? WHERE id=?",
+                userId, timestamp(Instant.now()), applicationId);
+        audit(userId, application.companyId(), null, "COMPANY_MEMBERSHIP_APPROVED", "MEMBERSHIP_APPLICATION", applicationId.toString());
+    }
+
+    @Transactional
+    public void rejectCompanyApplication(UUID userId, UUID applicationId, String reason) {
+        ApplicationRow application = pendingApplication(applicationId);
+        requireCompanyAdmin(userId, application.companyId());
+        int updated = jdbc.update("UPDATE membership_applications SET status='REJECTED', reviewed_by_user_id=?, reviewed_at=?, review_reason=? WHERE id=? AND status='PENDING'",
+                userId, timestamp(Instant.now()), required(reason, "请填写拒绝原因"), applicationId);
+        if (updated == 0) throw new ApiException("APPLICATION_NOT_PENDING", "申请不在待审核状态", HttpStatus.CONFLICT);
+        audit(userId, application.companyId(), null, "COMPANY_MEMBERSHIP_REJECTED", "MEMBERSHIP_APPLICATION", applicationId.toString());
+    }
+
+    private ApplicationRow pendingApplication(UUID applicationId) {
+        List<ApplicationRow> rows = jdbc.query("SELECT company_id, applicant_user_id FROM membership_applications WHERE id=? AND status='PENDING' FOR UPDATE",
+                (rs, n) -> new ApplicationRow(rs.getObject("company_id", UUID.class), rs.getObject("applicant_user_id", UUID.class)), applicationId);
+        if (rows.isEmpty()) throw new ApiException("APPLICATION_NOT_PENDING", "申请不在待审核状态", HttpStatus.CONFLICT);
+        return rows.getFirst();
     }
 
     @Transactional
@@ -461,12 +487,12 @@ public class TenancyService {
     public record WorkspaceView(UUID id, UUID companyId, String type, String name, UUID ownerUserId,
                                 String status, int memberCount, boolean hasDataAccess,String currentRole) {}
     public record CompanyView(UUID id, String displayName, String legalName, String verificationStatus, String role) {}
+    public record CompanySearchResult(UUID id, String displayName, String legalName, String verificationStatus, int memberCount) {}
+    public record MembershipApplicationView(UUID id, UUID applicantUserId, String applicantPhone, String evidence, String status, Instant createdAt) {}
     public record Invitation(UUID id, String token, Instant expiresAt) {}
     private record CompanyRequestRow(UUID applicantUserId, UUID companyId, String requestType,
                                      String legalName, String displayName,
                                      String creditCodeHash, String creditCodeMasked, String firstWorkspaceName) {}
-    private record ClaimableCompanyRow(String legalName, String displayName, String creditCodeHash,
-                                       String creditCodeMasked, UUID ownerUserId) {}
     private record ApplicationRow(UUID companyId, UUID userId) {}
     private record InvitationRow(UUID id, String targetType, UUID targetId, String role, String phoneHash) {}
 }

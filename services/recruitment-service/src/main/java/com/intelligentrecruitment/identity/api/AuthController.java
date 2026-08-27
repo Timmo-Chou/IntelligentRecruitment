@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
@@ -46,6 +47,20 @@ public class AuthController {
                 servletRequest.getHeader("User-Agent")));
     }
 
+    @PostMapping("/password-login")
+    ResponseEntity<TokenResponse> passwordLogin(@Valid @RequestBody PasswordLoginRequest request,
+                                                HttpServletRequest servletRequest) {
+        return tokenResponse(identityService.passwordLogin(request.phone(), request.password(),
+                servletRequest.getHeader("User-Agent")));
+    }
+
+    @PostMapping("/password")
+    ResponseEntity<Void> setInitialPassword(@Valid @RequestBody SetPasswordRequest request,
+                                            Authentication authentication) {
+        identityService.setInitialPassword(CurrentUser.id(authentication), request.password());
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/refresh")
     ResponseEntity<TokenResponse> refresh(HttpServletRequest request) {
         return tokenResponse(identityService.refresh(cookie(request), request.getHeader("User-Agent")));
@@ -69,7 +84,8 @@ public class AuthController {
                 .httpOnly(true).secure(secureCookie).sameSite("Strict").path("/api/v1/auth")
                 .maxAge(Duration.ofDays(14)).build();
         return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cookie.toString())
-                .body(new TokenResponse(pair.accessToken(), pair.accessExpiresAt(), pair.newUser(), pair.onboardingRequired()));
+                .body(new TokenResponse(pair.accessToken(), pair.accessExpiresAt(), pair.newUser(),
+                        pair.onboardingRequired(), pair.passwordSetupRequired()));
     }
 
     private static String cookie(HttpServletRequest request) {
@@ -89,8 +105,11 @@ public class AuthController {
                                     @JsonProperty("mock_code") String mockCode) {}
     public record VerifyRequest(@NotNull @JsonProperty("challenge_id") UUID challengeId,
                                 @NotBlank String phone, @NotBlank String code) {}
+    public record PasswordLoginRequest(@NotBlank String phone, @NotBlank @Size(max = 64) String password) {}
+    public record SetPasswordRequest(@NotBlank @Size(max = 64) String password) {}
     public record TokenResponse(@JsonProperty("access_token") String accessToken,
                                 @JsonProperty("access_expires_at") Instant accessExpiresAt,
                                 @JsonProperty("new_user") boolean newUser,
-                                @JsonProperty("onboarding_required") boolean onboardingRequired) {}
+                                @JsonProperty("onboarding_required") boolean onboardingRequired,
+                                @JsonProperty("password_setup_required") boolean passwordSetupRequired) {}
 }

@@ -1,11 +1,20 @@
 "use client";
 
-import { Building2, CheckCircle2, UserRound, UsersRound } from "lucide-react";
+import { Building2, CheckCircle2, Search, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "@/lib/api-client";
 
-type Mode = "personal" | "company" | "claim" | "join";
+type Mode = "personal" | "company";
+type CompanySubMode = "create" | "join";
+
+type CompanySearchResult = {
+  id: string;
+  displayName: string;
+  legalName: string;
+  verificationStatus: string;
+  memberCount: number;
+};
 
 export default function OnboardingPage() {
   const [mode, setMode] = useState<Mode>("personal");
@@ -14,41 +23,111 @@ export default function OnboardingPage() {
       <div className="flex items-center gap-3 text-xl font-bold text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>AI招聘工作台</div>
       <h1 className="mb-0 mt-8 text-3xl font-bold">选择使用方式</h1>
       <p className="mt-2 text-sm text-[#60799f]">账号类型不会被永久锁定，之后仍可加入企业或工作空间。</p>
-      <div className="mt-7 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-7 grid gap-3 md:grid-cols-2">
         <ModeButton active={mode === "personal"} onClick={() => setMode("personal")} icon={<UserRound/>} title="个人使用" desc="个人HR或SOHO猎头"/>
-        <ModeButton active={mode === "company"} onClick={() => setMode("company")} icon={<Building2/>} title="认证企业" desc="创建企业及首个工作空间"/>
-        <ModeButton active={mode === "claim"} onClick={() => setMode("claim")} icon={<Building2/>} title="认领企业" desc="认领平台已有企业"/>
-        <ModeButton active={mode === "join"} onClick={() => setMode("join")} icon={<UsersRound/>} title="加入企业" desc="接受邀请或提交平台审核"/>
+        <ModeButton active={mode === "company"} onClick={() => setMode("company")} icon={<Building2/>} title="认证企业" desc="创建企业或加入已有企业"/>
       </div>
       <section className="mt-6 rounded-2xl border border-[#d8e6f5] bg-[#f9fcff] p-6">
         {mode === "personal" && <PersonalForm/>}
-        {mode === "company" && <CompanyForm/>}
-        {mode === "claim" && <ClaimForm/>}
-        {mode === "join" && <JoinForm/>}
+        {mode === "company" && <CompanySection/>}
       </section>
     </div>
   </main>;
 }
 
-function ClaimForm() {
-  const status = useActionStatus();
-  const [companyId, setCompanyId] = useState("");
-  const [licenseReference, setLicenseReference] = useState("");
-  const [firstWorkspaceName, setFirstWorkspaceName] = useState("招聘团队");
-  async function submit(event: FormEvent) {
-    event.preventDefault(); status.start();
+function CompanySection() {
+  const [subMode, setSubMode] = useState<CompanySubMode>("create");
+  return <div>
+    <div className="mb-5 flex gap-3">
+      <SubModeButton active={subMode === "create"} onClick={() => setSubMode("create")} title="创建企业" desc="提交企业认证，平台审核通过后创建企业"/>
+      <SubModeButton active={subMode === "join"} onClick={() => setSubMode("join")} title="加入企业" desc="搜索已注册的企业并申请加入"/>
+    </div>
+    {subMode === "create" && <CompanyForm/>}
+    {subMode === "join" && <JoinCompanyForm/>}
+  </div>;
+}
+
+function SubModeButton({ active, onClick, title, desc }: {active:boolean; onClick:()=>void; title:string; desc:string}) {
+  return <button type="button" onClick={onClick} className={`flex-1 rounded-xl border p-4 text-left transition ${active ? "border-[#2f6bff] bg-[#edf5ff] shadow-[0_0_0_3px_rgba(47,107,255,.08)]" : "border-[#d8e4f1] bg-white hover:border-[#a9c6ea]"}`}>
+    <strong className="block text-sm">{title}</strong><small className="mt-1 block text-xs text-[#7187a8]">{desc}</small>
+  </button>;
+}
+
+function JoinCompanyForm() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<CompanySearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [messageError, setMessageError] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const doSearch = useCallback(async (q: string) => {
+    if (!q.trim()) { setResults([]); setSearched(false); return; }
+    setLoading(true); setSearched(true);
     try {
-      const result = await apiFetch<{id:string}>(`/companies/${companyId}/claim-requests`, {
-        method:"POST", body:JSON.stringify({licenseReference, firstWorkspaceName})
+      const data = await apiFetch<CompanySearchResult[]>(`/companies/search?q=${encodeURIComponent(q.trim())}`);
+      setResults(data);
+    } catch { setResults([]); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => doSearch(query), 300);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [query, doSearch]);
+
+  async function applyToCompany(companyId: string) {
+    setApplyingId(companyId); setMessage(null); setMessageError(false);
+    try {
+      await apiFetch(`/companies/${companyId}/membership-applications`, {
+        method: "POST", body: JSON.stringify({ evidence: "通过平台搜索申请加入" }),
       });
-      status.success(`企业认领已提交（申请号 ${result.id.slice(0,8)}），只有平台审核通过后才会成为 Company Owner。`);
-    } catch (error) { status.fail(error); }
+      setMessage("加入申请已提交，请等待该企业 Owner 或管理员审核。");
+      setMessageError(false);
+    } catch (error) {
+      setMessageError(true);
+      setMessage(error instanceof ApiError ? error.message : "申请失败，请稍后重试");
+    }
+    setApplyingId(null);
   }
-  return <form onSubmit={submit} className="space-y-4"><Heading title="认领已有企业" note="适用于企业已由平台预建、但尚未产生 Company Owner 的情况。"/>
-    <div className="grid gap-4 sm:grid-cols-2"><Field label="企业ID" value={companyId} onChange={setCompanyId}/><Field label="无现有空间时创建的 Workspace 名称" value={firstWorkspaceName} onChange={setFirstWorkspaceName}/></div>
-    <Field label="企业认领材料引用" placeholder="Phase 2 暂填文件编号或受控存储引用" value={licenseReference} onChange={setLicenseReference}/>
-    <StatusLine status={status}/><button className="primary-button" disabled={status.loading} type="submit">提交认领审核</button>
-  </form>;
+
+  return <div className="space-y-4">
+    <Heading title="加入已有企业" note="搜索已通过平台认证的企业并申请加入。"/>
+    <label className="block text-sm font-medium">
+      <span className="mb-2 block">搜索企业名称</span>
+      <div className="relative">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#9ab1d4]" />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="输入企业名称或简称…" className="h-11 w-full rounded-lg border border-[#cddbea] bg-white pl-9 pr-3 outline-none focus:border-[#2f6bff]"/>
+      </div>
+    </label>
+
+    {loading && <p className="text-sm text-[#7187a8]">搜索中…</p>}
+
+    {searched && !loading && results.length === 0 && query.trim() && (
+      <p className="text-sm text-[#7187a8]">未找到匹配的企业</p>
+    )}
+
+    {results.length > 0 && (
+      <div className="space-y-2">
+        {results.map(company => (
+          <div key={company.id} className="flex items-center justify-between rounded-lg border border-[#d8e6f5] bg-white p-3">
+            <div>
+              <p className="text-sm font-medium text-[#10285b]">{company.displayName}</p>
+              <p className="text-xs text-[#7187a8]">{company.legalName} · {company.memberCount} 名成员</p>
+            </div>
+            <button className="outline-button text-xs" disabled={applyingId === company.id} onClick={() => applyToCompany(company.id)} type="button">
+              {applyingId === company.id ? "申请中…" : "申请加入"}
+            </button>
+          </div>
+        ))}
+      </div>
+    )}
+
+    {message && <p className={`flex items-start gap-2 rounded-lg px-3 py-2 text-sm ${messageError ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}><CheckCircle2 className="mt-0.5 shrink-0" size={16}/>{message}</p>}
+  </div>;
 }
 
 function ModeButton({ active, onClick, icon, title, desc }: {active:boolean; onClick:()=>void; icon:React.ReactNode; title:string; desc:string}) {
@@ -91,13 +170,6 @@ function CompanyForm() {
     <Field label="营业执照材料引用" placeholder="Phase 2 暂填文件编号或受控存储引用" value={form.licenseReference} onChange={value=>setForm({...form,licenseReference:value})}/>
     <StatusLine status={status}/><button className="primary-button" disabled={status.loading} type="submit">提交平台审核</button>
   </form>;
-}
-
-function JoinForm() {
-  const status = useActionStatus(); const [companyId,setCompanyId]=useState(""); const [evidence,setEvidence]=useState(""); const [token,setToken]=useState("");
-  async function apply(event: FormEvent) { event.preventDefault(); status.start(); try { await apiFetch(`/companies/${companyId}/membership-applications`,{method:"POST",body:JSON.stringify({evidence})}); status.success("加入申请已提交，将由平台审核。"); } catch(error){status.fail(error);} }
-  async function accept(){ status.start(); try { await apiFetch("/membership-invitations/accept",{method:"POST",body:JSON.stringify({token})}); status.success("邀请已接受，可以进入对应企业或工作空间。"); } catch(error){status.fail(error);} }
-  return <div className="grid gap-8 lg:grid-cols-2"><form onSubmit={apply} className="space-y-4"><Heading title="主动申请加入企业" note="平台将核验你与企业的关系。"/><Field label="企业ID" value={companyId} onChange={setCompanyId}/><Field label="关系证明说明" value={evidence} onChange={setEvidence}/><button className="outline-button" type="submit">提交平台审核</button></form><div className="space-y-4"><Heading title="接受成员邀请" note="邀请只用于加入已有企业或 Workspace，不是注册邀请码。"/><Field label="邀请令牌" value={token} onChange={setToken}/><button className="primary-button" onClick={accept} type="button">接受邀请</button></div><div className="lg:col-span-2"><StatusLine status={status}/></div></div>;
 }
 
 function Heading({title,note}:{title:string;note:string}) { return <div><h2 className="m-0 text-lg font-bold">{title}</h2><p className="mb-0 mt-1 text-sm text-[#6b82a6]">{note}</p></div>; }

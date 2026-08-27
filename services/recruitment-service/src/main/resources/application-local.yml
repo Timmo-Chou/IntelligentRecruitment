@@ -6,3 +6,6 @@ app:
     expose-mock-code: true
     secure-cookie: false
   platform-admin-key: ${PLATFORM_ADMIN_KEY:phase2-local-admin}
+  phase5:
+    # 为本地演示保留可观察的进度与取消窗口；生产默认不增加人工延迟。
+    worker-item-delay-ms: ${SCREENING_WORKER_ITEM_DELAY_MS:500}

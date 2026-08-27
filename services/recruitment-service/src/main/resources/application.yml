@@ -47,7 +47,7 @@ app:
   auth:
     expose-mock-code: ${EXPOSE_MOCK_CODE:false}
     secure-cookie: ${AUTH_SECURE_COOKIE:true}
-  platform-admin-key: ${PLATFORM_ADMIN_KEY}
+  platform-admin-key: ${PLATFORM_ADMIN_KEY:phase2-local-admin}
   ai-platform:
     mode: ${AI_PLATFORM_MODE:mock}
   phase3:
@@ -57,6 +57,11 @@ app:
     # Phase 5 非生产临时价：0.80元/成功筛选候选人。
     screening-unit-price-minor: ${SCREENING_UNIT_PRICE_MINOR:80}
     pricing-version: ${SCREENING_PRICING_VERSION:SCREENING_MOCK_V1}
+    quote-ttl-seconds: ${SCREENING_QUOTE_TTL_SECONDS:300}
+    outbox-lease-seconds: ${SCREENING_OUTBOX_LEASE_SECONDS:300}
+    worker-enabled: ${SCREENING_WORKER_ENABLED:true}
+    worker-poll-delay-ms: ${SCREENING_WORKER_POLL_DELAY_MS:250}
+    worker-item-delay-ms: ${SCREENING_WORKER_ITEM_DELAY_MS:0}
   storage:
     endpoint: ${S3_ENDPOINT:http://localhost:9000}
     access-key: ${S3_ACCESS_KEY:recruitment}

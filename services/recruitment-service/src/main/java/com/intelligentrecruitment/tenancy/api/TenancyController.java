@@ -63,11 +63,25 @@ public class TenancyController {
         return new IdResponse(tenancy.applyToCompany(CurrentUser.id(authentication), companyId, request.evidence()));
     }
 
-    @PostMapping("/companies/{companyId}/claim-requests")
-    IdResponse claim(@PathVariable UUID companyId, @Valid @RequestBody CompanyClaimRequest request,
-                     Authentication authentication) {
-        return new IdResponse(tenancy.submitCompanyClaim(CurrentUser.id(authentication), companyId,
-                request.licenseReference(), request.firstWorkspaceName()));
+    @GetMapping("/companies/search")
+    List<TenancyService.CompanySearchResult> searchCompanies(@RequestParam("q") String query) {
+        return tenancy.searchCompanies(query);
+    }
+
+    @GetMapping("/companies/{companyId}/membership-applications")
+    List<TenancyService.MembershipApplicationView> applications(@PathVariable UUID companyId, Authentication authentication) {
+        return tenancy.listCompanyApplications(CurrentUser.id(authentication), companyId);
+    }
+
+    @PostMapping("/companies/{companyId}/membership-applications/{applicationId}/approve")
+    void approveApplication(@PathVariable UUID companyId, @PathVariable UUID applicationId, Authentication authentication) {
+        tenancy.approveCompanyApplication(CurrentUser.id(authentication), applicationId);
+    }
+
+    @PostMapping("/companies/{companyId}/membership-applications/{applicationId}/reject")
+    void rejectApplication(@PathVariable UUID companyId, @PathVariable UUID applicationId,
+                           @Valid @RequestBody RejectionRequest request, Authentication authentication) {
+        tenancy.rejectCompanyApplication(CurrentUser.id(authentication), applicationId, request.reason());
     }
 
     @PostMapping("/companies/{companyId}/invitations")
@@ -94,7 +108,7 @@ public class TenancyController {
                                              @NotBlank String firstWorkspaceName) {}
     public record CreateCompanyWorkspaceRequest(@NotBlank String name, @NotNull UUID ownerUserId) {}
     public record MembershipApplicationRequest(@NotBlank String evidence) {}
-    public record CompanyClaimRequest(@NotBlank String licenseReference, @NotBlank String firstWorkspaceName) {}
+    public record RejectionRequest(@NotBlank String reason) {}
     public record InvitationRequest(@NotBlank String phone, @NotBlank String role) {}
     public record AcceptInvitationRequest(@NotBlank String token) {}
     public record IdResponse(UUID id) {}

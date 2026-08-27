@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,10 +27,13 @@ public class IdentityService {
 
     private final JdbcTemplate jdbc;
     private final boolean exposeMockCode;
+    private final PasswordEncoder passwordEncoder;
 
-    public IdentityService(JdbcTemplate jdbc, @Value("${app.auth.expose-mock-code:false}") boolean exposeMockCode) {
+    public IdentityService(JdbcTemplate jdbc, @Value("${app.auth.expose-mock-code:false}") boolean exposeMockCode,
+                           PasswordEncoder passwordEncoder) {
         this.jdbc = jdbc;
         this.exposeMockCode = exposeMockCode;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Transactional
@@ -84,6 +88,33 @@ public class IdentityService {
         boolean newUser = existing.isEmpty();
         UUID userId = newUser ? createUser(phoneHash, phone) : existing.getFirst();
         return issueTokens(userId, deviceInfo, null, newUser);
+    }
+
+    @Transactional
+    public TokenPair passwordLogin(String phone, String password, String deviceInfo) {
+        String phoneHash = SecurityHashes.sha256(normalizePhone(phone));
+        List<PasswordUserRow> users = jdbc.query("""
+                SELECT id, password_hash FROM users
+                WHERE phone_hash = ? AND status = 'ACTIVE'
+                """, (rs, n) -> new PasswordUserRow(rs.getObject("id", UUID.class), rs.getString("password_hash")),
+                phoneHash);
+        if (users.isEmpty() || users.getFirst().passwordHash() == null
+                || !passwordEncoder.matches(password, users.getFirst().passwordHash())) {
+            throw new ApiException("INVALID_LOGIN_CREDENTIALS", "手机号或密码错误", HttpStatus.UNAUTHORIZED);
+        }
+        return issueTokens(users.getFirst().id(), deviceInfo, null, false);
+    }
+
+    @Transactional
+    public void setInitialPassword(UUID userId, String password) {
+        validatePassword(password);
+        int updated = jdbc.update("""
+                UPDATE users SET password_hash = ?, password_set_at = ?, updated_at = ?
+                WHERE id = ? AND password_hash IS NULL
+                """, passwordEncoder.encode(password), timestamp(Instant.now()), timestamp(Instant.now()), userId);
+        if (updated == 0) {
+            throw new ApiException("PASSWORD_ALREADY_SET", "账号已设置密码", HttpStatus.CONFLICT);
+        }
     }
 
     @Transactional
@@ -164,8 +195,10 @@ public class IdentityService {
         boolean onboardingRequired = Boolean.TRUE.equals(jdbc.queryForObject(
                 "SELECT NOT EXISTS (SELECT 1 FROM workspace_memberships WHERE user_id = ? AND status = 'ACTIVE')",
                 Boolean.class, userId));
+        boolean passwordSetupRequired = Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT password_hash IS NULL FROM users WHERE id = ?", Boolean.class, userId));
         return new TokenPair(accessToken, now.plus(ACCESS_TTL), refreshToken, now.plus(REFRESH_TTL),
-                newUser, onboardingRequired);
+                newUser, onboardingRequired, passwordSetupRequired);
     }
 
     private static String normalizePhone(String phone) {
@@ -181,10 +214,20 @@ public class IdentityService {
         return value.substring(0, Math.min(value.length(), 300));
     }
 
+    static void validatePassword(String password) {
+        if (password == null || password.length() < 8 || password.length() > 64
+                || password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72
+                || !password.matches(".*[A-Za-z].*") || !password.matches(".*\\d.*")) {
+            throw new ApiException("INVALID_PASSWORD", "密码须为8至64位，并同时包含字母和数字", HttpStatus.BAD_REQUEST);
+        }
+    }
+
     public record Challenge(UUID challengeId, Instant expiresAt, String mockCode) {}
     public record TokenPair(String accessToken, Instant accessExpiresAt, String refreshToken,
-                            Instant refreshExpiresAt, boolean newUser, boolean onboardingRequired) {}
+                            Instant refreshExpiresAt, boolean newUser, boolean onboardingRequired,
+                            boolean passwordSetupRequired) {}
     public record UserView(UUID id, String maskedPhone, String displayName, String personalVerificationStatus) {}
     private record ChallengeRow(String phoneHash, String codeHash, Instant expiresAt, int attemptCount, Instant consumedAt) {}
     private record SessionRow(UUID id, UUID userId) {}
+    private record PasswordUserRow(UUID id, String passwordHash) {}
 }
