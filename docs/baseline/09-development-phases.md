@@ -207,7 +207,7 @@ Web 页面
 4. Company Owner/Admin 只能管理企业及 Workspace 的名称、Owner、成员数、状态等治理元数据。未加入目标 Workspace 时，不能读取其中的职位、人才、简历、对话、任务、AI 结果或账单明细，也不能通过聚合、搜索或导出推断这些内容。
 5. 职位库、人才库、任务历史和面试题产出均归属于 Workspace。MVP 不实现 Company 共享库、跨 Workspace 搜索、复制、关联或数据授权。
 6. 每个 Workspace 对应独立 `BillingAccount`。个人30元试用金进入唯一个人 Workspace；企业100元试用金只进入认证后的首个 Workspace，其他 Workspace 不自动获得试用金；两者均自发放起90天过期。
-7. 收费任务统一执行“报价/确认 → 预占 → 成功单位结算 → 失败或差额释放”。金额使用整数分；业务任务、预占、Outbox 和幂等记录必须在可靠事务边界内建立，AI Usage 不能直接作为客户账单。
+7. 批量、动态计价任务执行“报价/确认 → 预占 → 成功单位结算 → 失败或差额释放”。MVP 中固定单价的单次任务（当前仅 JD 生成）不创建独立报价实体：操作按钮必须展示价格，用户点击“确认生成”即确认本次固定价并预占；成功结算、失败释放。金额使用整数分；业务任务、预占、Outbox 和幂等记录必须在可靠事务边界内建立，AI Usage 不能直接作为客户账单。
 8. 异步任务、Webhook 和重试必须继承创建时冻结的 `company_id + workspace_id`，回调不能改变 Scope。审计记录包含 Actor、Scope、业务引用和结果，但不得记录完整 PII、Prompt 或简历正文。
 9. 当前 Workspace 是前端所有业务页面的明确上下文。切换 Workspace 后必须清空或按 Scope 隔离查询缓存、草稿、上传队列和流式连接，禁止显示上一个 Workspace 的残留数据。
 10. Phase 2 的 Mock 验证码、人工认证审核和非真实支付现状不阻塞 Phase 3—6 开发，但进入真实客户候选发布前必须按 Phase 7 门禁处理。
@@ -215,6 +215,8 @@ Web 页面
 ---
 
 ## Phase 3：招聘任务、JD 生成与职位库
+
+实现状态：**已完成异步 MVP 代码基线（2026-08-27）**。JD Run、费用预占和 Outbox 在同一事务建立，由 Worker 执行；流式 Delta 持久化后通过 SSE 发送，客户端使用 `Last-Event-ID` 在断线或刷新后续传。MVP 固定单价 JD 生成不使用独立报价单。
 
 ### 目标
 
@@ -239,8 +241,8 @@ Web 页面
 - JD 草稿、确认和新版本业务命令。
 - JD 生成 AI Run、流式代理/转发和结构化结果校验。
 - Product-visible 消息与 AI 技术 Trace 分离。
-- JD 收费执行报价、用户确认、Workspace 账户预占、成功结算和失败释放；价格未冻结时只允许使用明确标记的非生产配置。
-- 创建招聘任务、计费预占、AI Run 和 Outbox 使用同一业务幂等键；刷新或双击不能产生重复任务和扣费。
+- JD 为 MVP 固定单价：生成按钮明确展示价格，点击即确认并从当前 Workspace 账户预占；成功结算、失败释放。MVP 不创建独立报价单，价格未冻结时只允许使用明确标记的非生产配置。
+- 创建 AI Run、计费预占和 Outbox 在同一事务中使用同一业务幂等键；刷新或双击不能产生重复任务和扣费。
 - Repository 以资源 ID + `workspace_id` 查询；企业记录落库前校验 `company_id` 与 Workspace 归属一致。
 - Mock JD：追问、流式 Delta、正常结果、超时、非法 Schema。
 
@@ -261,7 +263,8 @@ ai_runs            - id, company_id, workspace_id, capability, business_referenc
 
 - `POST/GET /api/v1/workspaces/{workspaceId}/recruitment-tasks...`
 - `POST /api/v1/workspaces/{workspaceId}/conversations/{id}/messages`
-- `POST /api/v1/workspaces/{workspaceId}/jd-runs`，以及状态、重试和取消（若能力允许）。
+- `POST /api/v1/workspaces/{workspaceId}/recruitment-tasks/{taskId}/jd-runs` 异步提交固定价生成任务。
+- `GET /api/v1/workspaces/{workspaceId}/recruitment-tasks/{taskId}/jd-runs/events` 返回 SSE；事件持久化并支持 `Last-Event-ID` 断线续传。
 - `/api/v1/workspaces/{workspaceId}/jobs...` 下的草稿、确认、版本、列表、详情和归档。
 - 写操作要求 `Idempotency-Key`；资源 ID 不得脱离 Workspace 路径单独访问。
 

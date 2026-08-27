@@ -106,6 +106,21 @@ public class IdentityService {
     }
 
     @Transactional
+    public TokenPair resetPassword(UUID challengeId, String phone, String code, String newPassword, String deviceInfo) {
+        validatePassword(newPassword);
+        String phoneHash = SecurityHashes.sha256(normalizePhone(phone));
+        List<ChallengeRow> rows = jdbc.query("SELECT phone_hash, code_hash, expires_at, attempt_count, consumed_at FROM verification_challenges WHERE id=? FOR UPDATE",
+                (rs, n) -> new ChallengeRow(rs.getString("phone_hash"), rs.getString("code_hash"), rs.getTimestamp("expires_at").toInstant(), rs.getInt("attempt_count"), rs.getTimestamp("consumed_at") == null ? null : rs.getTimestamp("consumed_at").toInstant()), challengeId);
+        if (rows.isEmpty() || !rows.getFirst().phoneHash().equals(phoneHash) || rows.getFirst().consumedAt() != null || rows.getFirst().expiresAt().isBefore(Instant.now()))
+            throw new ApiException("CHALLENGE_INVALID", "验证码已失效，请重新获取", HttpStatus.BAD_REQUEST);
+        if (!rows.getFirst().codeHash().equals(SecurityHashes.sha256(challengeId + ":" + code))) throw new ApiException("INVALID_VERIFICATION_CODE", "验证码不正确", HttpStatus.BAD_REQUEST);
+        jdbc.update("UPDATE verification_challenges SET consumed_at=? WHERE id=?", timestamp(Instant.now()), challengeId);
+        UUID userId = jdbc.queryForObject("SELECT id FROM users WHERE phone_hash=? AND status='ACTIVE'", UUID.class, phoneHash);
+        jdbc.update("UPDATE users SET password_hash=?, password_set_at=?, updated_at=? WHERE id=?", passwordEncoder.encode(newPassword), timestamp(Instant.now()), timestamp(Instant.now()), userId);
+        return issueTokens(userId, deviceInfo, null, false);
+    }
+
+    @Transactional
     public void setInitialPassword(UUID userId, String password) {
         validatePassword(password);
         int updated = jdbc.update("""
@@ -145,6 +160,16 @@ public class IdentityService {
             jdbc.update("UPDATE refresh_sessions SET revoked_at = ? WHERE user_id = ? AND token_hash = ? AND revoked_at IS NULL",
                     timestamp(Instant.now()), userId, SecurityHashes.sha256(refreshToken));
         }
+    }
+
+    @Transactional
+    public void updateDisplayName(UUID userId, String displayName) {
+        String name = displayName == null ? "" : displayName.trim();
+        if (name.length() > 80) {
+            throw new ApiException("VALIDATION_FAILED", "昵称不能超过80个字符", HttpStatus.BAD_REQUEST);
+        }
+        jdbc.update("UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?",
+                name.isBlank() ? null : name, timestamp(Instant.now()), userId);
     }
 
     @Transactional

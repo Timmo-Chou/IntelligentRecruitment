@@ -1,8 +1,10 @@
 package com.intelligentrecruitment.tenancy.application;
 
 import com.intelligentrecruitment.billing.application.BillingService;
+import com.intelligentrecruitment.notifications.application.NotificationService;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -21,10 +23,22 @@ import static com.intelligentrecruitment.shared.database.SqlTimes.timestamp;
 public class TenancyService {
     private final JdbcTemplate jdbc;
     private final BillingService billing;
+    private final NotificationService notifications;
 
-    public TenancyService(JdbcTemplate jdbc, BillingService billing) {
+    @Autowired
+    public TenancyService(JdbcTemplate jdbc, BillingService billing, NotificationService notifications) {
         this.jdbc = jdbc;
         this.billing = billing;
+        this.notifications = notifications;
+    }
+
+    /** Kept for isolated unit tests and callers that do not need notification side effects. */
+    public TenancyService(JdbcTemplate jdbc, BillingService billing) {
+        this(jdbc, billing, null);
+    }
+
+    private void emit(UUID userId, String type, String title, String content, String link) {
+        if (notifications != null) notifications.create(userId, type, title, content, link);
     }
 
     @Transactional
@@ -103,6 +117,7 @@ public class TenancyService {
                 required(input.licenseReference(), "营业执照材料不能为空"),
                 requiredName(input.firstWorkspaceName()), timestamp(Instant.now()));
         audit(userId, null, null, "COMPANY_VERIFICATION_SUBMITTED", "COMPANY_VERIFICATION", requestId.toString());
+        emit(userId, "COMPANY_REVIEW", "企业申请已提交", "企业信息已提交平台审核，请耐心等待。", "/settings");
         return requestId;
     }
 
@@ -120,6 +135,9 @@ public class TenancyService {
         CompanyRequestRow request = rows.getFirst();
         if ("CLAIM".equals(request.requestType())) {
             return approveCompanyClaim(requestId, request, reviewer);
+        }
+        if ("UPDATE".equals(request.requestType())) {
+            return approveCompanyUpdate(requestId, request, reviewer);
         }
         Boolean duplicate = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM companies WHERE credit_code_hash = ?)",
                 Boolean.class, request.creditCodeHash());
@@ -178,6 +196,51 @@ public class TenancyService {
         return new CompanyApproval(request.companyId(), workspaceId);
     }
 
+    // 审核通过企业营业执照（统一社会信用代码）变更申请：仅更新执照信息，名称已在提交时即时生效
+    private CompanyApproval approveCompanyUpdate(UUID requestId, CompanyRequestRow request, String reviewer) {
+        if (request.companyId() == null) {
+            throw new ApiException("COMPANY_NOT_FOUND", "申请未关联企业，无法更新营业执照", HttpStatus.CONFLICT);
+        }
+        Instant now = Instant.now();
+        jdbc.update("""
+                UPDATE companies SET credit_code_hash=?, credit_code_masked=?, updated_at=? WHERE id=?
+                """, request.creditCodeHash(), request.creditCodeMasked(), timestamp(now), request.companyId());
+        jdbc.update("UPDATE company_verification_requests SET status='APPROVED', reviewed_by=?, reviewed_at=? WHERE id=?",
+                reviewer, timestamp(now), requestId);
+        audit(null, request.companyId(), null, "COMPANY_LICENSE_CHANGE_APPROVED", "COMPANY_VERIFICATION", requestId.toString());
+        return new CompanyApproval(request.companyId(), null);
+    }
+
+    // 企业信息更新：名称/简称即时生效；营业执照（信用代码）变更走平台审核
+    @Transactional
+    public CompanyUpdateResult updateCompany(UUID userId, UUID companyId, CompanyUpdateInput input) {
+        requireCompanyAdmin(userId, companyId);
+        Instant now = Instant.now();
+        String displayName = required(input.displayName(), "企业简称不能为空");
+        String legalName = required(input.legalName(), "企业名称不能为空");
+        jdbc.update("UPDATE companies SET display_name=?, legal_name=?, updated_at=? WHERE id=?",
+                displayName, legalName, timestamp(now), companyId);
+        if (input.creditCode() != null && !input.creditCode().isBlank()) {
+            String creditCode = input.creditCode().trim().toUpperCase();
+            String creditHash = SecurityHashes.sha256(creditCode);
+            String currentHash = jdbc.queryForObject("SELECT credit_code_hash FROM companies WHERE id=?", String.class, companyId);
+            if (!creditHash.equals(currentHash)) {
+                UUID requestId = UUID.randomUUID();
+                jdbc.update("""
+                        INSERT INTO company_verification_requests
+                        (id, applicant_user_id, company_id, request_type, legal_name, display_name,
+                         credit_code_hash, credit_code_masked, license_reference, first_workspace_name, status, created_at)
+                        VALUES (?, ?, ?, 'UPDATE', ?, ?, ?, ?, ?, '', 'PENDING', ?)
+                        """, requestId, userId, companyId, legalName, displayName, creditHash,
+                        maskCreditCode(creditCode), required(input.licenseReference(), "营业执照材料不能为空"),
+                        timestamp(now));
+                audit(userId, companyId, null, "COMPANY_LICENSE_CHANGE_SUBMITTED", "COMPANY_VERIFICATION", requestId.toString());
+                return new CompanyUpdateResult(true, requestId.toString());
+            }
+        }
+        return new CompanyUpdateResult(false, null);
+    }
+
     @Transactional
     public void rejectCompanyVerification(UUID requestId,String reviewer,String reason){int updated=jdbc.update("""
             UPDATE company_verification_requests SET status='REJECTED',reviewed_by=?,reviewed_at=?,rejection_reason=?
@@ -217,11 +280,18 @@ public class TenancyService {
 
     public List<CompanyView> listCompanies(UUID userId) {
         return jdbc.query("""
-                SELECT c.id, c.display_name, c.legal_name, c.verification_status, cm.role
+                SELECT c.id, c.display_name, c.legal_name, c.credit_code_masked, c.verification_status, cm.role
                 FROM companies c JOIN company_memberships cm ON cm.company_id=c.id
                 WHERE cm.user_id=? AND cm.status='ACTIVE' ORDER BY c.created_at
                 """, (rs, n) -> new CompanyView(rs.getObject("id", UUID.class), rs.getString("display_name"),
-                        rs.getString("legal_name"), rs.getString("verification_status"), rs.getString("role")), userId);
+                        rs.getString("legal_name"), rs.getString("credit_code_masked"),
+                        rs.getString("verification_status"), rs.getString("role")), userId);
+    }
+
+    public CompanyPendingView pendingCompanyVerification(UUID userId) {
+        List<CompanyPendingView> rows = jdbc.query("SELECT id, legal_name, display_name, created_at FROM company_verification_requests WHERE applicant_user_id=? AND request_type='CREATE' AND status='PENDING' ORDER BY created_at DESC LIMIT 1",
+                (rs, n) -> new CompanyPendingView(rs.getObject("id", UUID.class), rs.getString("legal_name"), rs.getString("display_name"), rs.getTimestamp("created_at").toInstant()), userId);
+        return rows.isEmpty() ? null : rows.getFirst();
     }
 
     public List<CompanySearchResult> searchCompanies(String query) {
@@ -253,6 +323,9 @@ public class TenancyService {
                 VALUES (?, ?, ?, ?, 'PENDING', ?) ON CONFLICT DO NOTHING
                 """, id, companyId, userId, required(evidence, "请填写与企业关系的证明说明"), timestamp(Instant.now()));
         if (inserted == 0) throw new ApiException("APPLICATION_ALREADY_PENDING", "已有待审核的加入申请", HttpStatus.CONFLICT);
+        emit(userId, "MEMBERSHIP_REVIEW", "加入申请已提交", "加入申请已提交，请等待企业 Owner 或管理员审核。", "/settings");
+        jdbc.query("SELECT user_id FROM company_memberships WHERE company_id=? AND status='ACTIVE' AND role IN ('COMPANY_OWNER','COMPANY_ADMIN') AND user_id<>?", (rs, n) -> rs.getObject("user_id", UUID.class), companyId, userId)
+                .forEach(adminId -> emit(adminId, "MEMBERSHIP_REVIEW", "新的企业加入申请", "有用户申请加入你的企业，请前往组织与工作空间处理。", "/settings"));
         return id;
     }
 
@@ -274,6 +347,7 @@ public class TenancyService {
         addCompanyMembership(application.companyId(), application.userId(), "COMPANY_MEMBER");
         jdbc.update("UPDATE membership_applications SET status='APPROVED', reviewed_by_user_id=?, reviewed_at=? WHERE id=?",
                 userId, timestamp(Instant.now()), applicationId);
+        emit(application.userId(), "MEMBERSHIP_REVIEW", "加入企业申请已通过", "你的企业加入申请已通过，现在可以使用企业工作台。", "/");
         audit(userId, application.companyId(), null, "COMPANY_MEMBERSHIP_APPROVED", "MEMBERSHIP_APPLICATION", applicationId.toString());
     }
 
@@ -284,6 +358,7 @@ public class TenancyService {
         int updated = jdbc.update("UPDATE membership_applications SET status='REJECTED', reviewed_by_user_id=?, reviewed_at=?, review_reason=? WHERE id=? AND status='PENDING'",
                 userId, timestamp(Instant.now()), required(reason, "请填写拒绝原因"), applicationId);
         if (updated == 0) throw new ApiException("APPLICATION_NOT_PENDING", "申请不在待审核状态", HttpStatus.CONFLICT);
+        emit(application.userId(), "MEMBERSHIP_REVIEW", "加入企业申请未通过", "你的企业加入申请未通过，请联系企业 Owner 或管理员。", "/settings");
         audit(userId, application.companyId(), null, "COMPANY_MEMBERSHIP_REJECTED", "MEMBERSHIP_APPLICATION", applicationId.toString());
     }
 
@@ -483,10 +558,15 @@ public class TenancyService {
 
     public record CompanyVerificationInput(String legalName, String displayName, String creditCode,
                                            String licenseReference, String firstWorkspaceName) {}
+    public record CompanyUpdateInput(String displayName, String legalName, String creditCode,
+                                     String licenseReference) {}
+    public record CompanyUpdateResult(boolean licenseChangeSubmitted, String licenseChangeRequestId) {}
     public record CompanyApproval(UUID companyId, UUID workspaceId) {}
     public record WorkspaceView(UUID id, UUID companyId, String type, String name, UUID ownerUserId,
                                 String status, int memberCount, boolean hasDataAccess,String currentRole) {}
-    public record CompanyView(UUID id, String displayName, String legalName, String verificationStatus, String role) {}
+    public record CompanyView(UUID id, String displayName, String legalName, String creditCodeMasked,
+                              String verificationStatus, String role) {}
+    public record CompanyPendingView(UUID id, String legalName, String displayName, Instant createdAt) {}
     public record CompanySearchResult(UUID id, String displayName, String legalName, String verificationStatus, int memberCount) {}
     public record MembershipApplicationView(UUID id, UUID applicantUserId, String applicantPhone, String evidence, String status, Instant createdAt) {}
     public record Invitation(UUID id, String token, Instant expiresAt) {}

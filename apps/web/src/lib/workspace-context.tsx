@@ -63,7 +63,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const spaces = await apiFetch<Workspace[]>("/workspaces");
       const savedId = window.localStorage.getItem("active-workspace-id");
       const accessible = spaces.filter((item) => item.hasDataAccess);
-      const selected = accessible.find((item) => item.id === savedId) ?? accessible[0] ?? null;
+      // 优先匹配已保存的空间（含无数据权限的空间），其次是有数据权限的空间，最后退到任意空间，
+      // 确保企业用户即使只有「无数据权限」空间时，顶部切换器仍能正常展示
+      const selected = spaces.find((item) => item.id === savedId) ?? accessible[0] ?? spaces[0] ?? null;
       if (selected) window.localStorage.setItem("active-workspace-id", selected.id);
       setState((prev) => ({
         ...prev,
@@ -95,7 +97,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   const selectWorkspace = useCallback((workspaceId: string) => {
     setState((previous) => {
-      const selected = previous.workspaces.find((item) => item.id === workspaceId && item.hasDataAccess);
+      const selected = previous.workspaces.find((item) => item.id === workspaceId);
       if (!selected) return previous;
       window.localStorage.setItem("active-workspace-id", selected.id);
       queryClient.clear();

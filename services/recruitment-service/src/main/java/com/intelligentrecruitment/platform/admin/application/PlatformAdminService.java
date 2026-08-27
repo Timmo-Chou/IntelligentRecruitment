@@ -154,6 +154,16 @@ public class PlatformAdminService {
                 """, timestamp(now), adminId);
     }
 
+    /**
+     * 删除管理员（物理删除）。
+     */
+    @Transactional
+    public void deleteAdmin(UUID adminId) {
+        // 校验管理员是否存在
+        getAdmin(adminId);
+        jdbc.update("DELETE FROM platform_admins WHERE id = ?", adminId);
+    }
+
     private static String required(String value, String message) {
         if (value == null || value.isBlank()) {
             throw new ApiException("VALIDATION_FAILED", message, HttpStatus.BAD_REQUEST);

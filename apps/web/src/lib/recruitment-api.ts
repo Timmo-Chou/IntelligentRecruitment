@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, apiStream } from "@/lib/api-client";
 
 export type TaskSummary = {
   id: string;
@@ -45,7 +45,7 @@ export type JdDraft = {
 export type AiRun = {
   id: string;
   providerTaskId: string | null;
-  status: "RUNNING" | "COMPLETED" | "FAILED";
+  status: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
   progress: number;
   attemptNumber: number;
   pricingVersion: string;
@@ -123,4 +123,48 @@ export function confirmJdDraft(workspaceId: string, taskId: string) {
   return apiFetch<{ id: string }>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/jd-draft/confirm`, {
     method: "POST",
   });
+}
+
+export type JdRunEvent = {
+  id: number;
+  type: "status" | "delta" | "completed" | "failed";
+  data: { status?: string; progress?: number; delta?: string; message?: string; errorCode?: string };
+};
+
+export async function streamJdRunEvents(
+  workspaceId: string,
+  taskId: string,
+  afterEventId: number,
+  onEvent: (event: JdRunEvent) => void,
+  signal: AbortSignal,
+) {
+  const response = await apiStream(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/jd-runs/events`, {
+    headers: afterEventId > 0 ? { "Last-Event-ID": String(afterEventId) } : {}, signal,
+  });
+  if (!response.body) throw new Error("浏览器不支持生成进度流");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, "\n");
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      if (!frame.startsWith(":")) {
+        let id = 0;
+        let type = "status";
+        const dataLines: string[] = [];
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("id:")) id = Number(line.slice(3).trim());
+          if (line.startsWith("event:")) type = line.slice(6).trim();
+          if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+        }
+        if (id > 0 && dataLines.length) onEvent({ id, type: type as JdRunEvent["type"], data: JSON.parse(dataLines.join("\n")) });
+      }
+      boundary = buffer.indexOf("\n\n");
+    }
+    if (done) return;
+  }
 }

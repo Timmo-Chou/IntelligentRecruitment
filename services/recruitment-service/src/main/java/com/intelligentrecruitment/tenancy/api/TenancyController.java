@@ -45,6 +45,20 @@ public class TenancyController {
         return tenancy.listCompanies(CurrentUser.id(authentication));
     }
 
+    @PutMapping("/companies/{companyId}")
+    TenancyService.CompanyUpdateResult updateCompany(@PathVariable UUID companyId,
+                                                     @Valid @RequestBody CompanyUpdateRequest request,
+                                                     Authentication authentication) {
+        return tenancy.updateCompany(CurrentUser.id(authentication), companyId,
+                new TenancyService.CompanyUpdateInput(request.displayName(), request.legalName(),
+                        request.creditCode(), request.licenseReference()));
+    }
+
+    @GetMapping("/company-verifications/pending")
+    TenancyService.CompanyPendingView pendingCompanyVerification(Authentication authentication) {
+        return tenancy.pendingCompanyVerification(CurrentUser.id(authentication));
+    }
+
     @GetMapping("/workspaces")
     List<TenancyService.WorkspaceView> workspaces(Authentication authentication) {
         return tenancy.listWorkspaces(CurrentUser.id(authentication));
@@ -106,6 +120,8 @@ public class TenancyController {
     public record CompanyVerificationRequest(@NotBlank String legalName, @NotBlank String displayName,
                                              @NotBlank String creditCode, @NotBlank String licenseReference,
                                              @NotBlank String firstWorkspaceName) {}
+    public record CompanyUpdateRequest(@NotBlank String displayName, @NotBlank String legalName,
+                                       String creditCode, String licenseReference) {}
     public record CreateCompanyWorkspaceRequest(@NotBlank String name, @NotNull UUID ownerUserId) {}
     public record MembershipApplicationRequest(@NotBlank String evidence) {}
     public record RejectionRequest(@NotBlank String reason) {}

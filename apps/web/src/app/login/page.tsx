@@ -23,6 +23,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showPasswordSetup, setShowPasswordSetup] = useState(false);
+  const [resetMode, setResetMode] = useState(false);
   const [onboardingRequired, setOnboardingRequired] = useState(false);
 
   useEffect(() => {
@@ -50,7 +51,9 @@ export default function LoginPage() {
     if (mode === "code" && !challengeId) { setMessage("请先获取验证码"); return; }
     setLoading(true); setMessage(null);
     try {
-      const result = mode === "code"
+      const result = resetMode
+        ? await apiFetch<AuthResponse>("/auth/password-reset", { method: "POST", body: JSON.stringify({ challenge_id: challengeId, phone, code, newPassword: password }) }, false)
+        : mode === "code"
         ? await apiFetch<AuthResponse>("/auth/verify", {
             method: "POST", body: JSON.stringify({ challenge_id: challengeId, phone, code }),
           }, false)
@@ -62,36 +65,32 @@ export default function LoginPage() {
         setOnboardingRequired(result.onboarding_required);
         setShowPasswordSetup(true);
       } else {
-        router.replace(result.onboarding_required ? "/onboarding" : "/");
+        router.replace(result.onboarding_required ? "/onboarding" : "/recruitment");
       }
     } catch (error) { setMessage(error instanceof ApiError ? error.message : "登录失败，请稍后重试"); }
     finally { setLoading(false); }
   }
 
   function changeMode(next: LoginMode) {
-    setMode(next); setMessage(null); setPassword(""); setShowPassword(false);
+    setMode(next); setResetMode(false); setMessage(null); setPassword(""); setShowPassword(false);
   }
+
+  function startReset() { setMode("password"); setResetMode(true); setMessage("请输入验证码和新密码"); }
 
   return <main className="login-canvas min-h-screen p-5 text-[#10285b] lg:p-10">
     <div className="mx-auto grid min-h-[calc(100vh-40px)] max-w-[1500px] gap-6 lg:grid-cols-[460px_minmax(0,1fr)]">
       <section className="flex flex-col rounded-[26px] border border-white/80 bg-white/90 p-7 shadow-[0_18px_60px_rgba(39,100,180,0.09)] sm:p-10">
         <div><span className="flex items-center gap-3 text-lg font-bold text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>AI招聘工作台</span><h1 className="mb-0 mt-10 text-[34px] font-bold tracking-tight text-[#071b4b]">欢迎登录</h1><p className="mt-3 text-sm text-[#607697]">首次手机号验证后将自动注册</p></div>
-        <div className="mt-8 flex border-b border-[#dbe5f2]"><button className={mode === "code" ? "login-tab-active" : "login-tab"} onClick={() => changeMode("code")} type="button">验证码登录</button><button className={mode === "password" ? "login-tab-active" : "login-tab"} onClick={() => changeMode("password")} type="button">密码登录</button></div>
+        <div className="mt-8 flex border-b border-[#dbe5f2]"><button className={mode === "code" && !resetMode ? "login-tab-active" : "login-tab"} onClick={() => changeMode("code")} type="button">验证码登录</button><button className={mode === "password" || resetMode ? "login-tab-active" : "login-tab"} onClick={() => changeMode("password")} type="button">密码登录</button></div>
         <form className="mt-8 space-y-5" onSubmit={submit}>
           <label className="block"><span className="mb-2 block text-sm font-medium">手机号</span><span className="login-input"><Phone size={18}/><input value={phone} onChange={event => setPhone(event.target.value)} type="tel" inputMode="numeric" autoComplete="tel" placeholder="请输入手机号" aria-label="手机号" maxLength={11}/></span></label>
-          {mode === "code" ? <label className="block"><span className="mb-2 block text-sm font-medium">验证码</span><span className="login-input"><LockKeyhole size={18}/><input value={code} onChange={event => setCode(event.target.value)} type="text" inputMode="numeric" autoComplete="one-time-code" placeholder="请输入验证码" aria-label="验证码" maxLength={6}/><button type="button" onClick={sendCode} disabled={loading || phone.length !== 11 || seconds > 0} className="whitespace-nowrap border-l border-[#dbe5f2] pl-4 text-sm font-semibold text-[#176ce5] disabled:text-[#9aabc0]">{seconds>0?`${seconds}秒后重试`:"获取验证码"}</button></span></label>
-          : <label className="block"><span className="mb-2 block text-sm font-medium">密码</span><span className="login-input"><KeyRound size={18}/><input value={password} onChange={event => setPassword(event.target.value)} type={showPassword ? "text" : "password"} autoComplete="current-password" placeholder="请输入登录密码" aria-label="密码" maxLength={64}/><button type="button" onClick={() => setShowPassword(value => !value)} className="text-[#6d82a2]" aria-label={showPassword ? "隐藏密码" : "显示密码"}>{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></span><button className="mt-2 text-xs font-medium text-[#176ce5] hover:underline" type="button" onClick={() => changeMode("code")}>忘记密码？使用验证码登录</button></label>}
+          {mode === "code" || resetMode ? <label className="block"><span className="mb-2 block text-sm font-medium">验证码</span><span className="login-input"><LockKeyhole size={18}/><input value={code} onChange={event => setCode(event.target.value)} type="text" inputMode="numeric" autoComplete="one-time-code" placeholder="请输入验证码" aria-label="验证码" maxLength={6}/><button type="button" onClick={sendCode} disabled={loading || phone.length !== 11 || seconds > 0} className="whitespace-nowrap border-l border-[#dbe5f2] pl-4 text-sm font-semibold text-[#176ce5] disabled:text-[#9aabc0]">{seconds>0?`${seconds}秒后重试`:"获取验证码"}</button></span></label>
+          : <label className="block"><span className="mb-2 block text-sm font-medium">密码</span><span className="login-input"><KeyRound size={18}/><input value={password} onChange={event => setPassword(event.target.value)} type={showPassword ? "text" : "password"} autoComplete="current-password" placeholder="请输入登录密码" aria-label="密码" maxLength={64}/><button type="button" onClick={() => setShowPassword(value => !value)} className="text-[#6d82a2]" aria-label={showPassword ? "隐藏密码" : "显示密码"}>{showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}</button></span></label>}
           {message && <p className="rounded-lg bg-[#f2f8ff] px-3 py-2 text-xs text-[#60799f]">{message}</p>}
-          <label className="flex items-start gap-2 text-xs leading-5 text-[#60799f]">
-            <input checked={agreed} onChange={event => setAgreed(event.target.checked)} className="mt-0.5" type="checkbox" />
-            <span>
-              我已阅读并同意
-              <Link href="/terms" className="text-[#176ce5] hover:underline" onClick={event => event.stopPropagation()} target="_blank">《用户服务协议》</Link>
-              和
-              <Link href="/privacy" className="text-[#176ce5] hover:underline" onClick={event => event.stopPropagation()} target="_blank">《隐私政策》</Link>
-            </span>
-          </label>
-          <button className="login-submit disabled:opacity-60" disabled={loading || !agreed || phone.length !== 11 || (mode === "code" ? code.length !== 6 : password.length < 8)} type="submit">{loading ? "处理中…" : mode === "code" ? "登录 / 注册" : "登录"}</button>
+          {mode === "password" && !resetMode && <button type="button" onClick={startReset} className="text-xs text-[#176ce5] hover:underline">忘记密码？通过验证码重置</button>}
+          {resetMode && <label className="block"><span className="mb-2 block text-sm font-medium">新密码</span><input value={password} onChange={event=>setPassword(event.target.value)} type="password" autoComplete="new-password" className="login-input w-full" placeholder="8至64位，包含字母和数字"/></label>}
+          <label className="flex items-start gap-2 text-xs leading-5 text-[#60799f]"><input checked={agreed} onChange={event => setAgreed(event.target.checked)} className="mt-0.5" type="checkbox" /><span>我已阅读并同意<Link href="/terms" className="text-[#176ce5] hover:underline" onClick={event => event.stopPropagation()} target="_blank">《用户服务协议》</Link>和<Link href="/privacy" className="text-[#176ce5] hover:underline" onClick={event => event.stopPropagation()} target="_blank">《隐私政策》</Link></span></label>
+          <button className="login-submit disabled:opacity-60" disabled={loading || !agreed || phone.length !== 11 || ((mode === "code" || resetMode) && code.length !== 6) || (resetMode ? password.length < 8 : mode === "password" ? password.length < 8 : false)} type="submit">{loading ? "处理中…" : resetMode ? "重置密码并登录" : mode === "code" ? "登录 / 注册" : "登录"}</button>
         </form>
       </section>
 
@@ -103,7 +102,7 @@ export default function LoginPage() {
     </div>
     {showPasswordSetup && <PasswordSetupDialog
       onboardingRequired={onboardingRequired}
-      onComplete={() => router.replace(onboardingRequired ? "/onboarding" : "/")}
+      onComplete={() => router.replace(onboardingRequired ? "/onboarding" : "/recruitment")}
     />}
   </main>;
 }

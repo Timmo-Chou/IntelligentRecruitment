@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,11 +43,13 @@ public class RecruitmentService {
     private final JdDraftGenerator draftGenerator;
     private final JobService jobs;
     private final long jdPriceMinor;
+    private final long outboxLeaseSeconds;
 
     public RecruitmentService(JdbcTemplate jdbc, ObjectMapper objectMapper, WorkspaceAccessService workspaceAccess,
                               BillingService billing, AiPlatformClient aiPlatform, JdDraftGenerator draftGenerator,
                               JobService jobs,
-                              @Value("${app.phase3.jd-generation-price-minor:80}") long jdPriceMinor) {
+                              @Value("${app.phase3.jd-generation-price-minor:80}") long jdPriceMinor,
+                              @Value("${app.phase3.outbox-lease-seconds:300}") long outboxLeaseSeconds) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.workspaceAccess = workspaceAccess;
@@ -55,6 +58,7 @@ public class RecruitmentService {
         this.draftGenerator = draftGenerator;
         this.jobs = jobs;
         this.jdPriceMinor = jdPriceMinor;
+        this.outboxLeaseSeconds = outboxLeaseSeconds;
     }
 
     @Transactional
@@ -151,53 +155,135 @@ public class RecruitmentService {
         jdbc.update("""
                 INSERT INTO ai_runs
                 (id,company_id,workspace_id,recruitment_task_id,capability,status,progress,attempt_number,
-                 idempotency_key,input_hash,pricing_version,estimated_amount_minor,created_by,created_at)
-                VALUES (?,?,?,?, 'JD_GENERATION','RUNNING',10,?,?,?,?,?,?,?)
+                 idempotency_key,input_hash,pricing_version,estimated_amount_minor,created_by,created_at,
+                 input_payload)
+                VALUES (?,?,?,?, 'JD_GENERATION','QUEUED',0,?,?,?,?,?,?,?,?::jsonb)
                 """, runId, scope.companyId(), workspaceId, taskId, attempt, key, payloadHash,
-                JD_PRICING_VERSION, jdPriceMinor, userId, timestamp(now));
+                JD_PRICING_VERSION, jdPriceMinor, userId, timestamp(now), json(Map.of(
+                        "requirement", requirement,
+                        "scenario", scenario,
+                        "title", nullable(value(input, GenerateJdInput::title)),
+                        "companyName", nullable(value(input, GenerateJdInput::companyName)),
+                        "location", nullable(value(input, GenerateJdInput::location)),
+                        "experienceLevel", nullable(value(input, GenerateJdInput::experienceLevel)),
+                        "education", nullable(value(input, GenerateJdInput::education)),
+                        "jobType", nullable(value(input, GenerateJdInput::jobType)),
+                        "skills", nullable(value(input, GenerateJdInput::skills)))));
         String billingReference = "jd-run:" + runId;
         billing.reserve(userId, workspaceId, billingReference, jdPriceMinor);
-        Map<String, Object> aiInput = new LinkedHashMap<>();
-        aiInput.put("requirement", requirement);
-        aiInput.put("scenario", scenario);
-        AiTask aiTask = aiPlatform.startTask(new StartAiTaskCommand(workspaceId.toString(),
-                scope.companyId() == null ? null : scope.companyId().toString(), userId.toString(), taskId.toString(),
-                key, AiCapability.JD_GENERATION, aiInput));
-        jdbc.update("UPDATE ai_runs SET provider_task_id=?,progress=60 WHERE id=?", aiTask.aiTaskId(), runId);
-
-        if (!"NORMAL".equals(scenario)) {
-            String code = "TIMEOUT".equals(scenario) ? "AI_TIMEOUT" : "AI_SCHEMA_INVALID";
-            String message = "TIMEOUT".equals(scenario) ? "AI 生成超时，请重试" : "AI 返回结构不合法，请重试";
-            jdbc.update("""
-                    UPDATE ai_runs SET status='FAILED',progress=100,error_code=?,error_message=?,completed_at=? WHERE id=?
-                    """, code, message, timestamp(Instant.now()), runId);
-            billing.settle(userId, workspaceId, billingReference, 0);
-            insertMessage(scope, task.conversationId(), "ASSISTANT", message, "JD_GENERATION", null, Instant.now());
-            jdbc.update("UPDATE recruitment_tasks SET current_stage='JD_GENERATION_FAILED',updated_at=? WHERE id=?",
-                    timestamp(Instant.now()), taskId);
-            audit(userId, scope, "JD_GENERATION_FAILED", "AI_RUN", runId);
-            return detailScoped(workspaceId, taskId);
-        }
-
-        GenerationInput generationInput = new GenerationInput(requirement, value(input, GenerateJdInput::title),
-                value(input, GenerateJdInput::companyName), value(input, GenerateJdInput::location),
-                value(input, GenerateJdInput::experienceLevel), value(input, GenerateJdInput::education),
-                value(input, GenerateJdInput::jobType), value(input, GenerateJdInput::skills));
-        JdDraftContent draft = draftGenerator.generate(generationInput);
-        upsertDraft(scope, taskId, runId, userId, draft);
-        Instant completed = Instant.now();
         jdbc.update("""
-                UPDATE ai_runs SET status='COMPLETED',progress=100,settled_amount_minor=?,completed_at=? WHERE id=?
-                """, jdPriceMinor, timestamp(completed), runId);
-        billing.settle(userId, workspaceId, billingReference, jdPriceMinor);
-        insertMessage(scope, task.conversationId(), "ASSISTANT",
+                INSERT INTO outbox_events
+                (id,aggregate_type,aggregate_id,event_type,payload,status,attempts,next_attempt_at,created_at)
+                VALUES (?,'AI_RUN',?,'JD_RUN_REQUESTED',?::jsonb,'PENDING',0,?,?)
+                """, UUID.randomUUID(), runId.toString(), json(Map.of("run_id", runId.toString())),
+                timestamp(now), timestamp(now));
+        appendRunEvent(new RunExecution(runId, scope.companyId(), workspaceId, taskId, userId, task.conversationId(),
+                key, "QUEUED", 0, null, json(Map.of())), "status", Map.of("status", "QUEUED", "progress", 0));
+        jdbc.update("UPDATE recruitment_tasks SET current_stage='JD_GENERATING',updated_at=? WHERE id=?",
+                timestamp(now), taskId);
+        audit(userId, scope, "JD_GENERATION_QUEUED", "AI_RUN", runId);
+        return detailScoped(workspaceId, taskId);
+    }
+
+    @Transactional
+    public OutboxClaim claimNextJdRun() {
+        Instant now = Instant.now();
+        List<OutboxClaim> rows = jdbc.query("""
+                UPDATE outbox_events SET status='PROCESSING',attempts=attempts+1,next_attempt_at=?
+                WHERE id=(SELECT id FROM outbox_events
+                    WHERE event_type='JD_RUN_REQUESTED'
+                      AND ((status='PENDING' AND (next_attempt_at IS NULL OR next_attempt_at<=?))
+                        OR (status='PROCESSING' AND next_attempt_at<=?))
+                    ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
+                RETURNING id,aggregate_id,attempts
+                """, (rs, n) -> new OutboxClaim(rs.getObject("id", UUID.class),
+                UUID.fromString(rs.getString("aggregate_id")), rs.getInt("attempts")),
+                timestamp(now.plus(outboxLeaseSeconds, ChronoUnit.SECONDS)), timestamp(now), timestamp(now));
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    @Transactional
+    public boolean prepareJdRun(UUID runId) {
+        RunExecution run = runExecution(runId, true);
+        if (!List.of("QUEUED", "RUNNING").contains(run.status())) return false;
+        Map<String, String> input = stringMap(run.inputPayload());
+        if ("QUEUED".equals(run.status())) {
+            Map<String, Object> aiInput = new LinkedHashMap<>();
+            aiInput.put("requirement", input.get("requirement"));
+            aiInput.put("scenario", input.get("scenario"));
+            AiTask aiTask = aiPlatform.startTask(new StartAiTaskCommand(run.workspaceId().toString(),
+                    run.companyId() == null ? null : run.companyId().toString(), run.createdBy().toString(),
+                    run.taskId().toString(), run.idempotencyKey(), AiCapability.JD_GENERATION, aiInput));
+            jdbc.update("UPDATE ai_runs SET status='RUNNING',progress=15,provider_task_id=? WHERE id=?",
+                    aiTask.aiTaskId(), run.id());
+            appendRunEvent(run, "status", Map.of("status", "RUNNING", "progress", 15));
+        }
+        return true;
+    }
+
+    @Transactional
+    public void emitJdDelta(UUID runId, int progress, String delta) {
+        RunExecution run = runExecution(runId, true);
+        if (!"RUNNING".equals(run.status())) return;
+        emitDelta(run, progress, delta);
+    }
+
+    @Transactional
+    public void finalizeJdRun(UUID runId) {
+        RunExecution run = runExecution(runId, true);
+        if (!"RUNNING".equals(run.status())) return;
+        Map<String, String> input = stringMap(run.inputPayload());
+        String scenario = input.getOrDefault("scenario", "NORMAL");
+        if (!"NORMAL".equals(scenario)) {
+            failJdRun(run, scenario);
+            return;
+        }
+        JdDraftContent draft = draftGenerator.generate(new GenerationInput(input.get("requirement"),
+                blankToNull(input.get("title")), blankToNull(input.get("companyName")), blankToNull(input.get("location")),
+                blankToNull(input.get("experienceLevel")), blankToNull(input.get("education")),
+                blankToNull(input.get("jobType")), blankToNull(input.get("skills"))));
+        WorkspaceScope scope = new WorkspaceScope(run.workspaceId(), run.companyId(), null, null, null);
+        upsertDraft(scope, run.taskId(), run.id(), run.createdBy(), draft);
+        Instant completed = Instant.now();
+        billing.settleSystem(run.workspaceId(), "jd-run:" + run.id(), jdPriceMinor);
+        jdbc.update("UPDATE ai_runs SET status='COMPLETED',progress=100,settled_amount_minor=?,completed_at=? WHERE id=?",
+                jdPriceMinor, timestamp(completed), run.id());
+        insertMessage(scope, run.conversationId(), "ASSISTANT",
                 "JD 草稿已生成。请检查职责、任职要求和待确认项，确认后再进入职位库。",
                 "JD_GENERATION", null, completed);
-        jdbc.update("""
-                UPDATE recruitment_tasks SET current_stage='AWAITING_JD_CONFIRMATION',updated_at=? WHERE id=?
-                """, timestamp(completed), taskId);
-        audit(userId, scope, "JD_DRAFT_GENERATED", "AI_RUN", runId);
-        return detailScoped(workspaceId, taskId);
+        jdbc.update("UPDATE recruitment_tasks SET current_stage='AWAITING_JD_CONFIRMATION',updated_at=? WHERE id=?",
+                timestamp(completed), run.taskId());
+        appendRunEvent(run, "completed", Map.of("status", "COMPLETED", "progress", 100));
+        audit(run.createdBy(), scope, "JD_DRAFT_GENERATED", "AI_RUN", run.id());
+    }
+
+    @Transactional
+    public void completeJdOutbox(UUID eventId) {
+        jdbc.update("UPDATE outbox_events SET status='SENT',sent_at=? WHERE id=?", timestamp(Instant.now()), eventId);
+    }
+
+    @Transactional
+    public void failJdOutbox(OutboxClaim claim, String error) {
+        if (claim.attempts() < 3) {
+            jdbc.update("UPDATE outbox_events SET status='PENDING',next_attempt_at=? WHERE id=?",
+                    timestamp(Instant.now().plus(claim.attempts(), ChronoUnit.SECONDS)), claim.eventId());
+            return;
+        }
+        RunExecution run = runExecution(claim.runId(), true);
+        failJdRun(run, "WORKER", error);
+        jdbc.update("UPDATE outbox_events SET status='FAILED',sent_at=? WHERE id=?", timestamp(Instant.now()), claim.eventId());
+    }
+
+    public List<RunEvent> runEvents(UUID userId, UUID workspaceId, UUID taskId, long afterEventId) {
+        workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        return jdbc.query("""
+                SELECT e.event_id,e.run_id,e.event_type,e.data::text,e.created_at
+                FROM jd_run_events e JOIN ai_runs r ON r.id=e.run_id
+                WHERE e.workspace_id=? AND e.recruitment_task_id=? AND e.event_id>?
+                ORDER BY e.event_id LIMIT 200
+                """, (rs, n) -> new RunEvent(rs.getLong("event_id"), rs.getObject("run_id", UUID.class),
+                rs.getString("event_type"), rs.getString("data"), rs.getTimestamp("created_at").toInstant()),
+                workspaceId, taskId, Math.max(0, afterEventId));
     }
 
     @Transactional
@@ -357,6 +443,79 @@ public class RecruitmentService {
         jdbc.update("UPDATE conversations SET updated_at=? WHERE id=?", timestamp(now), conversationId);
     }
 
+    private RunExecution runExecution(UUID runId, boolean lock) {
+        String suffix = lock ? " FOR UPDATE OF r" : "";
+        List<RunExecution> rows = jdbc.query("""
+                SELECT r.id,r.company_id,r.workspace_id,r.recruitment_task_id,r.created_by,
+                       c.id AS conversation_id,r.idempotency_key,r.status,r.progress,r.provider_task_id,
+                       r.input_payload::text
+                FROM ai_runs r JOIN conversations c ON c.recruitment_task_id=r.recruitment_task_id
+                WHERE r.id=?
+                """ + suffix, (rs, n) -> new RunExecution(rs.getObject("id", UUID.class),
+                rs.getObject("company_id", UUID.class), rs.getObject("workspace_id", UUID.class),
+                rs.getObject("recruitment_task_id", UUID.class), rs.getObject("created_by", UUID.class),
+                rs.getObject("conversation_id", UUID.class), rs.getString("idempotency_key"),
+                rs.getString("status"), rs.getInt("progress"), rs.getString("provider_task_id"),
+                rs.getString("input_payload")), runId);
+        if (rows.isEmpty()) throw new IllegalStateException("JD run not found: " + runId);
+        return rows.getFirst();
+    }
+
+    private void emitDelta(RunExecution run, int progress, String delta) {
+        jdbc.update("UPDATE ai_runs SET progress=? WHERE id=? AND status='RUNNING'", progress, run.id());
+        appendRunEvent(run, "delta", Map.of("delta", delta, "progress", progress));
+    }
+
+    private void failJdRun(RunExecution run, String scenario) {
+        String code = "TIMEOUT".equals(scenario) ? "AI_TIMEOUT" : "AI_SCHEMA_INVALID";
+        String message = "TIMEOUT".equals(scenario) ? "AI 生成超时，请重试" : "AI 返回结构不合法，请重试";
+        failJdRun(run, code, message);
+    }
+
+    private void failJdRun(RunExecution run, String code, String detail) {
+        String message = "WORKER".equals(code) ? "JD 生成任务执行失败，请重试" : detail;
+        Instant completed = Instant.now();
+        billing.settleSystem(run.workspaceId(), "jd-run:" + run.id(), 0);
+        jdbc.update("""
+                UPDATE ai_runs SET status='FAILED',progress=100,error_code=?,error_message=?,completed_at=? WHERE id=?
+                """, code, message, timestamp(completed), run.id());
+        WorkspaceScope scope = new WorkspaceScope(run.workspaceId(), run.companyId(), null, null, null);
+        insertMessage(scope, run.conversationId(), "ASSISTANT", message, "JD_GENERATION", null, completed);
+        jdbc.update("UPDATE recruitment_tasks SET current_stage='JD_GENERATION_FAILED',updated_at=? WHERE id=?",
+                timestamp(completed), run.taskId());
+        appendRunEvent(run, "failed", Map.of("status", "FAILED", "progress", 100,
+                "errorCode", code, "message", message));
+        audit(run.createdBy(), scope, "JD_GENERATION_FAILED", "AI_RUN", run.id());
+    }
+
+    private void appendRunEvent(RunExecution run, String eventType, Map<String, ?> data) {
+        jdbc.update("""
+                INSERT INTO jd_run_events
+                (run_id,company_id,workspace_id,recruitment_task_id,event_type,data,created_at)
+                VALUES (?,?,?,?,?,?::jsonb,?)
+                """, run.id(), run.companyId(), run.workspaceId(), run.taskId(), eventType, json(data),
+                timestamp(Instant.now()));
+    }
+
+    private Map<String, String> stringMap(String value) {
+        try {
+            Map<String, Object> source = objectMapper.readValue(value, new TypeReference<>() { });
+            Map<String, String> result = new LinkedHashMap<>();
+            source.forEach((key, item) -> result.put(key, item == null ? "" : String.valueOf(item)));
+            return result;
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("JD run input is invalid", exception);
+        }
+    }
+
+    private static String nullable(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+
     private int nextAttempt(UUID taskId) {
         Integer attempt = jdbc.queryForObject("""
                 SELECT COALESCE(MAX(attempt_number),0)+1 FROM ai_runs WHERE recruitment_task_id=?
@@ -472,7 +631,15 @@ public class RecruitmentService {
     public record TaskDetail(TaskSummary task, UUID conversationId, List<MessageView> messages,
                              JdDraftView jdDraft, AiRunView latestAiRun) { }
 
+    public record RunEvent(long eventId, UUID runId, String eventType, String data, Instant createdAt) { }
+
+    public record OutboxClaim(UUID eventId, UUID runId, int attempts) { }
+
     private record ExistingReference(UUID id, String requestHash) { }
 
     private record TaskRow(UUID id, String initialRequirement, UUID conversationId) { }
+
+    private record RunExecution(UUID id, UUID companyId, UUID workspaceId, UUID taskId, UUID createdBy,
+                                UUID conversationId, String idempotencyKey, String status, int progress,
+                                String providerTaskId, String inputPayload) { }
 }

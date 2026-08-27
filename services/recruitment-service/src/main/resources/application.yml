@@ -53,6 +53,11 @@ app:
   phase3:
     # Phase 3 非生产临时价：0.80元/次，正式客户启用前必须冻结价格版本。
     jd-generation-price-minor: ${JD_GENERATION_PRICE_MINOR:80}
+    outbox-lease-seconds: ${JD_OUTBOX_LEASE_SECONDS:300}
+    worker-enabled: ${JD_WORKER_ENABLED:true}
+    worker-poll-delay-ms: ${JD_WORKER_POLL_DELAY_MS:250}
+    worker-delta-delay-ms: ${JD_WORKER_DELTA_DELAY_MS:0}
+    worker-completion-delay-ms: ${JD_WORKER_COMPLETION_DELAY_MS:0}
   phase5:
     # Phase 5 非生产临时价：0.80元/成功筛选候选人。
     screening-unit-price-minor: ${SCREENING_UNIT_PRICE_MINOR:80}

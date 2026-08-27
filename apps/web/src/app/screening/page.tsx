@@ -11,7 +11,9 @@ import { useWorkspace } from "@/lib/workspace-context";
 
 const showMockScenarios = process.env.NEXT_PUBLIC_SHOW_AI_MOCK_SCENARIOS === "true";
 
-export default function ScreeningPage() {
+export default function ScreeningPage() { return <ScreeningWorkspace />; }
+
+function ScreeningWorkspace({ embedded = false }: { embedded?: boolean }) {
   const { workspaceId, workspace, loading: workspaceLoading, notAuthenticated } = useWorkspace();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [candidates, setCandidates] = useState<CandidateSummary[]>([]);
@@ -164,10 +166,10 @@ export default function ScreeningPage() {
     setSelectedCandidates(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   }
 
-  if (workspaceLoading) return <State text="正在加载工作空间..."/>;
-  if (!workspaceId) return <State text="请先进入一个可访问的工作空间"/>;
+  if (workspaceLoading) return embedded ? <div className="grid h-64 place-items-center text-sm text-[#7085a4]">正在加载工作空间...</div> : <State text="正在加载工作空间..."/>;
+  if (!workspaceId) return embedded ? <div className="grid h-64 place-items-center text-sm text-[#7085a4]">请先进入一个可访问的工作空间</div> : <State text="请先进入一个可访问的工作空间"/>;
 
-  return <AppShell activeItem="简历筛选">
+  const content = <>
     <section className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="m-0 text-[25px] font-bold text-[#09245d]">简历筛选</h1><p className="mb-0 mt-1 text-sm text-[#60799f]">{workspace?.name} · 固定职位版本、解析版本和筛选规则后执行可解释匹配</p></div><div className="flex items-center gap-2 rounded-lg border border-[#cfe4f5] bg-white px-3 py-2 text-xs text-[#53709a]"><CircleDollarSign size={16} className="text-[#0a9a66]"/>{pricing ? `临时价 ¥${money(pricing.unitPriceMinor)}/成功候选人` : "正在读取计价规则"}</div></section>
     {error && <div className="mt-4 flex items-center gap-2 rounded-lg border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#b42318]"><AlertCircle size={17}/>{error}</div>}
     {loading ? <div className="grid h-64 place-items-center"><Loader2 className="animate-spin text-[#1784d8]"/></div> : <div className="mt-4 grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
@@ -195,7 +197,8 @@ export default function ScreeningPage() {
         {runs.length > 0 && <section className="rounded-xl border border-[#d6e5f5] bg-white p-5"><h2 className="m-0 text-sm text-[#173568]">最近筛选任务</h2><div className="mt-3 flex flex-wrap gap-2">{runs.slice(0, 8).map(run => <button key={run.id} type="button" onClick={() => void openRun(run.id)} className="rounded-lg border border-[#dce6f0] px-3 py-2 text-left text-xs hover:bg-[#f5faff]"><strong className="block text-[#345277]">{run.jobTitle}</strong><span className="text-[#8292a8]">{run.succeededItems}/{run.totalItems} 成功 · ¥{(run.settledAmountMinor / 100).toFixed(2)}</span></button>)}</div></section>}
       </main>
     </div>}
-  </AppShell>;
+  </>;
+  return embedded ? content : <AppShell activeItem="简历筛选">{content}</AppShell>;
 }
 
 function Card({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) { return <section className="rounded-xl border border-[#d6e5f5] bg-white p-4 shadow-[0_6px_20px_rgba(30,92,160,0.04)]"><h2 className="m-0 flex items-center gap-2 text-sm text-[#173568]"><span className="text-[#13977e]">{icon}</span>{title}</h2><div className="mt-4">{children}</div></section>; }

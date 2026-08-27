@@ -1,7 +1,7 @@
 "use client";
 
 // 管理员管理页面：列表 + 新增/编辑/禁用
-import { Plus, Pencil, Ban } from "lucide-react";
+import { Plus, Pencil, Ban, CheckCircle, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 type Admin = {
-  adminId: string;
+  id: string;
   displayName: string;
   role: string;
   status: string;
@@ -37,7 +37,7 @@ export default function AdminsPage() {
 
   const { data: admins, isLoading } = useQuery({
     queryKey: ["admins"],
-    queryFn: () => adminApiFetch<{ items: Admin[] }>("/platform/admins"),
+    queryFn: () => adminApiFetch<Admin[]>("/platform/admins"),
   });
 
   const {
@@ -61,16 +61,35 @@ export default function AdminsPage() {
       setShowDialog(false);
       queryClient.invalidateQueries({ queryKey: ["admins"] });
     },
+    onError: (err: Error) => {
+      alert("创建失败：" + err.message);
+    },
   });
 
-  const disableMutation = useMutation({
-    mutationFn: (adminId: string) =>
-      adminApiFetch(`/platform/admins/${adminId}/status`, {
+  const toggleStatusMutation = useMutation({
+    mutationFn: ({ adminId, newStatus }: { adminId: string; newStatus: string }) =>
+      adminApiFetch(`/platform/admins/${adminId}`, {
         method: "PUT",
-        body: JSON.stringify({ status: "DISABLED" }),
+        body: JSON.stringify({ status: newStatus }),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admins"] });
+    },
+    onError: (err: Error) => {
+      alert("操作失败：" + err.message);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (adminId: string) =>
+      adminApiFetch(`/platform/admins/${adminId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admins"] });
+    },
+    onError: (err: Error) => {
+      alert("删除失败：" + err.message);
     },
   });
 
@@ -103,7 +122,7 @@ export default function AdminsPage() {
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-slate-400">加载中…</div>
-        ) : admins?.items && admins.items.length > 0 ? (
+        ) : admins && admins.length > 0 ? (
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
@@ -115,8 +134,8 @@ export default function AdminsPage() {
               </tr>
             </thead>
             <tbody>
-              {admins.items.map((admin) => (
-                <tr key={admin.adminId} className="border-b border-slate-100">
+              {admins.map((admin) => (
+                <tr key={admin.id} className="border-b border-slate-100">
                   <td className="px-4 py-3 text-sm font-medium text-slate-800">
                     {admin.displayName}
                   </td>
@@ -128,26 +147,54 @@ export default function AdminsPage() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => router.push(`/settings/admins/${admin.adminId}`)}
+                        onClick={() => router.push(`/settings/admins/${admin.id}`)}
                       >
                         <Pencil className="h-4 w-4" />
                         编辑
                       </Button>
-                      {admin.status === "ACTIVE" && (
+                      {admin.status === "ACTIVE" ? (
                         <Button
                           size="sm"
                           variant="ghost"
                           onClick={() => {
                             if (confirm("确定要禁用该管理员吗？")) {
-                              disableMutation.mutate(admin.adminId);
+                              toggleStatusMutation.mutate({ adminId: admin.id, newStatus: "DISABLED" });
                             }
                           }}
-                          disabled={disableMutation.isPending}
+                          disabled={toggleStatusMutation.isPending}
                         >
                           <Ban className="h-4 w-4" />
                           禁用
                         </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            if (confirm("确定要启用该管理员吗？")) {
+                              toggleStatusMutation.mutate({ adminId: admin.id, newStatus: "ACTIVE" });
+                            }
+                          }}
+                          disabled={toggleStatusMutation.isPending}
+                        >
+                          <CheckCircle className="h-4 w-4" />
+                          启用
+                        </Button>
                       )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          if (confirm("确定要删除该管理员吗？此操作不可恢复。")) {
+                            deleteMutation.mutate(admin.id);
+                          }
+                        }}
+                        disabled={deleteMutation.isPending}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        删除
+                      </Button>
                     </div>
                   </td>
                 </tr>

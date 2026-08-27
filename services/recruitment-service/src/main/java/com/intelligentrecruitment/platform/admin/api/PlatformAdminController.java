@@ -89,6 +89,17 @@ public class PlatformAdminController {
         adminService.disableAdmin(adminId);
     }
 
+    /**
+     * 删除管理员（物理删除）。
+     */
+    @DeleteMapping("/admins/{adminId}")
+    void deleteAdmin(@PathVariable UUID adminId,
+                      @RequestHeader("X-Platform-Admin-Key") String key) {
+        PlatformAdminInfo admin = guard.authenticate(key);
+        guard.requirePermission(admin, "admin:manage");
+        adminService.deleteAdmin(adminId);
+    }
+
     // ---- 请求体记录 ----
 
     public record CreateAdminRequest(

@@ -1,9 +1,10 @@
 "use client";
 
-import { Building2, CheckCircle2, Search, UserRound } from "lucide-react";
+import { Building2, CheckCircle2, LogOut, Search, UserRound, X } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { apiFetch, ApiError } from "@/lib/api-client";
+import { apiFetch, ApiError, setAccessToken } from "@/lib/api-client";
 
 type Mode = "personal" | "company";
 type CompanySubMode = "create" | "join";
@@ -18,11 +19,15 @@ type CompanySearchResult = {
 
 export default function OnboardingPage() {
   const [mode, setMode] = useState<Mode>("personal");
+  const [pending,setPending]=useState<{legalName:string;displayName:string}|null>(null);
+  const router=useRouter();
+  useEffect(()=>{apiFetch<{legalName:string;displayName:string}|null>("/company-verifications/pending").then(setPending).catch(error=>{if(error instanceof ApiError&&error.status===401)router.replace("/login");});},[router]);
+  if(pending) return <main className="min-h-screen bg-[#f7fbff] text-[#10285b]"><header className="app-header flex h-[66px] items-center justify-between border-b border-[#dbe9f8] px-6 lg:px-8"><div className="flex items-center gap-3 text-[21px] font-bold tracking-tight text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>AI招聘工作台</div><button type="button" aria-label="退出当前设备" onClick={async()=>{await apiFetch("/auth/logout",{method:"POST"}).catch(()=>{});setAccessToken(null);router.replace("/login");}} className="grid h-9 w-9 place-items-center rounded-full text-[#405781] hover:bg-white/70"><LogOut size={17}/></button></header><div className="grid min-h-[calc(100vh-66px)] place-items-center p-5"><div className="w-full max-w-xl rounded-2xl bg-white p-10 text-center shadow-xl"><Building2 className="mx-auto text-[#2f6bff]" size={42}/><h1 className="mt-5 text-2xl font-bold">企业申请审核中</h1><p className="mt-4 text-[#60799f]">您所提交的“{pending.displayName||pending.legalName}”企业信息正在审核中，预计需要1个工作日，请耐心等待。</p></div></div></main>;
   return <main className="login-canvas min-h-screen p-5 text-[#10285b] lg:p-10">
     <div className="mx-auto max-w-5xl rounded-[26px] border border-white/80 bg-white/95 p-7 shadow-[0_18px_60px_rgba(39,100,180,0.09)] sm:p-10">
       <div className="flex items-center gap-3 text-xl font-bold text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>AI招聘工作台</div>
       <h1 className="mb-0 mt-8 text-3xl font-bold">选择使用方式</h1>
-      <p className="mt-2 text-sm text-[#60799f]">账号类型不会被永久锁定，之后仍可加入企业或工作空间。</p>
+      <p className="mt-2 text-sm text-[#60799f]">账号类型不会被永久锁定，之后仍可加入企业或工作空间。</p><Link href="/login" className="mt-3 inline-block text-sm text-[#176ce5] hover:underline">返回登录页</Link>
       <div className="mt-7 grid gap-3 md:grid-cols-2">
         <ModeButton active={mode === "personal"} onClick={() => setMode("personal")} icon={<UserRound/>} title="个人使用" desc="个人HR或SOHO猎头"/>
         <ModeButton active={mode === "company"} onClick={() => setMode("company")} icon={<Building2/>} title="认证企业" desc="创建企业或加入已有企业"/>
@@ -139,6 +144,7 @@ function ModeButton({ active, onClick, icon, title, desc }: {active:boolean; onC
 function PersonalForm() {
   const router = useRouter();
   const [name, setName] = useState("我的招聘空间");
+  const [nickname, setNickname] = useState("");
   const [realName, setRealName] = useState("");
   const [identityNumber, setIdentityNumber] = useState("");
   const [created, setCreated] = useState(false);
@@ -147,14 +153,16 @@ function PersonalForm() {
     event.preventDefault(); status.start();
     try {
       if (!created) { await apiFetch("/workspaces/personal", {method:"POST", body:JSON.stringify({name})}); setCreated(true); }
+      if (nickname.trim()) await apiFetch("/me/display-name", {method:"PUT", body:JSON.stringify({displayName:nickname.trim()})});
       if (realName && identityNumber) await apiFetch("/personal-verifications", {method:"POST", body:JSON.stringify({realName, identityNumber})});
-      status.success(realName && identityNumber ? "实名认证已提交，平台审核通过后发放30元试用金。" : "个人空间已创建，可稍后在设置中实名认证。", () => router.push("/"));
+      status.success(realName && identityNumber ? "实名认证已提交，平台审核通过后发放30元试用金。" : "个人空间已创建，可稍后在设置中实名认证。", () => router.push("/recruitment"));
     } catch (error) { status.fail(error); }
   }
-  return <form onSubmit={submit} className="space-y-4"><Heading title="创建个人工作空间" note="MVP期间每个用户只能创建一个个人 Workspace。"/>
-    <Field label="空间名称" value={name} onChange={setName}/><div className="grid gap-4 sm:grid-cols-2"><Field label="真实姓名（可稍后填写）" value={realName} onChange={setRealName}/><Field label="身份证明号码（可稍后填写）" value={identityNumber} onChange={setIdentityNumber}/></div>
+  const [showVerify,setShowVerify]=useState(false);
+  return <><form onSubmit={submit} className="space-y-4"><Heading title="创建个人工作空间" note="MVP期间每个用户只能创建一个个人 Workspace。"/>
+    <Field label="空间名称" value={name} onChange={setName}/><Field label="昵称（选填，用于工作台展示）" value={nickname} onChange={setNickname} placeholder="例如：小张"/><button type="button" className="outline-button" onClick={()=>setShowVerify(true)}>实名认证</button>
     <StatusLine status={status}/><button className="primary-button" disabled={status.loading} type="submit">{status.loading ? "提交中…" : "创建并继续"}</button>
-  </form>;
+  </form>{showVerify&&<div className="fixed inset-0 z-50 grid place-items-center bg-[#071b4b]/40 p-5"><div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"><div className="flex justify-between"><h2 className="m-0 text-lg font-bold">实名认证信息</h2><button type="button" onClick={()=>setShowVerify(false)} aria-label="关闭"><X size={18}/></button></div><div className="mt-5 space-y-4"><Field label="真实姓名" value={realName} onChange={setRealName}/><Field label="身份证明号码" value={identityNumber} onChange={setIdentityNumber}/><button type="button" className="primary-button w-full" onClick={()=>setShowVerify(false)}>保存</button></div></div></div>}</>;
 }
 
 function CompanyForm() {
@@ -165,9 +173,10 @@ function CompanyForm() {
     try { const result = await apiFetch<{id:string}>("/company-verifications", {method:"POST", body:JSON.stringify(form)}); status.success(`企业认证已提交（申请号 ${result.id.slice(0,8)}），平台审核通过后创建企业和首个空间并发放100元试用金。`); }
     catch (error) { status.fail(error); }
   }
+  const [fileName,setFileName]=useState("");
   return <form onSubmit={submit} className="space-y-4"><Heading title="企业认证" note="企业 Owner 仅在平台审核或认领通过后产生。"/>
     <div className="grid gap-4 sm:grid-cols-2"><Field label="企业法定名称" value={form.legalName} onChange={value=>setForm({...form,legalName:value})}/><Field label="企业简称" value={form.displayName} onChange={value=>setForm({...form,displayName:value})}/><Field label="统一社会信用代码" value={form.creditCode} onChange={value=>setForm({...form,creditCode:value})}/><Field label="首个 Workspace 名称" value={form.firstWorkspaceName} onChange={value=>setForm({...form,firstWorkspaceName:value})}/></div>
-    <Field label="营业执照材料引用" placeholder="Phase 2 暂填文件编号或受控存储引用" value={form.licenseReference} onChange={value=>setForm({...form,licenseReference:value})}/>
+    <label className="block text-sm font-medium"><span className="mb-2 block">营业执照</span><input required type="file" accept="image/*,.pdf" onChange={e=>{const f=e.target.files?.[0];if(!f)return;if(f.type.startsWith("image/")||f.type==="application/pdf"){setFileName(f.name);setForm({...form,licenseReference:f.name});}}} className="block w-full rounded-lg border border-[#cddbea] bg-white p-2 text-sm"/><small className="mt-1 block text-xs text-[#7187a8]">支持 JPG、PNG、WEBP、PDF{fileName&&` · 已选择：${fileName}`}</small></label>
     <StatusLine status={status}/><button className="primary-button" disabled={status.loading} type="submit">提交平台审核</button>
   </form>;
 }

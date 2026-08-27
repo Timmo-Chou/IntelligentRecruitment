@@ -53,6 +53,10 @@ public class AuthController {
         return tokenResponse(identityService.passwordLogin(request.phone(), request.password(),
                 servletRequest.getHeader("User-Agent")));
     }
+    @PostMapping("/password-reset")
+    ResponseEntity<TokenResponse> resetPassword(@Valid @RequestBody PasswordResetRequest request, HttpServletRequest servletRequest) {
+        return tokenResponse(identityService.resetPassword(request.challengeId(), request.phone(), request.code(), request.newPassword(), servletRequest.getHeader("User-Agent")));
+    }
 
     @PostMapping("/password")
     ResponseEntity<Void> setInitialPassword(@Valid @RequestBody SetPasswordRequest request,
@@ -106,6 +110,7 @@ public class AuthController {
     public record VerifyRequest(@NotNull @JsonProperty("challenge_id") UUID challengeId,
                                 @NotBlank String phone, @NotBlank String code) {}
     public record PasswordLoginRequest(@NotBlank String phone, @NotBlank @Size(max = 64) String password) {}
+    public record PasswordResetRequest(@NotNull @JsonProperty("challenge_id") UUID challengeId, @NotBlank String phone, @NotBlank String code, @NotBlank @Size(max = 64) String newPassword) {}
     public record SetPasswordRequest(@NotBlank @Size(max = 64) String password) {}
     public record TokenResponse(@JsonProperty("access_token") String accessToken,
                                 @JsonProperty("access_expires_at") Instant accessExpiresAt,

@@ -7,7 +7,9 @@ import { ApiError } from "@/lib/api-client";
 import { deleteCandidate, downloadResume, fetchCandidate, fetchCandidates, revealCandidate, retryResumeParse, uploadResume, type CandidateDetail, type CandidateSummary, type RevealedPii } from "@/lib/candidate-api";
 import { useWorkspace } from "@/lib/workspace-context";
 
-export default function CandidatesPage() {
+export default function CandidatesPage() { return <CandidatesWorkspace />; }
+
+function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
   const { workspaceId, workspace, loading: workspaceLoading, notAuthenticated } = useWorkspace();
   const [items, setItems] = useState<CandidateSummary[]>([]);
   const [total, setTotal] = useState(0);
@@ -91,10 +93,10 @@ export default function CandidatesPage() {
     finally { setBusy(false); }
   }
 
-  if (workspaceLoading) return <State text="正在加载工作空间..."/>;
-  if (!workspaceId) return <State text="请先登录并进入一个可访问的工作空间"/>;
+  if (workspaceLoading) return embedded ? <div className="grid h-64 place-items-center text-sm text-[#7085a4]">正在加载工作空间...</div> : <State text="正在加载工作空间..."/>;
+  if (!workspaceId) return embedded ? <div className="grid h-64 place-items-center text-sm text-[#7085a4]">请先登录并进入一个可访问的工作空间</div> : <State text="请先登录并进入一个可访问的工作空间"/>;
 
-  return <AppShell activeItem="人才库">
+  const content = <>
     <section className="flex flex-wrap items-end justify-between gap-3">
       <div><h1 className="m-0 text-[25px] font-bold text-[#09245d]">人才库</h1><p className="mb-0 mt-1 text-sm text-[#60799f]">{workspace?.name} · 简历文件、解析版本和候选人信息严格限定当前工作空间</p></div>
       <div className="flex items-center gap-2">
@@ -141,7 +143,8 @@ export default function CandidatesPage() {
         </>}
       </aside>
     </div>
-  </AppShell>;
+  </>;
+  return embedded ? content : <AppShell activeItem="人才库">{content}</AppShell>;
 }
 
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) { return <article className="flex items-center gap-3 rounded-xl border border-[#dbe8f4] bg-white p-4"><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#e8f8f4] text-[#109b82]">{icon}</span><span><small className="text-[#768aa7]">{label}</small><strong className="mt-1 block text-xl text-[#163665]">{value}</strong></span></article>; }

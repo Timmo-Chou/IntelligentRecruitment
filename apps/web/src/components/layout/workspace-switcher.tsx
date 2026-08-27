@@ -5,7 +5,6 @@ import { useWorkspace } from "@/lib/workspace-context";
 
 export function WorkspaceSwitcher() {
   const { workspaceId, workspace, workspaces, selectWorkspace } = useWorkspace();
-  const accessible = workspaces.filter((item) => item.hasDataAccess);
   if (!workspace) return null;
   return (
     <label className="relative hidden items-center gap-2 rounded-lg border border-[#cddff1] bg-white/75 px-3 text-xs text-[#36527f] md:flex">
@@ -16,7 +15,7 @@ export function WorkspaceSwitcher() {
         value={workspaceId ?? ""}
         onChange={(event) => selectWorkspace(event.target.value)}
       >
-        {accessible.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        {workspaces.map((item) => <option key={item.id} value={item.id}>{item.name}{item.hasDataAccess ? "" : "（无数据权限）"}</option>)}
       </select>
       <ChevronDown className="pointer-events-none absolute right-2" size={13} />
     </label>

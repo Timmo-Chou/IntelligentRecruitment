@@ -53,7 +53,10 @@ export async function apiFetch<T>(path: string, init?: RequestInit, allowRefresh
   }
 
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  // 空响应体不解析 JSON（如 void 返回值的 POST 接口）
+  const text = await response.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 export async function apiDownload(path: string): Promise<Blob> {
@@ -72,6 +75,26 @@ export async function apiDownload(path: string): Promise<Blob> {
     code: "DOWNLOAD_FAILED", message: "文件下载失败，请稍后重试",
   });
   return response.blob();
+}
+
+export async function apiStream(path: string, init?: RequestInit, allowRefresh = true): Promise<Response> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    ...init,
+    credentials: "include",
+    headers: {
+      Accept: "text/event-stream",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...init?.headers,
+    },
+  });
+  if (response.status === 401 && allowRefresh) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) return apiStream(path, init, false);
+  }
+  if (!response.ok) throw new ApiError(response.status, {
+    code: "EVENT_STREAM_FAILED", message: "生成进度连接失败，正在尝试恢复",
+  });
+  return response;
 }
 
 type RefreshResponse = { access_token: string };

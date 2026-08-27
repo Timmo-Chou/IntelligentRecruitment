@@ -1,6 +1,6 @@
 # Intelligent Recruitment
 
-AI 智能招聘产品第一阶段工程。当前完成 Phase 0、Phase 1，并已实现 Phase 2 的身份、Company/Workspace 租户权限、试用额度、账本和正式产品框架。JD、简历和筛选等招聘业务将在后续 Phase 接入。
+AI 智能招聘 MVP。当前已完成 Phase 0–2 工程、身份、Company/Workspace 租户权限、试用额度和账本基线，并已实现 Phase 3–5 的 JD、简历人才库和筛选业务闭环。Phase 3 的 JD 生成通过事务性 Outbox 进入独立 Worker，前端使用可断线续传的 SSE 接收持久化进度事件；Phase 4/5 当前仍使用本地 Mock AI，真实伙伴平台联调属于 Phase 8。
 
 ## 目录
 
@@ -64,10 +64,14 @@ pnpm dev:web
 - `/onboarding`：创建个人 Workspace、企业认证、认领已有企业或加入企业。
 - `/settings`：企业与 Workspace 治理、实名认证、成员邀请和全部设备退出。
 - `/billing`：Workspace 余额、90天额度批次和不可变账本。
+- `/recruitment`：招聘任务、异步 JD 生成、SSE 进度、草稿编辑确认。
+- `/jobs`：Workspace 职位库和不可变 JD 版本。
+- `/candidates`：简历上传、Mock 解析、人才库与 PII Reveal。
+- `/screening`：筛选方案、费用确认、异步匹配、部分结算和失败重试。
 
 账本服务已包含幂等试用发放、最早到期额度优先冻结、全部/部分结算、失败释放、到期处理和平台人工调整。结算与人工调整只开放受保护的平台/内部接口，浏览器不能自行提交实际结算金额。
 
-平台审核暂不提供运营后台，Phase 2 使用受保护 API：
+平台运营功能位于 `apps/admin`，本地默认访问 `http://localhost:3001`。平台审核也保留以下受保护 API：
 
 - `POST /api/v1/platform/personal-verifications/{userId}/approve`
 - `POST /api/v1/platform/company-verifications/{requestId}/approve`
@@ -80,5 +84,7 @@ pnpm dev:web
 ```bash
 make check
 ```
+
+JD 生成采用异步提交：`POST .../jd-runs` 成功只表示已预占固定费用并进入队列；Worker 完成后写入 JD 草稿。浏览器通过 `GET .../jd-runs/events` 获取 SSE 事件，并使用 `Last-Event-ID` 在断线或刷新后补发遗漏的 Delta。MVP 不创建独立 JD 报价单；按钮会明确显示固定单价，“确认生成”即表示用户确认预占，失败时全额释放。
 
 详细阶段计划见 [开发阶段文档](docs/baseline/09-development-phases.md)，Phase 2 权限与数据边界见 [Phase 2 完整方案](docs/architecture/phase-2-identity-tenancy-and-isolation.md)。

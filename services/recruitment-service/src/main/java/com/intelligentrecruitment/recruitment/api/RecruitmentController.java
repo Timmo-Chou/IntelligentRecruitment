@@ -12,6 +12,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+
+import jakarta.servlet.http.HttpServletResponse;
+import java.nio.charset.StandardCharsets;
 
 import java.util.List;
 import java.util.UUID;
@@ -60,6 +64,38 @@ public class RecruitmentController {
         return recruitment.generateJd(CurrentUser.id(authentication), workspaceId, taskId, idempotencyKey, input);
     }
 
+    @GetMapping(value = "/{taskId}/jd-runs/events", produces = "text/event-stream")
+    StreamingResponseBody events(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
+                                 @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
+                                 Authentication authentication, HttpServletResponse response) {
+        UUID userId = CurrentUser.id(authentication);
+        long initialCursor = parseCursor(lastEventId);
+        response.setHeader("Cache-Control", "no-cache, no-transform");
+        response.setHeader("X-Accel-Buffering", "no");
+        return output -> {
+            long cursor = initialCursor;
+            long deadline = System.currentTimeMillis() + 55_000;
+            while (System.currentTimeMillis() < deadline) {
+                List<RecruitmentService.RunEvent> batch = recruitment.runEvents(userId, workspaceId, taskId, cursor);
+                if (batch.isEmpty()) {
+                    output.write(": keep-alive\n\n".getBytes(StandardCharsets.UTF_8));
+                    output.flush();
+                    sleep();
+                    continue;
+                }
+                for (RecruitmentService.RunEvent event : batch) {
+                    String frame = "id: " + event.eventId() + "\n" +
+                            "event: " + event.eventType() + "\n" +
+                            "data: " + event.data().replace("\n", "") + "\n\n";
+                    output.write(frame.getBytes(StandardCharsets.UTF_8));
+                    output.flush();
+                    cursor = event.eventId();
+                    if ("completed".equals(event.eventType()) || "failed".equals(event.eventType())) return;
+                }
+            }
+        };
+    }
+
     @PutMapping("/{taskId}/jd-draft")
     RecruitmentService.TaskDetail updateDraft(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
                                               @RequestBody RecruitmentService.UpdateDraftInput input,
@@ -71,5 +107,16 @@ public class RecruitmentController {
     JobService.JobView confirm(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
                                Authentication authentication) {
         return recruitment.confirmDraft(CurrentUser.id(authentication), workspaceId, taskId);
+    }
+
+    private static long parseCursor(String value) {
+        if (value == null || value.isBlank()) return 0;
+        try { return Math.max(0, Long.parseLong(value)); }
+        catch (NumberFormatException ignored) { return 0; }
+    }
+
+    private static void sleep() {
+        try { Thread.sleep(1_000); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); }
     }
 }
