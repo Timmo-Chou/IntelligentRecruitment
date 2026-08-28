@@ -17,6 +17,7 @@ export type Job = {
   education: string;
   jobType: string;
   status: JobStatus;
+  source?: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -57,6 +58,73 @@ export type JobVersion = {
   createdBy: string;
   createdAt: string;
 };
+
+export type JobsPageCache = {
+  stats: JobStats;
+  items: Job[];
+  total: number;
+  search: string;
+  status: string;
+  page: number;
+  pageSize: number;
+};
+
+const JOBS_CACHE_PREFIX = "ir-jobs-cache:";
+
+export function readJobsCache(workspaceId: string): JobsPageCache | null {
+  try {
+    const raw = sessionStorage.getItem(JOBS_CACHE_PREFIX + workspaceId);
+    if (!raw) return null;
+    return JSON.parse(raw) as JobsPageCache;
+  } catch {
+    return null;
+  }
+}
+
+export function writeJobsCache(workspaceId: string, cache: JobsPageCache) {
+  try {
+    sessionStorage.setItem(JOBS_CACHE_PREFIX + workspaceId, JSON.stringify(cache));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+export function upsertJobInCache(workspaceId: string, job: Job) {
+  const cache = readJobsCache(workspaceId);
+  if (!cache) {
+    writeJobsCache(workspaceId, {
+      stats: {
+        total: 1,
+        active: job.status === "ACTIVE" ? 1 : 0,
+        closed: job.status === "CLOSED" ? 1 : 0,
+        draft: job.status === "DRAFT" ? 1 : 0,
+      },
+      items: [job],
+      total: 1,
+      search: "",
+      status: "",
+      page: 1,
+      pageSize: 10,
+    });
+    return;
+  }
+  const exists = cache.items.some((item) => item.id === job.id);
+  writeJobsCache(workspaceId, {
+    ...cache,
+    items: [job, ...cache.items.filter((item) => item.id !== job.id)],
+    total: exists ? cache.total : cache.total + 1,
+  });
+}
+
+export function removeJobFromCache(workspaceId: string, jobId: string) {
+  const cache = readJobsCache(workspaceId);
+  if (!cache) return;
+  writeJobsCache(workspaceId, {
+    ...cache,
+    items: cache.items.filter((item) => item.id !== jobId),
+    total: Math.max(0, cache.total - (cache.items.some((item) => item.id === jobId) ? 1 : 0)),
+  });
+}
 
 // --- API 函数 ---
 

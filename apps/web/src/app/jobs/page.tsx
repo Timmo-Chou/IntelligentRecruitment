@@ -5,12 +5,13 @@ import {
   ChevronRight, CircleDot, Edit3, Loader2, MapPin, Plus, Search,
   TimerReset, Trash2, AlertCircle, Inbox,
 } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { useWorkspace } from "@/lib/workspace-context";
 import {
   fetchJobStats, fetchJobs, fetchJob, createJob, updateJob, deleteJob,
-  batchUpdateStatus, batchDelete,
+  batchUpdateStatus, batchDelete, updateJobStatus,
+  readJobsCache, writeJobsCache, upsertJobInCache, removeJobFromCache,
   type Job, type JobInput, type JobStats,
 } from "@/lib/job-api";
 
@@ -59,13 +60,31 @@ export default function JobsPage() {
 
   // 删除确认
   const [deleteConfirm, setDeleteConfirm] = useState<Job | null>(null);
+  const [batchConfirm, setBatchConfirm] = useState<"publish" | "delete" | null>(null);
+  const [batchBusy, setBatchBusy] = useState(false);
 
   // 搜索防抖
   const [searchInput, setSearchInput] = useState("");
+  const loadRequestRef = useRef(0);
+  const hydratedWorkspaceRef = useRef<string | null>(null);
+
+  // 离开页面再回来时先恢复最近一次成功列表，避免空表闪一下或覆盖刚保存的草稿
+  useEffect(() => {
+    if (!workspaceId || hydratedWorkspaceRef.current === workspaceId) return;
+    hydratedWorkspaceRef.current = workspaceId;
+    const cached = readJobsCache(workspaceId);
+    if (!cached) return;
+    if (cached.search === search && cached.status === statusFilter && cached.page === page && cached.pageSize === pageSize) {
+      setStats(cached.stats);
+      setJobs(cached.items);
+      setTotal(cached.total);
+    }
+  }, [workspaceId, search, statusFilter, page, pageSize]);
 
   // 加载数据
   const loadData = useCallback(async () => {
     if (!workspaceId) return;
+    const requestId = ++loadRequestRef.current;
     setDataLoading(true);
     setError(null);
     try {
@@ -73,26 +92,52 @@ export default function JobsPage() {
         fetchJobStats(workspaceId),
         fetchJobs(workspaceId, { search: search || undefined, status: statusFilter || undefined, page, pageSize }),
       ]);
+      if (requestId !== loadRequestRef.current) return;
       setStats(statsRes);
       setJobs(jobsRes.items);
       setTotal(jobsRes.total);
+      writeJobsCache(workspaceId, {
+        stats: statsRes,
+        items: jobsRes.items,
+        total: jobsRes.total,
+        search,
+        status: statusFilter,
+        page,
+        pageSize,
+      });
+      setDetailJob((prev) => {
+        if (!prev) return prev;
+        return jobsRes.items.find((item) => item.id === prev.id) ?? null;
+      });
     } catch (err) {
+      if (requestId !== loadRequestRef.current) return;
       setError(err instanceof Error ? err.message : "加载职位数据失败");
     } finally {
-      setDataLoading(false);
+      if (requestId === loadRequestRef.current) setDataLoading(false);
     }
   }, [workspaceId, search, statusFilter, page, pageSize]);
 
   useEffect(() => {
+    setDataLoading(true);
     const timer = window.setTimeout(() => void loadData(), 0);
     return () => window.clearTimeout(timer);
   }, [loadData]);
 
-  // 搜索防抖
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadData();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [loadData]);
+
+  // 搜索防抖：仅在关键词真正变化时重置页码，避免进入页面就触发多余刷新
   useEffect(() => {
     const timer = setTimeout(() => {
-      setSearch(searchInput);
-      setPage(1);
+      setSearch((prev) => {
+        if (prev !== searchInput) setPage(1);
+        return searchInput;
+      });
     }, 400);
     return () => clearTimeout(timer);
   }, [searchInput]);
@@ -117,21 +162,44 @@ export default function JobsPage() {
     setEditOpen(true);
   };
 
+  const syncJob = (saved: Job) => {
+    if (workspaceId) upsertJobInCache(workspaceId, saved);
+    setJobs((prev) => {
+      const without = prev.filter((item) => item.id !== saved.id);
+      if (statusFilter && saved.status !== statusFilter) return without;
+      return [saved, ...without];
+    });
+    setDetailJob((prev) => (!prev || prev.id === saved.id ? saved : prev));
+  };
+
   // 保存编辑
   const handleSaveEdit = async (input: JobInput) => {
     if (!workspaceId) return;
     setEditSaving(true);
     try {
-      if (editJob?.id) {
-        await updateJob(workspaceId, editJob.id, input);
-      } else {
-        await createJob(workspaceId, input);
-      }
+      const saved = editJob?.id
+        ? await updateJob(workspaceId, editJob.id, input)
+        : await createJob(workspaceId, input);
       setEditOpen(false);
       setEditJob(null);
+      if (!editJob?.id) setTotal((prev) => prev + 1);
+      syncJob(saved);
       await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存职位失败");
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const handleChangeStatus = async (job: Job, status: "ACTIVE" | "CLOSED") => {
+    if (!workspaceId) return;
+    try {
+      const saved = await updateJobStatus(workspaceId, job.id, status);
+      syncJob(saved);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "更新职位状态失败");
     }
   };
 
@@ -140,36 +208,46 @@ export default function JobsPage() {
     if (!workspaceId) return;
     try {
       await deleteJob(workspaceId, jobId);
+      removeJobFromCache(workspaceId, jobId);
       setDeleteConfirm(null);
       if (detailJob?.id === jobId) setDetailJob(null);
+      setJobs((prev) => prev.filter((item) => item.id !== jobId));
       await loadData();
-    } catch {
-      // 错误由 apiFetch 处理
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除职位失败");
     }
   };
 
-  // 批量删除
+  const handleBatchPublish = async () => {
+    if (!workspaceId || selectedIds.size === 0) return;
+    setBatchBusy(true);
+    try {
+      await batchUpdateStatus(workspaceId, Array.from(selectedIds), "ACTIVE");
+      setSelectedIds(new Set());
+      setBatchConfirm(null);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "批量发布失败");
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
   const handleBatchDelete = async () => {
     if (!workspaceId || selectedIds.size === 0) return;
+    setBatchBusy(true);
     try {
-      await batchDelete(workspaceId, Array.from(selectedIds));
+      const ids = Array.from(selectedIds);
+      await batchDelete(workspaceId, ids);
+      ids.forEach((id) => removeJobFromCache(workspaceId, id));
       setSelectedIds(new Set());
-      setDetailJob(null);
+      if (detailJob && ids.includes(detailJob.id)) setDetailJob(null);
+      setBatchConfirm(null);
       await loadData();
-    } catch {
-      // 错误由 apiFetch 处理
-    }
-  };
-
-  // 批量启停
-  const handleBatchStatus = async (status: string) => {
-    if (!workspaceId || selectedIds.size === 0) return;
-    try {
-      await batchUpdateStatus(workspaceId, Array.from(selectedIds), status);
-      setSelectedIds(new Set());
-      await loadData();
-    } catch {
-      // 错误由 apiFetch 处理
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "批量删除失败");
+    } finally {
+      setBatchBusy(false);
     }
   };
 
@@ -182,8 +260,10 @@ export default function JobsPage() {
     });
   };
 
+  const allSelected = jobs.length > 0 && jobs.every((job) => selectedIds.has(job.id));
+
   const toggleSelectAll = () => {
-    if (selectedIds.size === jobs.length) {
+    if (allSelected) {
       setSelectedIds(new Set());
     } else {
       setSelectedIds(new Set(jobs.map((j) => j.id)));
@@ -191,6 +271,7 @@ export default function JobsPage() {
   };
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const hasFilters = Boolean(search || statusFilter);
 
   // 加载中状态
   if (wsLoading) {
@@ -244,12 +325,12 @@ export default function JobsPage() {
       </section>
 
       {/* 搜索与操作栏 */}
-      <section className="mb-4 grid gap-3 xl:grid-cols-[minmax(360px,1fr)_140px_116px_116px]">
+      <section className="mb-4 grid gap-3 xl:grid-cols-[minmax(280px,1fr)_140px_auto_auto_auto]">
         <label className="flex h-11 items-center gap-3 rounded-lg border border-[#bdd3ef] bg-white px-4 text-[#6b80a4] shadow-sm">
           <Search size={18} />
           <input
             className="min-w-0 flex-1 border-0 bg-transparent text-sm outline-none"
-            placeholder="搜索职位名称、关键词、行业、地点等"
+            placeholder="搜索职位名称、企业、地点、技能"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
@@ -269,21 +350,22 @@ export default function JobsPage() {
         <button className="primary-button" type="button" onClick={() => handleOpenEdit()}>
           <Plus size={16} /> 新建职位
         </button>
-        <div className="relative">
-          <button
-            className="outline-button"
-            type="button"
-            disabled={selectedIds.size === 0}
-            onClick={() => {
-              // 简单的批量操作菜单通过原生 confirm 实现
-              const action = confirm("选择操作：\n确定=批量发布 取消=批量删除");
-              if (action) handleBatchStatus("ACTIVE");
-              else handleBatchDelete();
-            }}
-          >
-            批量操作 <ChevronDown size={15} />
-          </button>
-        </div>
+        <button
+          className="outline-button"
+          type="button"
+          disabled={!allSelected || batchBusy}
+          onClick={() => setBatchConfirm("publish")}
+        >
+          批量发布
+        </button>
+        <button
+          className="outline-button text-[#dc2626]"
+          type="button"
+          disabled={!allSelected || batchBusy}
+          onClick={() => setBatchConfirm("delete")}
+        >
+          批量删除
+        </button>
       </section>
 
       <div className="grid gap-3 2xl:grid-cols-[minmax(700px,1fr)_420px]">
@@ -321,23 +403,27 @@ export default function JobsPage() {
             ) : jobs.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-[#6b80a4]">
                 <Inbox size={48} className="mb-3 opacity-40" />
-                <p className="text-sm font-medium">暂无职位数据</p>
-                <p className="mt-1 text-xs">点击「新建职位」开始创建第一个职位</p>
-                <button className="primary-button mt-4" type="button" onClick={() => handleOpenEdit()}>
-                  <Plus size={16} /> 新建职位
-                </button>
+                <p className="text-sm font-medium">{hasFilters ? "没有符合筛选条件的职位" : "暂无职位数据"}</p>
+                <p className="mt-1 text-xs">
+                  {hasFilters ? "试试清空搜索或切换到「全部状态」查看草稿" : "点击「新建职位」开始创建第一个职位"}
+                </p>
+                {!hasFilters && (
+                  <button className="primary-button mt-4" type="button" onClick={() => handleOpenEdit()}>
+                    <Plus size={16} /> 新建职位
+                  </button>
+                )}
               </div>
             ) : (
               <>
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[900px] border-collapse text-left text-xs text-[#36527f]">
+                  <table className="w-full min-w-[1040px] border-collapse text-left text-xs text-[#36527f]">
                     <thead className="bg-[#f8fbff] text-[#536b91]">
                       <tr>
                         <th className="border-b border-[#dbe8f6] px-3 py-3 font-medium">
                           <input
                             type="checkbox"
                             aria-label="选择全部职位"
-                            checked={jobs.length > 0 && selectedIds.size === jobs.length}
+                            checked={allSelected}
                             onChange={toggleSelectAll}
                           />
                         </th>
@@ -347,10 +433,10 @@ export default function JobsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {jobs.map((job, index) => (
+                      {jobs.map((job) => (
                         <tr
                           key={job.id}
-                          className={index === 0 ? "bg-[#eafff7]" : "hover:bg-[#f8fbff]"}
+                          className={detailJob?.id === job.id ? "bg-[#eafff7]" : "hover:bg-[#f8fbff]"}
                         >
                           <td className="border-b border-[#eaf1fa] px-3 py-3">
                             <input
@@ -382,6 +468,24 @@ export default function JobsPage() {
                             <button className="hover:underline" onClick={() => handleViewDetail(job)} type="button">查看</button>
                             <span className="mx-1 text-[#c4d3e8]">|</span>
                             <button className="hover:underline" onClick={() => handleOpenEdit(job)} type="button">编辑</button>
+                            <span className="mx-1 text-[#c4d3e8]">|</span>
+                            <button
+                              className="hover:underline disabled:cursor-not-allowed disabled:text-[#9db0c9] disabled:no-underline"
+                              disabled={job.status === "ACTIVE"}
+                              onClick={() => void handleChangeStatus(job, "ACTIVE")}
+                              type="button"
+                            >
+                              发布
+                            </button>
+                            <span className="mx-1 text-[#c4d3e8]">|</span>
+                            <button
+                              className="hover:underline disabled:cursor-not-allowed disabled:text-[#9db0c9] disabled:no-underline"
+                              disabled={job.status !== "ACTIVE"}
+                              onClick={() => void handleChangeStatus(job, "CLOSED")}
+                              type="button"
+                            >
+                              关闭
+                            </button>
                             <span className="mx-1 text-[#c4d3e8]">|</span>
                             <button className="hover:underline" onClick={() => setDeleteConfirm(job)} type="button">删除</button>
                           </td>
@@ -505,10 +609,19 @@ export default function JobsPage() {
               <DetailSection title="创建信息">
                 <p>创建时间：{formatDate(detailJob.createdAt)}　更新时间：{formatDate(detailJob.updatedAt)}</p>
               </DetailSection>
-              <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl border border-[#deebf7] bg-[#f9fcff] p-4">
+              <div className="mt-4 grid grid-cols-1 gap-3 rounded-xl border border-[#deebf7] bg-[#f9fcff] p-4 sm:grid-cols-3">
                 <button className="primary-button" type="button" onClick={() => alert("AI招聘助手功能即将上线")}>
                   AI招聘助手
                 </button>
+                {detailJob.status === "ACTIVE" ? (
+                  <button className="outline-button" type="button" onClick={() => void handleChangeStatus(detailJob, "CLOSED")}>
+                    关闭职位
+                  </button>
+                ) : (
+                  <button className="outline-button" type="button" onClick={() => void handleChangeStatus(detailJob, "ACTIVE")}>
+                    发布
+                  </button>
+                )}
                 <button className="outline-button text-[#dc2626]" type="button" onClick={() => setDeleteConfirm(detailJob)}>
                   <Trash2 size={14} /> 删除职位
                 </button>
@@ -538,8 +651,31 @@ export default function JobsPage() {
         <ConfirmModal
           title="确认删除"
           message={`确定要删除职位「${deleteConfirm.title}」吗？此操作不可撤销。`}
+          confirmLabel="确认删除"
+          danger
           onConfirm={() => handleDelete(deleteConfirm.id)}
           onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+
+      {batchConfirm === "publish" && (
+        <ConfirmModal
+          title="批量发布"
+          message={`将发布当前页已全选的 ${selectedIds.size} 个职位为招聘中，确认继续？`}
+          confirmLabel={batchBusy ? "发布中..." : "确认发布"}
+          onConfirm={() => void handleBatchPublish()}
+          onCancel={() => !batchBusy && setBatchConfirm(null)}
+        />
+      )}
+
+      {batchConfirm === "delete" && (
+        <ConfirmModal
+          title="批量删除"
+          message={`将删除当前页已全选的 ${selectedIds.size} 个职位，此操作不可撤销。`}
+          confirmLabel={batchBusy ? "删除中..." : "确认删除"}
+          danger
+          onConfirm={() => void handleBatchDelete()}
+          onCancel={() => !batchBusy && setBatchConfirm(null)}
         />
       )}
     </AppShell>
@@ -670,8 +806,15 @@ function TextareaField({ label, value, onChange, placeholder }: {
   );
 }
 
-function ConfirmModal({ title, message, onConfirm, onCancel }: {
-  title: string; message: string; onConfirm: () => void; onCancel: () => void;
+function ConfirmModal({
+  title, message, confirmLabel = "确认", danger = false, onConfirm, onCancel,
+}: {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  danger?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onCancel}>
@@ -680,8 +823,14 @@ function ConfirmModal({ title, message, onConfirm, onCancel }: {
         <p className="mb-4 text-sm text-[#4d6388]">{message}</p>
         <div className="flex justify-end gap-3">
           <button className="outline-button" type="button" onClick={onCancel}>取消</button>
-          <button className="rounded-lg bg-[#dc2626] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b91c1c]" type="button" onClick={onConfirm}>
-            确认删除
+          <button
+            className={danger
+              ? "rounded-lg bg-[#dc2626] px-4 py-2 text-sm font-semibold text-white hover:bg-[#b91c1c]"
+              : "primary-button"}
+            type="button"
+            onClick={onConfirm}
+          >
+            {confirmLabel}
           </button>
         </div>
       </div>
