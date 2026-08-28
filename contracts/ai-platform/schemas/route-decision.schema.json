@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.local/ai-platform/route-decision.schema.json",
+  "title": "RouteDecision",
+  "description": "A non-authoritative AI routing recommendation. It never authorizes a business action or customer charge.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision_id", "kind", "confidence", "requires_policy_check", "created_at"],
+  "properties": {
+    "decision_id": { "type": "string", "minLength": 1 },
+    "kind": { "enum": ["route", "clarify", "inform", "unsupported"] },
+    "capability": {
+      "type": ["string", "null"],
+      "enum": [null, "requirement_chat", "jd_generation", "resume_parsing", "screening_plan_generation", "candidate_screening", "interview_kit_generation", "task_assistance"]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "requires_policy_check": { "const": true },
+    "missing_inputs": {
+      "type": "array",
+      "items": { "enum": ["job_version", "candidate_scope", "resume_parse_version", "screening_plan", "screening_result", "user_clarification"] },
+      "uniqueItems": true
+    },
+    "clarification": { "type": ["string", "null"], "maxLength": 2000 },
+    "suggested_next_action": { "enum": ["collect_requirement", "select_job_version", "select_candidates", "prepare_screening_plan", "show_quote", "inspect_task", "none"] },
+    "referenced_resource_ids": {
+      "type": "array",
+      "description": "Opaque identifiers already present in the business-provided context; this field cannot expand data access.",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "route" } } },
+      "then": { "required": ["capability", "suggested_next_action"] }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "clarify" } } },
+      "then": { "required": ["clarification"] }
+    }
+  ]
+}

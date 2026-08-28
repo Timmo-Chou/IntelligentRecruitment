@@ -49,7 +49,24 @@ app:
     secure-cookie: ${AUTH_SECURE_COOKIE:true}
   platform-admin-key: ${PLATFORM_ADMIN_KEY:phase2-local-admin}
   ai-platform:
-    mode: ${AI_PLATFORM_MODE:mock}
+    # JD 草稿默认必须由临时 AI Platform 的模型生成；Mock 仅允许显式用于测试。
+    mode: ${AI_PLATFORM_MODE:deepseek}
+    deepseek:
+      # 当前本地 JD 功能已获用户授权使用临时模型；生产环境必须显式改为 false 或单独审批。
+      base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+      api-key: ${DEEPSEEK_API_KEY:}
+      model: ${DEEPSEEK_MODEL:deepseek-v4-flash}
+      allow-external-data: ${DEEPSEEK_ALLOW_EXTERNAL_DATA:true}
+      jd-prompt-resource: ${DEEPSEEK_JD_PROMPT_RESOURCE:classpath:prompts/jd-generation-v1.txt}
+      conversation-prompt-resource: ${DEEPSEEK_CONVERSATION_PROMPT_RESOURCE:classpath:prompts/recruitment-conversation-v1.txt}
+      jd-in-place-revision-prompt-resource: ${DEEPSEEK_JD_IN_PLACE_REVISION_PROMPT_RESOURCE:classpath:prompts/jd-in-place-revision-v1.txt}
+  ai-assistant:
+    # AI咨询助手配置
+    use-llm: ${AI_ASSISTANT_USE_LLM:true}
+    help-manual-url: ${AI_ASSISTANT_HELP_MANUAL_URL:https://help.intelligentrecruitment.com}
+    cooperation-qr-code-url: ${AI_ASSISTANT_COOPERATION_QR_CODE_URL:}
+    cooperation-phone: ${AI_ASSISTANT_COOPERATION_PHONE:400-888-8888}
+    cooperation-email: ${AI_ASSISTANT_COOPERATION_EMAIL:support@intelligentrecruitment.com}
   phase3:
     # Phase 3 非生产临时价：0.80元/次，正式客户启用前必须冻结价格版本。
     jd-generation-price-minor: ${JD_GENERATION_PRICE_MINOR:80}

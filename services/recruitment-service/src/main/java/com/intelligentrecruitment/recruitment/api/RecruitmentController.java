@@ -1,10 +1,12 @@
 package com.intelligentrecruitment.recruitment.api;
 
 import com.intelligentrecruitment.jobs.application.JobService;
+import com.intelligentrecruitment.agentflow.domain.RouteDecision;
 import com.intelligentrecruitment.recruitment.application.RecruitmentService;
 import com.intelligentrecruitment.shared.security.CurrentUser;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -49,11 +51,30 @@ public class RecruitmentController {
         return recruitment.getTask(CurrentUser.id(authentication), workspaceId, taskId);
     }
 
+    @PutMapping("/{taskId}")
+    RecruitmentService.TaskSummary rename(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
+                                          @RequestBody RecruitmentService.RenameTaskInput input,
+                                          Authentication authentication) {
+        return recruitment.renameTask(CurrentUser.id(authentication), workspaceId, taskId, input);
+    }
+
+    @DeleteMapping("/{taskId}")
+    void delete(@PathVariable UUID workspaceId, @PathVariable UUID taskId, Authentication authentication) {
+        recruitment.deleteTask(CurrentUser.id(authentication), workspaceId, taskId);
+    }
+
     @PostMapping("/{taskId}/messages")
     RecruitmentService.TaskDetail message(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
                                           @RequestBody RecruitmentService.MessageInput input,
                                           Authentication authentication) {
         return recruitment.addMessage(CurrentUser.id(authentication), workspaceId, taskId, input);
+    }
+
+    @PostMapping("/{taskId}/agent-routes")
+    RouteDecision route(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
+                        @RequestBody RecruitmentService.RouteMessageInput input,
+                        Authentication authentication) {
+        return recruitment.routeMessage(CurrentUser.id(authentication), workspaceId, taskId, input);
     }
 
     @PostMapping("/{taskId}/jd-runs")
@@ -107,6 +128,25 @@ public class RecruitmentController {
     JobService.JobView confirm(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
                                Authentication authentication) {
         return recruitment.confirmDraft(CurrentUser.id(authentication), workspaceId, taskId);
+    }
+
+    /** 读取简历筛选六维评估配置 */
+    @GetMapping("/{taskId}/screening-dims")
+    RecruitmentService.ScreeningDimsView getScreeningDims(@PathVariable UUID workspaceId,
+                                                          @PathVariable UUID taskId,
+                                                          Authentication authentication) {
+        String json = recruitment.getScreeningDims(CurrentUser.id(authentication), workspaceId, taskId);
+        return new RecruitmentService.ScreeningDimsView(json);
+    }
+
+    /** 保存简历筛选六维评估配置（整体覆盖） */
+    @PutMapping("/{taskId}/screening-dims")
+    RecruitmentService.ScreeningDimsView updateScreeningDims(@PathVariable UUID workspaceId,
+                                                            @PathVariable UUID taskId,
+                                                            @RequestBody RecruitmentService.UpdateScreeningDimsInput input,
+                                                            Authentication authentication) {
+        String json = recruitment.updateScreeningDims(CurrentUser.id(authentication), workspaceId, taskId, input);
+        return new RecruitmentService.ScreeningDimsView(json);
     }
 
     private static long parseCursor(String value) {

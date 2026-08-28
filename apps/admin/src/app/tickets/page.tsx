@@ -11,12 +11,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 type Ticket = {
-  ticketId: string;
+  id: string;
+  ticketNumber: string;
+  creatorUserId?: string;
+  creatorName: string;
+  companyId?: string;
+  companyName?: string;
   title: string;
   category: string;
   priority: string;
   status: string;
-  creatorName: string;
   createdAt: string;
 };
 
@@ -60,6 +64,7 @@ export default function TicketsPage() {
   function getPriorityBadge(priority: string) {
     if (priority === "URGENT") return <Badge variant="danger">紧急</Badge>;
     if (priority === "HIGH") return <Badge variant="warning">高</Badge>;
+    if (priority === "NORMAL") return <Badge variant="info">普通</Badge>;
     if (priority === "MEDIUM") return <Badge variant="info">中</Badge>;
     return <Badge variant="neutral">低</Badge>;
   }
@@ -69,6 +74,7 @@ export default function TicketsPage() {
       ACCOUNT: "账号问题",
       BILLING: "账单问题",
       TECHNICAL: "技术问题",
+      FEEDBACK: "功能反馈",
       OTHER: "其他",
     };
     return map[category] ?? category;
@@ -109,6 +115,7 @@ export default function TicketsPage() {
           <option value="ACCOUNT">账号问题</option>
           <option value="BILLING">账单问题</option>
           <option value="TECHNICAL">技术问题</option>
+          <option value="FEEDBACK">功能反馈</option>
           <option value="OTHER">其他</option>
         </select>
       </div>
@@ -137,14 +144,14 @@ export default function TicketsPage() {
             <tbody>
               {tickets.map((ticket, i) => (
                 <tr
-                  key={ticket.ticketId}
-                  onClick={() => router.push(`/tickets/${ticket.ticketId}`)}
+                  key={ticket.id}
+                  onClick={() => router.push(`/tickets/${ticket.id}`)}
                   className={`cursor-pointer border-b border-slate-100 transition hover:bg-blue-50/50 ${
                     i % 2 === 0 ? "bg-white" : "bg-slate-50/50"
                   }`}
                 >
                   <td className="px-4 py-3 text-sm font-mono text-slate-500">
-                    {ticket.ticketId.slice(0, 8)}...
+                    {ticket.ticketNumber}
                   </td>
                   <td className="px-4 py-3 text-sm font-medium text-slate-800">{ticket.title}</td>
                   <td className="px-4 py-3 text-sm text-slate-500">
@@ -152,7 +159,12 @@ export default function TicketsPage() {
                   </td>
                   <td className="px-4 py-3">{getPriorityBadge(ticket.priority)}</td>
                   <td className="px-4 py-3">{getStatusBadge(ticket.status)}</td>
-                  <td className="px-4 py-3 text-sm text-slate-500">{ticket.creatorName}</td>
+                  <td className="px-4 py-3 text-sm">
+                    <div className="font-medium text-slate-700">{ticket.creatorName}</div>
+                    {ticket.companyName && (
+                      <div className="text-xs text-slate-400">🏢 {ticket.companyName}</div>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-sm text-slate-500">{ticket.createdAt}</td>
                 </tr>
               ))}

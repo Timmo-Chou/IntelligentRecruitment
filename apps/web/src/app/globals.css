@@ -80,6 +80,6 @@ select {
 }
 
 :focus-visible {
-  outline: 3px solid rgb(var(--color-brand) / 0.3);
+  outline: 0px solid rgb(var(--color-brand) / 0.3);
   outline-offset: 2px;
 }

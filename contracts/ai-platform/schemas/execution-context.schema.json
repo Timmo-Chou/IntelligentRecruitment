@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.local/ai-platform/execution-context.schema.json",
+  "title": "ExecutionContext",
+  "description": "The immutable, least-privilege context supplied by the business service for one allowed AI capability execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["execution_id", "request_context", "capability", "business_operation_ref", "policy_decision", "input_versions", "data_handling", "requested_at"],
+  "properties": {
+    "execution_id": { "type": "string", "minLength": 1 },
+    "route_decision_id": { "type": ["string", "null"], "minLength": 1 },
+    "request_context": { "$ref": "./request-context.schema.json" },
+    "capability": { "enum": ["requirement_chat", "jd_generation", "resume_parsing", "screening_plan_generation", "candidate_screening", "interview_kit_generation", "task_assistance"] },
+    "business_operation_ref": { "type": "string", "minLength": 1 },
+    "conversation_ref": { "type": ["string", "null"], "minLength": 1 },
+    "input_versions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "ref", "version"],
+        "properties": {
+          "kind": { "enum": ["job_version", "candidate", "resume_parse_version", "screening_plan_version", "screening_result", "file_reference", "conversation_summary"] },
+          "ref": { "type": "string", "minLength": 1 },
+          "version": { "type": "string", "minLength": 1 },
+          "content_hash": { "type": ["string", "null"], "minLength": 1 }
+        }
+      }
+    },
+    "policy_decision": { "$ref": "./policy-decision.schema.json" },
+    "data_handling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contains_pii", "retention", "log_content"],
+      "properties": {
+        "contains_pii": { "type": "boolean" },
+        "retention": { "enum": ["ephemeral", "contract_bound"] },
+        "log_content": { "const": false }
+      }
+    },
+    "requested_at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "policy_decision": { "properties": { "decision": { "const": "allow" } } } } },
+      "then": true,
+      "else": false
+    }
+  ]
+}

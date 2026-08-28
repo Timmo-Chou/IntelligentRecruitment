@@ -12,22 +12,29 @@ import { Button } from "@/components/ui/button";
 
 type TicketMessage = {
   id: string;
-  senderId: string;
+  senderType: string; // USER | PLATFORM_ADMIN
   senderName: string;
-  senderType: "USER" | "ADMIN";
-  content: string;
+  body: string;
   createdAt: string;
 };
 
-type TicketDetail = {
-  ticketId: string;
+type TicketRow = {
+  id: string;
+  ticketNumber: string;
+  creatorUserId?: string;
+  creatorName: string;
+  companyId?: string;
+  companyName?: string;
   title: string;
   category: string;
   priority: string;
   status: string;
-  creatorName: string;
-  messages: TicketMessage[];
   createdAt: string;
+};
+
+type TicketDetail = {
+  ticket: TicketRow;
+  messages: TicketMessage[];
 };
 
 export default function TicketDetailPage() {
@@ -37,11 +44,14 @@ export default function TicketDetailPage() {
 
   const [message, setMessage] = useState("");
 
-  const { data: ticket, isLoading } = useQuery({
+  const { data: detail, isLoading } = useQuery({
     queryKey: ["ticket", ticketId],
     queryFn: () => adminApiFetch<TicketDetail>(`/platform/tickets/${ticketId}`),
     enabled: !!ticketId,
   });
+
+  const ticket = detail?.ticket;
+  const messages = detail?.messages ?? [];
 
   // 发送消息
   const sendMessage = useMutation({
@@ -61,7 +71,7 @@ export default function TicketDetailPage() {
   const updateStatus = useMutation({
     mutationFn: async (status: string) => {
       return adminApiFetch(`/platform/tickets/${ticketId}/status`, {
-        method: "PUT",
+        method: "POST",
         body: JSON.stringify({ status }),
       });
     },
@@ -81,6 +91,7 @@ export default function TicketDetailPage() {
   function getPriorityBadge(priority: string) {
     if (priority === "URGENT") return <Badge variant="danger">紧急</Badge>;
     if (priority === "HIGH") return <Badge variant="warning">高</Badge>;
+    if (priority === "NORMAL") return <Badge variant="info">普通</Badge>;
     if (priority === "MEDIUM") return <Badge variant="info">中</Badge>;
     return <Badge variant="neutral">低</Badge>;
   }
@@ -90,6 +101,7 @@ export default function TicketDetailPage() {
       ACCOUNT: "账号问题",
       BILLING: "账单问题",
       TECHNICAL: "技术问题",
+      FEEDBACK: "功能反馈",
       OTHER: "其他",
     };
     return map[category] ?? category;
@@ -126,28 +138,28 @@ export default function TicketDetailPage() {
 
           {/* 消息列表 */}
           <div className="flex-1 space-y-4 overflow-y-auto p-6" style={{ maxHeight: "500px" }}>
-            {ticket.messages.map((msg) => (
+            {messages.map((msg: TicketMessage) => (
               <div
                 key={msg.id}
-                className={`flex ${msg.senderType === "ADMIN" ? "justify-end" : "justify-start"}`}
+                className={`flex ${msg.senderType === "PLATFORM_ADMIN" ? "justify-end" : "justify-start"}`}
               >
                 <div
                   className={`max-w-[70%] rounded-2xl px-4 py-3 ${
-                    msg.senderType === "ADMIN"
+                    msg.senderType === "PLATFORM_ADMIN"
                       ? "bg-blue-600 text-white"
                       : "bg-slate-100 text-slate-800"
                   }`}
                 >
                   <p className="text-xs font-semibold opacity-70">
                     {msg.senderName}
-                    {msg.senderType === "ADMIN" ? " (平台管理员)" : ""}
+                    {msg.senderType === "PLATFORM_ADMIN" ? " (平台管理员)" : ""}
                   </p>
-                  <p className="mt-1 text-sm">{msg.content}</p>
+                  <p className="mt-1 text-sm">{msg.body}</p>
                   <p className="mt-1 text-right text-xs opacity-60">{msg.createdAt}</p>
                 </div>
               </div>
             ))}
-            {ticket.messages.length === 0 && (
+            {messages.length === 0 && (
               <p className="text-center text-sm text-slate-400">暂无消息</p>
             )}
           </div>
@@ -179,7 +191,7 @@ export default function TicketDetailPage() {
           </div>
         </div>
 
-        {/* 右侧：工单信息面板 */}
+          {/* 右侧：工单信息面板 */}
         <div className="space-y-4">
           <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="mb-3 text-base font-bold text-slate-700">工单信息</h2>
@@ -200,7 +212,21 @@ export default function TicketDetailPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">工单编号</span>
-                <span className="font-mono text-xs text-slate-500">{ticket.ticketId}</span>
+                <span className="font-mono text-xs text-slate-500">{ticket.ticketNumber}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">提交人</span>
+                <span className="font-medium text-slate-700">{ticket.creatorName}</span>
+              </div>
+              {ticket.companyName && (
+                <div className="flex justify-between">
+                  <span className="text-slate-500">所属企业</span>
+                  <span className="font-medium text-slate-700">🏢 {ticket.companyName}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-slate-500">创建时间</span>
+                <span className="text-slate-600">{ticket.createdAt}</span>
               </div>
             </div>
           </div>

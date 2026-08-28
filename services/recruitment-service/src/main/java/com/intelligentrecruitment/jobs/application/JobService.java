@@ -145,6 +145,15 @@ public class JobService {
         return getScoped(workspaceId, jobId);
     }
 
+    /** Keeps the published job and its immutable version history aligned with an edited AI JD. */
+    @Transactional
+    public void updateFromRecruitmentJd(UUID userId, UUID workspaceId, UUID recruitmentTaskId, JobInput input) {
+        List<UUID> jobIds = jdbc.query("""
+                SELECT id FROM jobs WHERE recruitment_task_id=? AND workspace_id=? AND status<>'ARCHIVED'
+                """, (rs, n) -> rs.getObject("id", UUID.class), recruitmentTaskId, workspaceId);
+        if (!jobIds.isEmpty()) update(userId, workspaceId, jobIds.getFirst(), input);
+    }
+
     @Transactional
     public JobView updateStatus(UUID userId, UUID workspaceId, UUID jobId, String status) {
         WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);

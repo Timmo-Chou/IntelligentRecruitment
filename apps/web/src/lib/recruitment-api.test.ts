@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { apiStream } from "@/lib/api-client";
-import { streamJdRunEvents } from "@/lib/recruitment-api";
+import { apiFetch, apiStream } from "@/lib/api-client";
+import { deleteTask, renameTask, streamJdRunEvents } from "@/lib/recruitment-api";
 
 vi.mock("@/lib/api-client", () => ({
   apiFetch: vi.fn(),
@@ -34,5 +34,21 @@ describe("streamJdRunEvents", () => {
       expect.objectContaining({ id: 42, type: "delta" }),
       expect.objectContaining({ id: 43, type: "completed" }),
     ]);
+  });
+});
+
+describe("task lifecycle requests", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("renames and deletes tasks through the scoped endpoints", async () => {
+    vi.mocked(apiFetch).mockResolvedValue({ id: "task-1", title: "新名称" } as never);
+
+    await renameTask("workspace-1", "task-1", "新名称");
+    await deleteTask("workspace-1", "task-1");
+
+    expect(apiFetch).toHaveBeenNthCalledWith(1, "/workspaces/workspace-1/recruitment-tasks/task-1", {
+      method: "PUT", body: JSON.stringify({ title: "新名称" }),
+    });
+    expect(apiFetch).toHaveBeenNthCalledWith(2, "/workspaces/workspace-1/recruitment-tasks/task-1", { method: "DELETE" });
   });
 });

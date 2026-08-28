@@ -18,11 +18,12 @@ export default function SettingsPage(){
   useEffect(()=>{let active=true;Promise.all([apiFetch<Me>("/me"),apiFetch<Company[]>("/companies"),apiFetch<Workspace[]>("/workspaces")]).then(([u,c,w])=>{if(active){setMe(u);setCompanies(c);setWorkspaces(w);}}).catch(e=>{if(active)setMessage(e instanceof ApiError?e.message:"加载失败");});return()=>{active=false};},[]);
   // 企业用户：有企业成员身份（companies 非空），展示组织视角，隐藏个人实名认证与企业加入申请
   const isCompanyUser=companies.length>0;
-  return <AppShell activeItem="设置">
-    <header className="mb-4">
+  return <AppShell activeItem="设置" pageHeader={
+    <header>
       <h1 className="m-0 text-[25px] font-bold text-[#09245d]">{isCompanyUser?"组织信息与空间设置":"个人信息与空间设置"}</h1>
       <p className="mt-1 text-sm text-[#55709d]">招聘数据始终按 Workspace 成员关系隔离，企业角色仅管理治理元数据。</p>
     </header>
+  }>
     {message&&<p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{message}</p>}
 
     {isCompanyUser&&<AccountOverview me={me}/>}

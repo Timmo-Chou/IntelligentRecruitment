@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.local/ai-platform/policy-decision.schema.json",
+  "title": "PolicyDecision",
+  "description": "A deterministic decision made by the recruitment business service. AI Platform may execute only when decision is allow.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["policy_decision_id", "decision", "reason_codes", "workspace_id", "actor_id", "evaluated_at", "policy_version"],
+  "properties": {
+    "policy_decision_id": { "type": "string", "minLength": 1 },
+    "decision": { "enum": ["allow", "require_user_confirmation", "deny"] },
+    "reason_codes": {
+      "type": "array",
+      "items": { "enum": ["AUTHORIZED", "MISSING_JOB_VERSION", "MISSING_CANDIDATE_SCOPE", "MISSING_SCREENING_PLAN", "MISSING_SCREENING_RESULT", "INSUFFICIENT_BALANCE", "QUOTE_REQUIRED", "QUOTE_EXPIRED", "USER_CONFIRMATION_REQUIRED", "SENSITIVE_RULE_BLOCKED", "DATA_POLICY_BLOCKED", "RESOURCE_NOT_FOUND", "INVALID_STATE"] },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "workspace_id": { "type": "string", "minLength": 1 },
+    "company_id": { "type": ["string", "null"], "minLength": 1 },
+    "actor_id": { "type": "string", "minLength": 1 },
+    "confirmation": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "quote_id": { "type": "string", "minLength": 1 },
+        "estimated_amount_minor": { "type": "integer", "minimum": 0 },
+        "currency": { "const": "CNY" },
+        "confirmed_at": { "type": "string", "format": "date-time" },
+        "confirmed_by": { "type": "string", "minLength": 1 }
+      }
+    },
+    "policy_version": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "evaluated_at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "decision": { "const": "allow" } } },
+      "then": {
+        "properties": { "reason_codes": { "contains": { "const": "AUTHORIZED" } } }
+      }
+    },
+    {
+      "if": { "properties": { "decision": { "const": "require_user_confirmation" } } },
+      "then": {
+        "properties": { "reason_codes": { "contains": { "const": "USER_CONFIRMATION_REQUIRED" } } }
+      }
+    }
+  ]
+}

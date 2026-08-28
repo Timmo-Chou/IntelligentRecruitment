@@ -83,11 +83,18 @@ public class TicketService {
         List<Object> queryParams = new ArrayList<>(params);
         queryParams.add(size);
         queryParams.add(offset);
+        // COALESCE 优先级：display_name > phone_last_four > 存储的 creator_name（UUID）
         String listSql = """
-                SELECT st.id, st.ticket_number, st.creator_user_id, st.creator_name, st.title,
-                       st.category, st.priority, st.status, st.assigned_to_id, st.closed_at,
+                SELECT st.id, st.ticket_number, st.creator_user_id,
+                       COALESCE(NULLIF(u.display_name, ''),
+                                NULLIF('用户****' || u.phone_last_four, '用户****'),
+                                st.creator_name) AS creator_name,
+                       st.company_id, c.display_name AS company_name,
+                       st.title, st.category, st.priority, st.status, st.assigned_to_id, st.closed_at,
                        st.created_at, st.updated_at
                 FROM support_tickets st
+                LEFT JOIN users u ON u.id = st.creator_user_id
+                LEFT JOIN companies c ON c.id = st.company_id
                 """ + whereClause + """
                  ORDER BY st.created_at DESC
                  LIMIT ? OFFSET ?
@@ -98,6 +105,8 @@ public class TicketService {
                 rs.getString("ticket_number"),
                 rs.getObject("creator_user_id", UUID.class),
                 rs.getString("creator_name"),
+                rs.getObject("company_id", UUID.class),
+                rs.getString("company_name"),
                 rs.getString("title"),
                 rs.getString("category"),
                 rs.getString("priority"),
@@ -115,18 +124,26 @@ public class TicketService {
      * 获取工单详情（包含所有消息）。
      */
     public TicketDetail getTicket(UUID ticketId) {
-        // 查询工单基本信息
+        // 查询工单基本信息（JOIN用户表获取最新昵称，优先级：display_name > phone > stored_name）
         List<TicketRow> ticketRows = jdbc.query("""
-                SELECT st.id, st.ticket_number, st.creator_user_id, st.creator_name, st.title,
-                       st.category, st.priority, st.status, st.assigned_to_id, st.closed_at,
+                SELECT st.id, st.ticket_number, st.creator_user_id,
+                       COALESCE(NULLIF(u.display_name, ''),
+                                NULLIF('用户****' || u.phone_last_four, '用户****'),
+                                st.creator_name) AS creator_name,
+                       st.company_id, c.display_name AS company_name,
+                       st.title, st.category, st.priority, st.status, st.assigned_to_id, st.closed_at,
                        st.created_at, st.updated_at
                 FROM support_tickets st
+                LEFT JOIN users u ON u.id = st.creator_user_id
+                LEFT JOIN companies c ON c.id = st.company_id
                 WHERE st.id = ?
                 """, (rs, n) -> new TicketRow(
                 rs.getObject("id", UUID.class),
                 rs.getString("ticket_number"),
                 rs.getObject("creator_user_id", UUID.class),
                 rs.getString("creator_name"),
+                rs.getObject("company_id", UUID.class),
+                rs.getString("company_name"),
                 rs.getString("title"),
                 rs.getString("category"),
                 rs.getString("priority"),
@@ -163,6 +180,7 @@ public class TicketService {
     /**
      * 用户创建工单。
      * 自动生成工单编号：TK-YYYYMMDD-XXXX（按天自增）。
+     * 自动查找用户昵称和关联企业信息。
      */
     @Transactional
     public TicketRow createTicket(UUID creatorUserId, String creatorName, String title,
@@ -171,17 +189,22 @@ public class TicketService {
         Instant now = Instant.now();
         UUID ticketId = UUID.randomUUID();
 
+        // 查找用户实际昵称和企业信息
+        UserInfo userInfo = lookupUserInfo(creatorUserId);
+        String displayName = userInfo.displayName() != null ? userInfo.displayName() : creatorName;
+
         jdbc.update("""
-                INSERT INTO support_tickets (id, ticket_number, creator_user_id, creator_name, title, category, priority, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
-                """, ticketId, ticketNumber, creatorUserId, required(creatorName, "创建者名称不能为空"),
+                INSERT INTO support_tickets (id, ticket_number, creator_user_id, creator_name, company_id, title, category, priority, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
+                """, ticketId, ticketNumber, creatorUserId, displayName, userInfo.companyId(),
                 required(title, "工单标题不能为空"), required(category, "工单分类不能为空"),
                 required(priority, "优先级不能为空"), timestamp(now), timestamp(now));
 
         // 插入第一条消息
-        addMessageInternal(ticketId, "USER", creatorUserId, creatorName, required(body, "工单内容不能为空"), now);
+        addMessageInternal(ticketId, "USER", creatorUserId, displayName, required(body, "工单内容不能为空"), now);
 
-        return new TicketRow(ticketId, ticketNumber, creatorUserId, creatorName, title, category, priority,
+        return new TicketRow(ticketId, ticketNumber, creatorUserId, displayName, userInfo.companyId(),
+                userInfo.companyName(), title, category, priority,
                 "OPEN", null, null, now, now);
     }
 
@@ -205,7 +228,8 @@ public class TicketService {
         // 插入第一条消息
         addMessageInternal(ticketId, "PLATFORM_ADMIN", null, creatorName, required(body, "工单内容不能为空"), now);
 
-        return new TicketRow(ticketId, ticketNumber, null, creatorName, title, category, priority,
+        return new TicketRow(ticketId, ticketNumber, null, creatorName, null, null,
+                title, category, priority,
                 "OPEN", null, null, now, now);
     }
 
@@ -320,6 +344,38 @@ public class TicketService {
     }
 
     /**
+     * 查找用户信息（昵称和关联企业）。
+     * 优先级：display_name > phone_last_four > null
+     */
+    private UserInfo lookupUserInfo(UUID userId) {
+        if (userId == null) {
+            return new UserInfo(null, null, null);
+        }
+        // 查询用户昵称和企业信息
+        // company_memberships 表使用 joined_at 作为加入时间
+        List<UserInfo> results = jdbc.query("""
+                SELECT CASE
+                         WHEN NULLIF(u.display_name, '') IS NOT NULL THEN u.display_name
+                         WHEN NULLIF('用户****' || u.phone_last_four, '用户****') IS NOT NULL THEN '用户****' || u.phone_last_four
+                         ELSE NULL
+                       END AS display_name,
+                       c.id AS company_id,
+                       c.display_name AS company_name
+                FROM users u
+                LEFT JOIN company_memberships cm ON cm.user_id = u.id
+                LEFT JOIN companies c ON c.id = cm.company_id
+                WHERE u.id = ?
+                ORDER BY cm.joined_at DESC NULLS LAST
+                LIMIT 1
+                """, (rs, n) -> new UserInfo(
+                        rs.getString("display_name"),
+                        rs.getObject("company_id", UUID.class),
+                        rs.getString("company_name")
+                ), userId);
+        return results.isEmpty() ? new UserInfo(null, null, null) : results.getFirst();
+    }
+
+    /**
      * 校验用户是否为工单创建者。
      */
     public void verifyTicketOwner(UUID ticketId, UUID userId) {
@@ -352,6 +408,8 @@ public class TicketService {
             String ticketNumber,
             UUID creatorUserId,
             String creatorName,
+            UUID companyId,
+            String companyName,
             String title,
             String category,
             String priority,
@@ -360,6 +418,15 @@ public class TicketService {
             Instant closedAt,
             Instant createdAt,
             Instant updatedAt
+    ) {}
+
+    /**
+     * 用户信息（昵称+企业）。
+     */
+    private record UserInfo(
+            String displayName,
+            UUID companyId,
+            String companyName
     ) {}
 
     /**

@@ -313,9 +313,8 @@ export default function JobsPage() {
   }
 
   return (
-    <AppShell activeItem="职位库">
-      {/* 标题栏 */}
-      <section className="mb-4 flex flex-wrap items-end justify-between gap-3">
+    <AppShell activeItem="职位库" pageHeader={
+      <section className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-baseline gap-4">
           <h1 className="m-0 text-[25px] font-bold tracking-tight text-[#09245d]">职位库</h1>
           <p className="m-0 text-sm text-[#55709d]">
@@ -323,6 +322,7 @@ export default function JobsPage() {
           </p>
         </div>
       </section>
+    }>
 
       {/* 搜索与操作栏 */}
       <section className="mb-4 grid gap-3 xl:grid-cols-[minmax(280px,1fr)_140px_auto_auto_auto]">

@@ -97,15 +97,7 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
   if (!workspaceId) return embedded ? <div className="grid h-64 place-items-center text-sm text-[#7085a4]">请先登录并进入一个可访问的工作空间</div> : <State text="请先登录并进入一个可访问的工作空间"/>;
 
   const content = <>
-    <section className="flex flex-wrap items-end justify-between gap-3">
-      <div><h1 className="m-0 text-[25px] font-bold text-[#09245d]">人才库</h1><p className="mb-0 mt-1 text-sm text-[#60799f]">{workspace?.name} · 简历文件、解析版本和候选人信息严格限定当前工作空间</p></div>
-      <div className="flex items-center gap-2">
-        <select value={scenario} onChange={(event) => setScenario(event.target.value)} className="h-10 rounded-lg border border-[#cfdeed] bg-white px-3 text-xs text-[#516c94]"><option value="NORMAL">正常解析</option><option value="INVALID_SCHEMA">模拟解析失败</option></select>
-        <input ref={inputRef} type="file" multiple accept=".pdf,.docx" className="hidden" onChange={(event) => void handleFiles(event.target.files)}/>
-        <button type="button" className="primary-button" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? <Loader2 size={16} className="animate-spin"/> : <Upload size={16}/>}上传简历</button>
-      </div>
-    </section>
-    {error && <div className="mt-4 flex items-center gap-2 rounded-lg border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#b42318]"><AlertCircle size={17}/>{error}</div>}
+    {error && <div className="flex items-center gap-2 rounded-lg border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#b42318]"><AlertCircle size={17}/>{error}</div>}
     {uploadReport.length > 0 && <section className="mt-4 rounded-xl border border-[#d7e6f3] bg-white p-3"><div className="flex flex-wrap gap-2">{uploadReport.map(item => <span key={item.name} className={`rounded-full px-3 py-1 text-[11px] ${item.status === "SUCCESS" ? "bg-[#e5f8f1] text-[#15785f]" : "bg-[#fff0ed] text-[#a64c40]"}`}>{item.name} · {item.message}</span>)}</div></section>}
 
     <button type="button" onClick={() => inputRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void handleFiles(event.dataTransfer.files); }} className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-[#a9cee2] bg-[#f7fcff] px-4 py-3 text-xs text-[#52779a] transition hover:bg-[#eff9fd]"><Upload size={15}/>拖拽多份 PDF / DOCX 到这里，或点击选择文件（单文件最大 10MB）</button>
@@ -144,7 +136,16 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
       </aside>
     </div>
   </>;
-  return embedded ? content : <AppShell activeItem="人才库">{content}</AppShell>;
+  return embedded ? content : <AppShell activeItem="人才库" pageHeader={
+    <section className="flex flex-wrap items-end justify-between gap-3">
+      <div><h1 className="m-0 text-[25px] font-bold text-[#09245d]">人才库</h1><p className="mb-0 mt-1 text-sm text-[#60799f]">{workspace?.name ?? "当前工作空间"} · 简历文件、解析版本和候选人信息严格限定当前工作空间</p></div>
+      <div className="flex items-center gap-2">
+        <select value={scenario} onChange={(event) => setScenario(event.target.value)} className="h-10 rounded-lg border border-[#cfdeed] bg-white px-3 text-xs text-[#516c94]"><option value="NORMAL">正常解析</option><option value="INVALID_SCHEMA">模拟解析失败</option></select>
+        <input ref={inputRef} type="file" multiple accept=".pdf,.docx" className="hidden" onChange={(event) => void handleFiles(event.target.files)}/>
+        <button type="button" className="primary-button" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? <Loader2 size={16} className="animate-spin"/> : <Upload size={16}/>}上传简历</button>
+      </div>
+    </section>
+  }>{content}</AppShell>;
 }
 
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) { return <article className="flex items-center gap-3 rounded-xl border border-[#dbe8f4] bg-white p-4"><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#e8f8f4] text-[#109b82]">{icon}</span><span><small className="text-[#768aa7]">{label}</small><strong className="mt-1 block text-xl text-[#163665]">{value}</strong></span></article>; }

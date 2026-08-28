@@ -1,5 +1,5 @@
 "use client";
-import { ArrowRight, Bot, BriefcaseBusiness, CircleCheck, Clock3, FileSearch, Sparkles, Users } from "lucide-react";
+import { ArrowRight, Bot, BriefcaseBusiness, CircleCheck, Clock3, FileSearch, Users } from "lucide-react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/app-shell";
 import { useWorkspace } from "@/lib/workspace-context";
@@ -7,25 +7,80 @@ import { fetchTasks, type TaskSummary } from "@/lib/recruitment-api";
 import { apiFetch } from "@/lib/api-client";
 import { useEffect, useState } from "react";
 
-const stats = [
-  ["在招职位", "--", "Phase 3 接入", BriefcaseBusiness, "/jobs"],
-  ["人才总数", "--", "Phase 4 接入", Users, "/candidates"],
-  ["进行中任务", "--", "Phase 3 接入", Clock3, "/recruitment"],
-  ["本月 AI 完成", "--", "业务能力接入后统计", CircleCheck, "/recruitment"],
-] as const;
+type JobStats = { total: number; active: number; closed: number; draft: number };
+type BillingStats = { availableAmountMinor: number; todaySpentAmountMinor?: number };
 
 export default function OverviewPage() {
-  const {workspaceId}=useWorkspace(); const [tasksData,setTasksData]=useState<TaskSummary[]>([]); const [balance,setBalance]=useState<number|null>(null);
-  useEffect(()=>{if(!workspaceId)return;Promise.all([fetchTasks(workspaceId),apiFetch<{availableAmountMinor:number}>(`/workspaces/${workspaceId}/billing`)]).then(([tasks,billing])=>{setTasksData(tasks);setBalance(billing.availableAmountMinor);}).catch(()=>{});},[workspaceId]);
+  const {workspaceId}=useWorkspace();
+  const [tasksData,setTasksData]=useState<TaskSummary[]>([]);
+  const [balance,setBalance]=useState<number|null>(null);
+  const [jobStats, setJobStats] = useState<JobStats | null>(null);
+  const [todaySpent, setTodaySpent] = useState<number|null>(null);
+  useEffect(()=>{if(!workspaceId)return;
+    Promise.all([
+      fetchTasks(workspaceId),
+      apiFetch<BillingStats>(`/workspaces/${workspaceId}/billing`),
+      apiFetch<JobStats>(`/workspaces/${workspaceId}/jobs/stats`).catch(()=>({total:0,active:0,closed:0,draft:0}))
+    ]).then(([tasks,billing,jobs])=>{
+      setTasksData(tasks);
+      setBalance(billing.availableAmountMinor);
+      setTodaySpent(typeof billing.todaySpentAmountMinor==="number"?billing.todaySpentAmountMinor:null);
+      setJobStats(jobs);
+    }).catch(()=>{});
+  },[workspaceId]);
   const activeTasks=tasksData.filter(t=>!['COMPLETED','FAILED','CANCELLED'].includes(t.status)).length;
-  return <AppShell activeItem="概览">
-    <section className="flex flex-wrap items-start justify-between gap-4">
-      <div><h1 className="m-0 text-[25px] font-bold tracking-tight text-[#09245d]">概览</h1><p className="mb-0 mt-1 text-sm text-[#55709d]">查看招聘进展、AI 任务和需要人工确认的事项</p></div>
-      <Link href="/recruitment" className="primary-button"><Sparkles size={16}/> 开始智能招聘</Link>
+  return <AppShell activeItem="概览" pageHeader={
+    <section>
+      <h1 className="m-0 text-[25px] font-bold tracking-tight text-[#09245d]">概览</h1>
+      <p className="mb-0 mt-1 text-sm text-[#55709d]">查看招聘进展、AI 任务和需要人工确认的事项</p>
     </section>
+  }>
 
-    <section className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="招聘概览">
-      {stats.map(([label,value,note,Icon,href]) => <Link href={href} key={label} className="metric-card !min-h-[112px] transition hover:-translate-y-0.5 hover:border-[#b9d9ed]"><span className="metric-icon !h-10 !w-10"><Icon size={20}/></span><div className="min-w-0"><p className="m-0 text-sm font-semibold text-[#2b4775]">{label}</p><strong className="mt-1 block text-[30px] leading-none text-[#09245d]">{label==="进行中任务"?activeTasks:value}</strong><p className="mb-0 mt-2 truncate text-xs text-[#6c83a7]">{label==="进行中任务"?"当前 Workspace 实时统计":note}</p></div></Link>)}
+    <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="招聘概览">
+      {/* 在招职位 */}
+      <Link href="/jobs" className="metric-card !min-h-[112px] transition hover:-translate-y-0.5 hover:border-[#b9d9ed]">
+        <span className="metric-icon !h-10 !w-10"><BriefcaseBusiness size={20}/></span>
+        <div className="min-w-0">
+          <p className="m-0 text-sm font-semibold text-[#2b4775]">在招职位</p>
+          <strong className="mt-1 block text-[30px] leading-none text-[#09245d]">
+            {jobStats===null?"--":jobStats.total}
+          </strong>
+          <p className="mb-0 mt-2 truncate text-xs text-[#6c83a7]">职位总数 {jobStats===null?"--":jobStats.total}</p>
+        </div>
+      </Link>
+      {/* 人才总数 */}
+      <Link href="/candidates" className="metric-card !min-h-[112px] transition hover:-translate-y-0.5 hover:border-[#b9d9ed]">
+        <span className="metric-icon !h-10 !w-10"><Users size={20}/></span>
+        <div className="min-w-0">
+          <p className="m-0 text-sm font-semibold text-[#2b4775]">人才总数</p>
+          <strong className="mt-1 block text-[30px] leading-none text-[#09245d]">--</strong>
+          <p className="mb-0 mt-2 truncate text-xs text-[#6c83a7]">Phase 4 接入</p>
+        </div>
+      </Link>
+      {/* 进行中任务 */}
+      <Link href="/recruitment" className="metric-card !min-h-[112px] transition hover:-translate-y-0.5 hover:border-[#b9d9ed]">
+        <span className="metric-icon !h-10 !w-10"><Clock3 size={20}/></span>
+        <div className="min-w-0">
+          <p className="m-0 text-sm font-semibold text-[#2b4775]">进行中任务</p>
+          <strong className="mt-1 block text-[30px] leading-none text-[#09245d]">{activeTasks}</strong>
+          <p className="mb-0 mt-2 truncate text-xs text-[#6c83a7]">当前 Workspace 实时统计</p>
+        </div>
+      </Link>
+      {/* 今日花费 */}
+      <Link href="/billing" className="metric-card !min-h-[112px] transition hover:-translate-y-0.5 hover:border-[#b9d9ed]">
+        <span className="metric-icon !h-10 !w-10 !bg-gradient-to-br !from-[#ffe9c9] !to-[#fff6e7] !text-[#c9741b]">
+          <CircleCheck size={20}/>
+        </span>
+        <div className="min-w-0">
+          <p className="m-0 text-sm font-semibold text-[#2b4775]">今日花费</p>
+          <strong className="mt-1 block text-[30px] leading-none text-[#09245d]">
+            {todaySpent===null?"--":`¥${(todaySpent/100).toFixed(2)}`}
+          </strong>
+          <p className="mb-0 mt-2 truncate text-xs text-[#6c83a7]">
+            {todaySpent===null?"今日账本统计中":`当前 Workspace 已消费 ¥${(todaySpent/100).toFixed(2)}`}
+          </p>
+        </div>
+      </Link>
     </section>
 
     <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">

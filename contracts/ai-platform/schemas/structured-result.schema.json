@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.local/ai-platform/structured-result.schema.json",
+  "title": "StructuredResult",
+  "description": "A validated AI output envelope. The business service validates this envelope and its capability-specific data before writing business facts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["execution_id", "capability", "status", "output_schema_version", "data", "warnings", "missing_information", "provenance", "generated_at"],
+  "properties": {
+    "execution_id": { "type": "string", "minLength": 1 },
+    "ai_task_id": { "type": ["string", "null"], "minLength": 1 },
+    "capability": { "enum": ["requirement_chat", "jd_generation", "resume_parsing", "screening_plan_generation", "candidate_screening", "interview_kit_generation", "task_assistance"] },
+    "status": { "enum": ["draft_ready", "completed", "partially_completed", "waiting_for_input", "failed"] },
+    "output_schema_version": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "data": { "type": "object" },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_kind", "source_ref", "locator"],
+        "properties": {
+          "source_kind": { "enum": ["job_version", "resume_parse_version", "screening_result", "user_provided"] },
+          "source_ref": { "type": "string", "minLength": 1 },
+          "locator": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "excerpt": { "type": ["string", "null"], "maxLength": 500 }
+        }
+      }
+    },
+    "warnings": { "type": "array", "items": { "type": "string", "maxLength": 1000 } },
+    "missing_information": { "type": "array", "items": { "type": "string", "maxLength": 1000 } },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skill_id", "skill_version", "prompt_version", "model_policy_version"],
+      "properties": {
+        "skill_id": { "type": "string", "minLength": 1 },
+        "skill_version": { "type": "string", "minLength": 1 },
+        "prompt_version": { "type": "string", "minLength": 1 },
+        "model_policy_version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "usage": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 },
+        "supplier_cost_minor": { "type": "integer", "minimum": 0 },
+        "currency": { "const": "CNY" }
+      }
+    },
+    "generated_at": { "type": "string", "format": "date-time" }
+  }
+}

@@ -18,7 +18,7 @@ const ticketSchema = z.object({
   title: z.string().min(1, "请输入工单标题"),
   category: z.string().min(1, "请选择分类"),
   priority: z.string().min(1, "请选择优先级"),
-  content: z.string().min(1, "请输入工单内容"),
+  body: z.string().min(1, "请输入工单内容"),
 });
 
 type TicketForm = z.infer<typeof ticketSchema>;
@@ -33,7 +33,7 @@ export default function NewTicketPage() {
   } = useForm<TicketForm>({
     resolver: zodResolver(ticketSchema),
     defaultValues: {
-      priority: "MEDIUM",
+      priority: "NORMAL",
       category: "OTHER",
     },
   });
@@ -95,6 +95,7 @@ export default function NewTicketPage() {
               <option value="ACCOUNT">账号问题</option>
               <option value="BILLING">账单问题</option>
               <option value="TECHNICAL">技术问题</option>
+              <option value="FEEDBACK">功能反馈</option>
             </select>
             {errors.category && (
               <p className="mt-1 text-xs text-red-500">{errors.category.message}</p>
@@ -109,6 +110,7 @@ export default function NewTicketPage() {
               className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 focus:border-brand focus:ring-3 focus:ring-brand/10"
             >
               <option value="LOW">低</option>
+              <option value="NORMAL">普通</option>
               <option value="MEDIUM">中</option>
               <option value="HIGH">高</option>
               <option value="URGENT">紧急</option>
@@ -122,13 +124,13 @@ export default function NewTicketPage() {
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">工单内容</label>
             <textarea
-              {...register("content")}
+              {...register("body")}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-brand focus:ring-3 focus:ring-brand/10"
               rows={5}
               placeholder="请描述工单详情…"
             />
-            {errors.content && (
-              <p className="mt-1 text-xs text-red-500">{errors.content.message}</p>
+            {errors.body && (
+              <p className="mt-1 text-xs text-red-500">{errors.body.message}</p>
             )}
           </div>
 

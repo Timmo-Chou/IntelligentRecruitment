@@ -4,6 +4,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intelligentrecruitment.agentflow.application.RecruitmentFlowCoordinator;
+import com.intelligentrecruitment.agentflow.domain.ExecutionContext;
+import com.intelligentrecruitment.agentflow.domain.FlowCapability;
+import com.intelligentrecruitment.agentflow.domain.PolicyDecision;
 import com.intelligentrecruitment.aiplatform.application.AiPlatformClient;
 import com.intelligentrecruitment.aiplatform.application.StartAiTaskCommand;
 import com.intelligentrecruitment.aiplatform.domain.AiCapability;
@@ -42,6 +46,7 @@ public class ScreeningService {
     private final ObjectMapper objectMapper;
     private final WorkspaceAccessService workspaceAccess;
     private final BillingService billing;
+    private final RecruitmentFlowCoordinator flowCoordinator;
     private final AiPlatformClient aiPlatform;
     private final ScreeningMatcher matcher;
     private final long unitPriceMinor;
@@ -50,7 +55,8 @@ public class ScreeningService {
     private final long outboxLeaseSeconds;
 
     public ScreeningService(JdbcTemplate jdbc, ObjectMapper objectMapper, WorkspaceAccessService workspaceAccess,
-                            BillingService billing, AiPlatformClient aiPlatform, ScreeningMatcher matcher,
+                            BillingService billing, RecruitmentFlowCoordinator flowCoordinator,
+                            AiPlatformClient aiPlatform, ScreeningMatcher matcher,
                             @Value("${app.phase5.screening-unit-price-minor:80}") long unitPriceMinor,
                             @Value("${app.phase5.pricing-version:SCREENING_MOCK_V1}") String pricingVersion,
                             @Value("${app.phase5.quote-ttl-seconds:300}") long quoteTtlSeconds,
@@ -59,6 +65,7 @@ public class ScreeningService {
         this.objectMapper = objectMapper;
         this.workspaceAccess = workspaceAccess;
         this.billing = billing;
+        this.flowCoordinator = flowCoordinator;
         this.aiPlatform = aiPlatform;
         this.matcher = matcher;
         this.unitPriceMinor = unitPriceMinor;
@@ -246,15 +253,26 @@ public class ScreeningService {
                                                 List<QueuedCandidate> candidates, UUID parentRunId, UUID rootRunId) {
         UUID runId = UUID.randomUUID();
         Instant now = Instant.now();
+        long availableAmountMinor = billing.view(userId, scope.workspaceId()).availableAmountMinor();
+        PolicyDecision policyDecision = flowCoordinator.evaluate(FlowCapability.CANDIDATE_SCREENING, scope, userId,
+                availableAmountMinor, quote.estimatedAmountMinor(), quote.id(), true);
+        List<ExecutionContext.InputVersion> inputVersions = new ArrayList<>();
+        inputVersions.add(new ExecutionContext.InputVersion("job_version", jobVersionId.toString(), "frozen", null));
+        inputVersions.add(new ExecutionContext.InputVersion("screening_plan_version", planVersionId.toString(), "frozen", null));
+        candidates.forEach(candidate -> inputVersions.add(new ExecutionContext.InputVersion("resume_parse_version",
+                candidate.parseVersionId().toString(), "frozen", null)));
+        ExecutionContext executionContext = flowCoordinator.createExecutionContext(policyDecision, runId, key,
+                "screening-run:" + runId, inputVersions, false);
         jdbc.update("""
                 INSERT INTO screening_runs
                 (id,company_id,workspace_id,job_id,job_version_id,plan_version_id,quote_id,parent_run_id,
                  root_run_id,status,progress,scenario,pricing_version,unit_price_minor,estimated_amount_minor,
-                 idempotency_key,request_hash,created_by,created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,'RUNNING',5,?,?,?,?,?,?,?,?)
+                 idempotency_key,request_hash,created_by,created_at,policy_decision,execution_context)
+                VALUES (?,?,?,?,?,?,?,?,?,'RUNNING',5,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb)
                 """, runId, scope.companyId(), scope.workspaceId(), jobId, jobVersionId, planVersionId, quote.id(),
                 parentRunId, rootRunId, scenario, quote.pricingVersion(), quote.unitPriceMinor(),
-                quote.estimatedAmountMinor(), key, requestHash, userId, timestamp(now));
+                quote.estimatedAmountMinor(), key, requestHash, userId, timestamp(now), json(policyDecision),
+                json(executionContext));
         for (QueuedCandidate candidate : candidates) {
             jdbc.update("""
                     INSERT INTO screening_run_items
@@ -310,7 +328,8 @@ public class ScreeningService {
                     "candidate_count", run.totalItems(), "scenario", run.scenario());
             var aiTask = aiPlatform.startTask(new StartAiTaskCommand(run.workspaceId().toString(),
                     run.companyId() == null ? null : run.companyId().toString(), run.createdBy().toString(),
-                    run.id().toString(), "screening-provider:" + run.id(), AiCapability.CANDIDATE_SCREENING, aiInput));
+                    run.id().toString(), "screening-provider:" + run.id(), AiCapability.CANDIDATE_SCREENING, aiInput,
+                    executionContext(run.executionContext())));
             jdbc.update("UPDATE screening_runs SET provider_task_id=?,progress=15 WHERE id=? AND status='RUNNING'",
                     aiTask.aiTaskId(), runId);
         }
@@ -685,7 +704,7 @@ public class ScreeningService {
         return jdbc.query("""
                 SELECT r.id,r.company_id,r.workspace_id,r.job_version_id,r.plan_version_id,r.provider_task_id,
                        r.status,r.scenario,r.unit_price_minor,r.created_by,jv.snapshot::text,
-                       pv.rules_snapshot::text,
+                       pv.rules_snapshot::text,r.execution_context::text,
                        (SELECT count(*) FROM screening_run_items i WHERE i.run_id=r.id) AS total_items
                 FROM screening_runs r
                 JOIN job_versions jv ON jv.id=r.job_version_id
@@ -697,7 +716,8 @@ public class ScreeningService {
                 rs.getObject("plan_version_id", UUID.class), rs.getString("provider_task_id"),
                 rs.getString("status"), rs.getString("scenario"), rs.getLong("unit_price_minor"),
                 rs.getObject("created_by", UUID.class), rs.getString("snapshot"),
-                rs.getString("rules_snapshot"), rs.getInt("total_items")), runId);
+                rs.getString("rules_snapshot"), rs.getString("execution_context"),
+                rs.getInt("total_items")), runId);
     }
 
     private ScreeningMatcher.FrozenJob jobFromSnapshot(String snapshot) {
@@ -733,6 +753,13 @@ public class ScreeningService {
     private String json(Object value) {
         try { return objectMapper.writeValueAsString(value); }
         catch (JsonProcessingException exception) { throw new ApiException("SERIALIZATION_FAILED", "筛选数据保存失败", HttpStatus.INTERNAL_SERVER_ERROR); }
+    }
+
+    private ExecutionContext executionContext(String value) {
+        try { return objectMapper.readValue(value, ExecutionContext.class); }
+        catch (JsonProcessingException exception) {
+            throw new ApiException("EXECUTION_CONTEXT_INVALID", "筛选执行上下文无法读取", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
 
     private List<DimensionInput> dimensions(String json) {
@@ -806,7 +833,7 @@ public class ScreeningService {
     private record ExecutionRow(UUID id, UUID companyId, UUID workspaceId, UUID jobVersionId,
                                 UUID planVersionId, String providerTaskId, String status, String scenario,
                                 long unitPriceMinor, UUID createdBy, String jobSnapshot, String rulesSnapshot,
-                                int totalItems) { }
+                                String executionContext, int totalItems) { }
     private record ItemExecutionRow(UUID id, UUID candidateId, UUID parseVersionId, String headline,
                                     int yearsExperience, String education, List<String> skills, String summary,
                                     String workExperience, String rawText) { }

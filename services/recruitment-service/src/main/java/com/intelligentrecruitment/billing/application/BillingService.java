@@ -91,8 +91,24 @@ public class BillingService {
                 """, (rs, n) -> new LedgerView(rs.getObject("id", UUID.class), rs.getString("entry_type"),
                         rs.getLong("amount_minor"), rs.getString("business_reference"), rs.getString("reason"),
                         rs.getTimestamp("created_at").toInstant()), summary.accountId()) : List.of();
+        // 今日花费合计（以 Asia/Shanghai 时区自然日为界，只统计支出类条目：SETTLEMENT 和金额 < 0 的 ADJUSTMENT）
+        long todaySpentAmountMinor;
+        try {
+            java.time.ZoneId shanghai = java.time.ZoneId.of("Asia/Shanghai");
+            java.time.LocalDate today = java.time.LocalDate.now(shanghai);
+            java.time.Instant dayStart = today.atStartOfDay(shanghai).toInstant();
+            java.time.Instant dayEnd = today.plusDays(1).atStartOfDay(shanghai).toInstant();
+            Long spent = jdbc.queryForObject("""
+                    SELECT COALESCE(SUM(ABS(amount_minor)),0) FROM billing_ledger_entries
+                    WHERE billing_account_id = ? AND created_at >= ? AND created_at < ?
+                      AND (entry_type = 'SETTLEMENT' OR (entry_type = 'ADJUSTMENT' AND amount_minor < 0))
+                    """, Long.class, summary.accountId(), java.sql.Timestamp.from(dayStart), java.sql.Timestamp.from(dayEnd));
+            todaySpentAmountMinor = spent == null ? 0L : spent;
+        } catch (Exception ignore) {
+            todaySpentAmountMinor = 0L;
+        }
         return new BillingView(workspaceId, summary.currency(), summary.availableAmountMinor(),
-                summary.reservedAmountMinor(), canViewLedger, lots, ledger);
+                summary.reservedAmountMinor(), canViewLedger, lots, ledger, todaySpentAmountMinor);
     }
 
     @Transactional
@@ -225,6 +241,78 @@ public class BillingService {
         return new ReservationView(reservation.id(),status,reservation.reservedAmountMinor(),actualAmountMinor,releasedTotal);
     }
 
+    /**
+     * 平台管理员视角查询账户余额和额度批次（不含成员校验）。
+     */
+    public AdminBillingView viewForAdmin(UUID workspaceId) {
+        AdminAccountRow account = jdbc.query(
+                "SELECT id, currency, available_amount_minor, reserved_amount_minor FROM billing_accounts WHERE workspace_id = ? AND status = 'ACTIVE'",
+                (rs, n) -> new AdminAccountRow(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("currency"),
+                        rs.getLong("available_amount_minor"),
+                        rs.getLong("reserved_amount_minor")),
+                workspaceId)
+                .stream().findFirst().orElseThrow(
+                        () -> new ApiException("BILLING_ACCOUNT_NOT_FOUND", "账本账户不存在", HttpStatus.NOT_FOUND));
+
+        List<AdminCreditLotRow> lots = jdbc.query("""
+                SELECT id, source_type, original_amount_minor, available_amount_minor, expires_at, status
+                FROM credit_lots WHERE billing_account_id = ? AND status = 'ACTIVE'
+                ORDER BY expires_at
+                """, (rs, n) -> new AdminCreditLotRow(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("source_type"),
+                        rs.getLong("original_amount_minor"),
+                        rs.getLong("available_amount_minor"),
+                        rs.getTimestamp("expires_at").toInstant(),
+                        rs.getString("status")),
+                account.id());
+
+        return new AdminBillingView(account.currency(), account.availableAmountMinor(),
+                account.reservedAmountMinor(), lots);
+    }
+
+    /**
+     * 平台管理员视角查询某工作空间的账本条目（分页）。
+     * 仅查询账本流水，不修改余额，不加 workspace 成员校验。
+     */
+    @Transactional(readOnly = true)
+    public PagedLedgerEntries listLedgerEntries(UUID workspaceId, int page, int pageSize) {
+        int offset = (page - 1) * pageSize;
+
+        // 不加行锁的简单查询，避免与写事务冲突
+        UUID accountId = jdbc.query(
+                "SELECT id FROM billing_accounts WHERE workspace_id = ? AND status = 'ACTIVE'",
+                (rs, n) -> rs.getObject("id", UUID.class), workspaceId)
+                .stream().findFirst().orElseThrow(
+                        () -> new ApiException("BILLING_ACCOUNT_NOT_FOUND", "账本账户不存在", HttpStatus.NOT_FOUND));
+
+        Long total = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM billing_ledger_entries WHERE billing_account_id = ?",
+                Long.class, accountId);
+
+        List<LedgerEntryRow> items = jdbc.query("""
+                SELECT l.id, l.entry_type, l.amount_minor, l.business_reference, l.reason, l.created_at,
+                       l.operator_user_id, u.display_name AS operator_name
+                FROM billing_ledger_entries l
+                LEFT JOIN users u ON u.id = l.operator_user_id
+                WHERE l.billing_account_id = ?
+                ORDER BY l.created_at DESC
+                LIMIT ? OFFSET ?
+                """, (rs, n) -> new LedgerEntryRow(
+                rs.getObject("id", UUID.class),
+                rs.getString("entry_type"),
+                rs.getLong("amount_minor"),
+                rs.getString("business_reference"),
+                rs.getString("reason"),
+                rs.getTimestamp("created_at").toInstant(),
+                rs.getString("operator_name")),
+                accountId, pageSize, offset);
+
+        return new PagedLedgerEntries(items, total != null ? total : 0, page, pageSize);
+    }
+
     @Transactional
     public void adjust(UUID workspaceId, long amountMinor, String reference, String reason) {
         if(amountMinor==0) throw new ApiException("INVALID_AMOUNT","调整金额不能为0",HttpStatus.BAD_REQUEST);
@@ -299,12 +387,23 @@ public class BillingService {
     public record LedgerView(UUID id, String entryType, long amountMinor, String businessReference,
                              String reason, Instant createdAt) {}
     public record BillingView(UUID workspaceId, String currency, long availableAmountMinor, long reservedAmountMinor,
-                              boolean canViewLedger,
-                              List<CreditLotView> creditLots, List<LedgerView> ledger) {}
+                              boolean canViewLedger, List<CreditLotView> creditLots, List<LedgerView> ledger,
+                              long todaySpentAmountMinor) {}
     public record ReservationView(UUID id,String status,long reservedAmountMinor,long settledAmountMinor,long releasedAmountMinor){}
     private record AccountRow(UUID id,long availableAmountMinor,long reservedAmountMinor){}
     private record LotRow(UUID id,long availableAmountMinor,Instant expiresAt){}
     private record ExpiredLot(UUID id,long amount){}
     private record AllocationRow(UUID id,UUID lotId,long reservedAmountMinor,Instant expiresAt,String status){}
     private record ReservationRow(UUID id,String status,long reservedAmountMinor,long settledAmountMinor,long releasedAmountMinor){ReservationView view(){return new ReservationView(id,status,reservedAmountMinor,settledAmountMinor,releasedAmountMinor);}}
+
+    public record LedgerEntryRow(UUID id, String entryType, long amountMinor, String businessReference,
+                                 String reason, Instant createdAt, String operatorName) {}
+    public record PagedLedgerEntries(List<LedgerEntryRow> items, long total, int page, int pageSize) {}
+
+    // 管理员视角的账户余额视图
+    public record AdminCreditLotRow(UUID id, String sourceType, long originalAmountMinor,
+                                    long availableAmountMinor, Instant expiresAt, String status) {}
+    public record AdminBillingView(String currency, long availableAmountMinor, long reservedAmountMinor,
+                                   List<AdminCreditLotRow> creditLots) {}
+    private record AdminAccountRow(UUID id, String currency, long availableAmountMinor, long reservedAmountMinor) {}
 }
