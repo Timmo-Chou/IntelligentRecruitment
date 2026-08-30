@@ -62,9 +62,8 @@ export type TaskDetail = {
   conversationId: string;
   messages: ConversationMessage[];
   jdDraft: JdDraft | null;
+  jdDrafts: JdDraft[];
   latestAiRun: AiRun | null;
-  /** 简历筛选六维评估维度 JSON 字符串（后端默认返回6项，非空） */
-  screeningDimsJson: string | null;
 };
 
 export type GenerateJdInput = {
@@ -110,10 +109,10 @@ export function deleteTask(workspaceId: string, taskId: string) {
   return apiFetch<void>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}`, { method: "DELETE" });
 }
 
-export function sendMessage(workspaceId: string, taskId: string, content: string) {
+export function sendMessage(workspaceId: string, taskId: string, content: string, jdDraftId?: string) {
   return apiFetch<TaskDetail>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/messages`, {
     method: "POST",
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, jdDraftId }),
   });
 }
 
@@ -132,33 +131,10 @@ export function updateJdDraft(workspaceId: string, taskId: string, draft: JdDraf
   });
 }
 
-export function confirmJdDraft(workspaceId: string, taskId: string) {
-  return apiFetch<{ id: string }>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/jd-draft/confirm`, {
+export function confirmJdDraft(workspaceId: string, taskId: string, draftId: string) {
+  return apiFetch<{ id: string }>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/jd-draft/confirm?draftId=${draftId}`, {
     method: "POST",
   });
-}
-
-/** 简历筛选六维评估维度（与后端 ScreeningDimsView.dimensionsJson 结构一致） */
-export type ScreeningDimension = {
-  id: string;
-  name: string;
-  weight: number;
-  description: string;
-};
-
-/** 读取简历筛选六维评估配置（后端返回 JSON 字符串） */
-export function fetchScreeningDimensions(workspaceId: string, taskId: string) {
-  return apiFetch<{ dimensionsJson: string }>(
-    `/workspaces/${workspaceId}/recruitment-tasks/${taskId}/screening-dims`,
-  );
-}
-
-/** 保存简历筛选六维评估配置（整体覆盖；后端会按默认 id 集合并入，避免缺列/非法值） */
-export function updateScreeningDimensions(workspaceId: string, taskId: string, dimensions: ScreeningDimension[]) {
-  return apiFetch<{ dimensionsJson: string }>(
-    `/workspaces/${workspaceId}/recruitment-tasks/${taskId}/screening-dims`,
-    { method: "PUT", body: JSON.stringify({ dimensionsJson: JSON.stringify(dimensions) }) },
-  );
 }
 
 export type JdRunEvent = {

@@ -1,25 +1,28 @@
 "use client";
 
 import {
-  AlertCircle, Bot, BriefcaseBusiness, CheckCircle2, CircleDollarSign, Pencil,
+  AlertCircle, Bot, BriefcaseBusiness, CheckCircle2, CircleDollarSign, Copy, Pencil,
   FileText, Filter, ListChecks, Loader2, MessageSquareText, Plus, Save, Send, Sparkles,
-  TriangleAlert, UsersRound, Search, X, Upload, FolderOpen, File, Copy,
+  TriangleAlert, UsersRound, Search, X, Upload, FolderOpen, File, ChevronDown,
 } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { ApiError } from "@/lib/api-client";
+import { ScreeningWorkspace } from "@/components/screening/screening-workspace";
 import {
-  confirmJdDraft, createTask, fetchTask, fetchTasks, fetchScreeningDimensions, generateJd, sendMessage,
-  streamJdRunEvents, updateJdDraft, updateScreeningDimensions,
-  type JdDraft, type ScreeningDimension, type TaskDetail, type TaskSummary,
+  confirmJdDraft, createTask, fetchTask, fetchTasks, generateJd, sendMessage,
+  streamJdRunEvents, updateJdDraft,
+  type JdDraft, type TaskDetail, type TaskSummary,
 } from "@/lib/recruitment-api";
 import { fetchJobs, type Job } from "@/lib/job-api";
 import { useWorkspace } from "@/lib/workspace-context";
 
 type WorkspaceSection = "home" | "jd" | "candidates" | "screening" | "interviews";
 type SelectedFeature = "JD_GENERATION" | "CANDIDATE_SCREENING" | "INTERVIEW_KIT" | "RESUME_PARSING" | null;
+type RecruitmentAgent = "RECRUITMENT_ASSISTANT" | "TALENT_PLANNER";
+type JdGenerationSource = "TEMPLATE" | "JOB_LIBRARY" | "UPLOAD" | null;
 
 export default function RecruitmentPage() {
   const searchParams = useSearchParams();
@@ -170,7 +173,7 @@ export default function RecruitmentPage() {
     await run(async () => {
       setChatSubmitting(true);
       try {
-        await sendMessage(workspaceId, detail.task.id, message);
+        await sendMessage(workspaceId, detail.task.id, message, draft?.id);
         // 对话调用包含模型生成，完成后以服务端持久化结果为准重新读取，避免旧 AI run 状态覆盖新消息。
         const next = await fetchTask(workspaceId, detail.task.id);
         setMessage("");
@@ -217,23 +220,23 @@ export default function RecruitmentPage() {
     }
   }
 
-  async function handleSave() {
-    if (!workspaceId || !detail || !draft) return;
+  async function handleSave(nextDraft = draft) {
+    if (!workspaceId || !detail || !nextDraft) return;
     await run(async () => {
-      const next = await updateJdDraft(workspaceId, detail.task.id, draft);
+      const next = await updateJdDraft(workspaceId, detail.task.id, nextDraft);
       setDetail(next);
-      setDraft(next.jdDraft);
+      setDraft(next.jdDrafts.find(item => item.id === nextDraft.id) ?? next.jdDraft);
       setEditingPublishedJd(false);
     });
   }
 
-  async function handleConfirm() {
-    if (!workspaceId || !detail || !draft) return;
+  async function handleConfirm(targetDraft = draft) {
+    if (!workspaceId || !detail || !targetDraft) return;
     await run(async () => {
-      await confirmJdDraft(workspaceId, detail.task.id);
+      await confirmJdDraft(workspaceId, detail.task.id, targetDraft.id);
       const next = await fetchTask(workspaceId, detail.task.id);
       setDetail(next);
-      setDraft(next.jdDraft);
+      setDraft(next.jdDrafts.find(item => item.id === targetDraft.id) ?? next.jdDraft);
       await refreshTaskList(next.task.id);
     });
   }
@@ -282,7 +285,7 @@ export default function RecruitmentPage() {
 
     <div className="mt-4 grid min-h-[680px] gap-4 lg:h-[calc(100dvh-190px)] lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_360px]">
       <main className="min-w-0 rounded-xl border border-[#d6e5f5] bg-white p-5 shadow-[0_6px_20px_rgba(30,92,160,0.04)] lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
-        {section === "candidates" ? <WorkflowSection title="上传并解析简历" description="请在此上传 PDF、DOCX 简历，系统将解析候选人信息并在当前工作空间保存。"/> : section === "screening" ? <ScreeningEvaluationPanel task={detail?.task ?? null} workspaceId={workspaceId} initialScreeningDimsJson={detail?.screeningDimsJson ?? null} /> : section === "interviews" ? <WorkflowSection title="AI 面试出题" description="选择候选人，生成可编辑、可确认的结构化面试题包。"/> : !detail ? <CreateTaskPanel title={newTitle} requirement={newRequirement} busy={busy} onTitle={setNewTitle} onRequirement={setNewRequirement} onCreate={() => void handleCreate()} /> : draft ? <JdEditor draft={draft} busy={busy} confirmed={draft.status === "CONFIRMED"} editing={editingPublishedJd} jobId={detail.task.jobId} onEdit={() => setEditingPublishedJd(true)} onChange={setDraft} onSave={() => void handleSave()} onConfirm={() => void handleConfirm()} /> : <JdWaitingState task={detail.task} running={busy || ["QUEUED", "RUNNING"].includes(detail.latestAiRun?.status ?? "")} />}
+        {section === "candidates" ? <WorkflowSection title="上传并解析简历" description="请在此上传 PDF、DOCX 简历，系统将解析候选人信息并在当前工作空间保存。"/> : section === "screening" ? detail ? <ScreeningWorkspace embedded recruitmentTaskId={detail.task.id} initialJobId={detail.task.jobId} /> : <WorkflowSection title="AI 简历筛选" description="请先创建筛选任务后再配置方案与候选人范围。"/> : section === "interviews" ? <WorkflowSection title="AI 面试出题" description="选择候选人，生成可编辑、可确认的结构化面试题包。"/> : !detail ? <CreateTaskPanel title={newTitle} requirement={newRequirement} busy={busy} onTitle={setNewTitle} onRequirement={setNewRequirement} onCreate={() => void handleCreate()} /> : detail.jdDrafts?.length ? <div className="space-y-5">{detail.jdDrafts.map((panel) => <section key={panel.id} className="rounded-xl border border-[#d6e5f5] bg-[#fbfdff] p-4"><JdEditor draft={panel} busy={busy} confirmed={panel.status === "CONFIRMED"} editing={editingPublishedJd && draft?.id === panel.id} jobId={detail.task.jobId} onEdit={() => { setDraft(panel); setEditingPublishedJd(true); }} onSave={(next) => void handleSave(next)} onConfirm={() => void handleConfirm(panel)} /></section>)}</div> : <JdWaitingState task={detail.task} running={busy || ["QUEUED", "RUNNING"].includes(detail.latestAiRun?.status ?? "")} />}
       </main>
 
       <aside className="flex min-h-0 flex-col rounded-xl border border-[#d6e5f5] bg-white shadow-[0_6px_20px_rgba(30,92,160,0.04)] lg:h-[calc(100dvh-190px)] lg:overflow-hidden">
@@ -404,6 +407,9 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
   const fileInputRef = useState<HTMLInputElement | null>(null);
   // AI筛简历：已选职位（单选）
   const [selectedScreeningJob, setSelectedScreeningJob] = useState<Job | null>(null);
+  const [agent, setAgent] = useState<RecruitmentAgent>("RECRUITMENT_ASSISTANT");
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [jdGenerationSource, setJdGenerationSource] = useState<JdGenerationSource>(null);
 
   const inputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
@@ -541,75 +547,17 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
     {error && <div className="mx-auto mb-5 flex w-full max-w-3xl items-center gap-2 rounded-xl border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#b42318]"><AlertCircle size={17}/>{error}</div>}
 
     <section className="mx-auto w-full max-w-4xl text-center">
-      <div className="mx-auto grid h-[68px] w-[68px] place-items-center rounded-[22px] bg-gradient-to-br from-[#1d78f2] via-[#18a7d4] to-[#17bd91] text-white shadow-[0_15px_35px_rgba(29,120,242,0.22)]">
-        <Bot size={35} strokeWidth={1.8}/>
-      </div>
       <h1 className="mb-0 mt-2 text-[clamp(30px,3.5vw,28px)] font-bold tracking-tight text-[#102d64]">AI智能招聘助手</h1>
       <p className="mx-auto mb-0 mt-4 max-w-2xl text-[15px] leading-7 text-[#60789d]">
         我可以帮你生成 JD、筛选简历、出面试题、编排招聘工作流，还可以回答招聘相关问题。
       </p>
     </section>
 
-    {/* 卡片区域：根据选中的底部按钮动态变化；AI筛简历模式下隐藏 */}
-    {selectedFeature !== "CANDIDATE_SCREENING" && (
-      selectedFeature === "JD_GENERATION" ? (
-        // JD生成时：3个JD选项卡
-        <section className="mx-auto mt-7 grid w-full max-w-4xl gap-3 sm:grid-cols-3">
-          {/* 选项卡1：参考JD模版生成 */}
-          <button
-            type="button"
-            onClick={handleUseTemplate}
-            className="group flex flex-col items-start rounded-2xl border border-[#e5edf5] bg-white p-4 text-left shadow-[0_5px_18px_rgba(38,82,130,0.04)] transition hover:-translate-y-0.5 hover:border-[#9ddfce] hover:shadow-[0_10px_28px_rgba(32,137,131,0.10)]"
-          >
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#eef5ff] text-[#176ce5] transition group-hover:bg-[#dceaff]">
-              <Copy size={17} />
-            </span>
-            <span className="mt-3 text-sm font-bold text-[#203b68]">参考JD模版生成</span>
-            <span className="mt-1 text-xs leading-5 text-[#7083a1]">一键填入完整模版示例，可在此基础上直接修改</span>
-          </button>
-
-          {/* 选项卡2：从职位库复制生成 */}
-          <button
-            type="button"
-            onClick={handleOpenJobPicker}
-            className="group flex flex-col items-start rounded-2xl border border-[#e5edf5] bg-white p-4 text-left shadow-[0_5px_18px_rgba(38,82,130,0.04)] transition hover:-translate-y-0.5 hover:border-[#9ddfce] hover:shadow-[0_10px_28px_rgba(32,137,131,0.10)]"
-          >
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#f2fbf6] text-[#0f996a] transition group-hover:bg-[#dcf5e8]">
-              <FolderOpen size={17} />
-            </span>
-            <span className="mt-3 text-sm font-bold text-[#203b68]">从职位库复制生成</span>
-            <span className="mt-1 text-xs leading-5 text-[#7083a1]">参考职位库中已有职位，编辑新的 JD 内容</span>
-          </button>
-
-          {/* 选项卡3：根据上传文件生成 */}
-          <button
-            type="button"
-            onClick={handleUploadClick}
-            className="group flex flex-col items-start rounded-2xl border border-[#e5edf5] bg-white p-4 text-left shadow-[0_5px_18px_rgba(38,82,130,0.04)] transition hover:-translate-y-0.5 hover:border-[#9ddfce] hover:shadow-[0_10px_28px_rgba(32,137,131,0.10)]"
-          >
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#fff6ee] text-[#df7d2b] transition group-hover:bg-[#ffe7d2]">
-              <Upload size={17} />
-            </span>
-            <span className="mt-3 text-sm font-bold text-[#203b68]">根据上传文件生成</span>
-            <span className="mt-1 text-xs leading-5 text-[#7083a1]">根据本地 PDF/Word/TXT 文档内容生成 JD</span>
-          </button>
-        </section>
-      ) : (
-        // 未选功能时：原来的4个引导卡片
-        <section className="mx-auto mt-7 grid w-full max-w-4xl gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {recruitmentStarters.map((starter) => {
-            const Icon = starter.icon;
-            const content = <><span className="grid h-8 w-8 place-items-center rounded-xl bg-[#edf8f7] text-[#159d8e] transition group-hover:bg-[#dcf5ef]"><Icon size={16}/></span>
-              <span className="mt-2 block text-sm font-bold text-[#203b68]">{starter.title}</span>
-              <span className="mt-1 block text-xs leading-4 text-[#7083a1]">{starter.description}</span></>;
-            const className = "group rounded-2xl border border-[#e5edf5] bg-white px-4 py-3 text-left shadow-[0_5px_18px_rgba(38,82,130,0.04)] transition hover:-translate-y-0.5 hover:border-[#9ddfce] hover:shadow-[0_10px_28px_rgba(32,137,131,0.10)]";
-            return <button key={starter.title} type="button" onClick={() => chooseStarter(starter)} className={className}>
-              {content}
-            </button>;
-          })}
-        </section>
-      )
-    )}
+    <section className="relative mx-auto mt-7 flex w-full max-w-4xl items-center justify-between gap-4 px-1">
+      <div className="flex min-w-0 items-center gap-3"><span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-white shadow-[0_8px_20px_rgba(27,103,220,0.18)] ${agent === "RECRUITMENT_ASSISTANT" ? "bg-gradient-to-br from-[#1d78f2] to-[#17bd91]" : "bg-gradient-to-br from-[#8b5cf6] to-[#d946ef]"}`}>{agent === "RECRUITMENT_ASSISTANT" ? <Bot size={24}/> : <Sparkles size={23}/>}</span><div><h2 className="m-0 text-lg font-bold text-[#203b68]">{agent === "RECRUITMENT_ASSISTANT" ? "智能招聘助手" : "人才需求规划官"}</h2><p className="mb-0 mt-1 text-xs text-[#7083a1]">{agent === "RECRUITMENT_ASSISTANT" ? "生成 JD、筛选简历、设计面试问题" : "规划企业和项目的人才需求与人才方案"}</p></div></div>
+      <button type="button" onClick={() => setAgentMenuOpen(open => !open)} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-[#dbe6f0] bg-white px-4 py-2.5 text-sm font-semibold text-[#36557f] shadow-sm hover:bg-[#f7fbff]"><Sparkles size={16} className="text-[#176ce5]"/>切换智能体<ChevronDown size={16} className={`transition ${agentMenuOpen ? "rotate-180" : ""}`}/></button>
+      {agentMenuOpen && <div className="absolute right-0 top-[58px] z-20 w-52 rounded-2xl border border-[#dce7f1] bg-white p-2 shadow-xl"><button type="button" onClick={() => { setAgent("RECRUITMENT_ASSISTANT"); onFeature(null); setAgentMenuOpen(false); }} className={`flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm ${agent === "RECRUITMENT_ASSISTANT" ? "bg-[#eef7ff] font-semibold text-[#176ce5]" : "text-[#36557f] hover:bg-[#f7fbff]"}`}><Bot size={16}/>智能招聘助手</button><button type="button" onClick={() => { setAgent("TALENT_PLANNER"); onFeature(null); setAgentMenuOpen(false); }} className={`mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm ${agent === "TALENT_PLANNER" ? "bg-[#f8f2ff] font-semibold text-[#7c3aed]" : "text-[#36557f] hover:bg-[#f7fbff]"}`}><Sparkles size={16}/>人才需求规划官</button></div>}
+    </section>
 
     <section className="mx-auto mt-[clamp(28px,7vh,76px)] w-full max-w-4xl">
       <div className="rounded-[30px] border border-[#dbe6f0] bg-white px-6 pb-5 pt-5 shadow-[0_18px_55px_rgba(38,72,116,0.13)] focus-within:border-[#8fcfca] focus-within:shadow-[0_20px_60px_rgba(28,130,126,0.15)]">
@@ -688,9 +636,7 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
         />
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#edf1f5] pt-4">
           <div className="flex flex-wrap items-center gap-2 text-sm text-[#536d91]">
-            <button type="button" onClick={()=>{onFeature("JD_GENERATION");}} className={`rounded-full border px-3 py-2 ${selectedFeature === "JD_GENERATION" ? "border-[#15b6b3] bg-[#e9fbf9] text-[#0a8f8b]" : "border-[#e0e8f0] hover:bg-[#f5faff]"}`}><FileText className="mr-1 inline text-[#15b6b3]" size={16}/>JD生成</button>
-            <button type="button" onClick={()=>{onFeature("CANDIDATE_SCREENING");}} className={`rounded-full border px-3 py-2 ${selectedFeature === "CANDIDATE_SCREENING" ? "border-[#15b6b3] bg-[#e9fbf9] text-[#0a8f8b]" : "border-[#e0e8f0] hover:bg-[#f5faff]"}`}><UsersRound className="mr-1 inline text-[#15b6b3]" size={16}/>AI筛简历</button>
-            <button type="button" onClick={()=>{onFeature("INTERVIEW_KIT");onSection("interviews")}} className="rounded-full border border-[#e0e8f0] px-3 py-2 hover:bg-[#f5faff]"><ListChecks className="mr-1 inline text-[#15b6b3]" size={16}/>AI面试题</button>
+            {agent === "RECRUITMENT_ASSISTANT" ? <><button type="button" onClick={()=>onFeature("JD_GENERATION")} className={`rounded-full border px-3 py-2 ${selectedFeature === "JD_GENERATION" ? "border-[#15b6b3] bg-[#e9fbf9] text-[#0a8f8b]" : "border-[#e0e8f0] hover:bg-[#f5faff]"}`}><FileText className="mr-1 inline text-[#15b6b3]" size={16}/>JD生成</button><button type="button" onClick={()=>onFeature("CANDIDATE_SCREENING")} className={`rounded-full border px-3 py-2 ${selectedFeature === "CANDIDATE_SCREENING" ? "border-[#15b6b3] bg-[#e9fbf9] text-[#0a8f8b]" : "border-[#e0e8f0] hover:bg-[#f5faff]"}`}><UsersRound className="mr-1 inline text-[#15b6b3]" size={16}/>AI简历筛选</button><button type="button" onClick={()=>{onFeature("INTERVIEW_KIT");onSection("interviews")}} className="rounded-full border border-[#e0e8f0] px-3 py-2 hover:bg-[#f5faff]"><ListChecks className="mr-1 inline text-[#15b6b3]" size={16}/>AI面试出题</button></> : <><button type="button" onClick={()=>onRequirement("请协助我制定企业人才需求规划，包含业务目标、关键岗位、人数、时间节奏和优先级。")} className="rounded-full border border-[#e4d9fb] bg-[#fbf9ff] px-3 py-2 text-[#7044bf] hover:bg-[#f4efff]"><BriefcaseBusiness className="mr-1 inline" size={16}/>企业人才需求规划</button><button type="button" onClick={()=>onRequirement("请协助我构建企业人才画像，包含核心岗位能力、经验背景、文化匹配和人才来源。")} className="rounded-full border border-[#e4d9fb] bg-[#fbf9ff] px-3 py-2 text-[#7044bf] hover:bg-[#f4efff]"><UsersRound className="mr-1 inline" size={16}/>企业人才画像构建</button><button type="button" onClick={()=>onRequirement("请协助我制定业务人才方案，结合业务目标、项目阶段、组织分工和关键人才配置。")} className="rounded-full border border-[#e4d9fb] bg-[#fbf9ff] px-3 py-2 text-[#7044bf] hover:bg-[#f4efff]"><Sparkles className="mr-1 inline" size={16}/>业务人才方案制定</button></>}
           </div>
           <div className="flex items-center gap-3">
             <span className="min-w-24 text-right text-xs font-semibold text-[#0a9a66]" aria-live="polite">{quoteFor(selectedFeature, requirement)}</span>
@@ -700,6 +646,12 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
           </div>
         </div>
       </div>
+
+      {agent === "RECRUITMENT_ASSISTANT" && selectedFeature === "JD_GENERATION" && <div className="mt-3 divide-y divide-[#e6edf5]">
+        <button type="button" onClick={() => { setJdGenerationSource("TEMPLATE"); handleUseTemplate(); }} className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${jdGenerationSource === "TEMPLATE" ? "bg-[#f0fbf8]" : "hover:bg-[#f8fbff]"}`}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#eef5ff] text-[#176ce5]"><Copy size={17}/></span><span className="min-w-0"><span className="block text-sm font-bold text-[#203b68]">参考 JD 模版生成</span><span className="mt-0.5 block text-xs text-[#7083a1]">一键填入完整模版示例，可在此基础上直接修改</span></span>{jdGenerationSource === "TEMPLATE" && <CheckCircle2 className="ml-auto shrink-0 text-[#0a9a66]" size={18}/>}</button>
+        <button type="button" onClick={() => { setJdGenerationSource("JOB_LIBRARY"); void handleOpenJobPicker(); }} className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${jdGenerationSource === "JOB_LIBRARY" ? "bg-[#f0fbf8]" : "hover:bg-[#f8fbff]"}`}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#f2fbf6] text-[#0f996a]"><FolderOpen size={17}/></span><span className="min-w-0"><span className="block text-sm font-bold text-[#203b68]">从职位库复制生成</span><span className="mt-0.5 block text-xs text-[#7083a1]">参考职位库中已有职位，编辑新的 JD 内容</span></span>{jdGenerationSource === "JOB_LIBRARY" && <CheckCircle2 className="ml-auto shrink-0 text-[#0a9a66]" size={18}/>}</button>
+        <button type="button" onClick={() => { setJdGenerationSource("UPLOAD"); handleUploadClick(); }} className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${jdGenerationSource === "UPLOAD" ? "bg-[#f0fbf8]" : "hover:bg-[#f8fbff]"}`}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#fff6ee] text-[#df7d2b]"><Upload size={17}/></span><span className="min-w-0"><span className="block text-sm font-bold text-[#203b68]">根据上传文件生成</span><span className="mt-0.5 block text-xs text-[#7083a1]">根据本地 PDF、Word、TXT 文档内容生成 JD</span></span>{jdGenerationSource === "UPLOAD" && <CheckCircle2 className="ml-auto shrink-0 text-[#0a9a66]" size={18}/>}</button>
+      </div>}
 
       {/* 隐藏的文件上传 input */}
       <input
@@ -806,288 +758,6 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
   </div>;
 }
 
-/** 简历筛选六维评估默认值（与后端 RecruitmentService.defaultScreeningDimsJson 保持一致） */
-const DEFAULT_SCREENING_DIMENSIONS: ScreeningDimension[] = [
-  {
-    id: "basic_info",
-    name: "基本信息",
-    weight: 10,
-    description: "年龄、性别、所在地、期望薪资、到岗时间等基本信息，是否满足岗位硬性门槛与到岗节奏。",
-  },
-  {
-    id: "education",
-    name: "教育背景",
-    weight: 15,
-    description: "学历层次、学校等级、专业相关性，在校期间的成绩、奖学金、科研与项目经历。",
-  },
-  {
-    id: "career",
-    name: "职业履历",
-    weight: 25,
-    description: "工作年限、行业/岗位匹配度、公司平台层级、岗位稳定性、晋升速度与管理经验。",
-  },
-  {
-    id: "skills",
-    name: "专业技能",
-    weight: 25,
-    description: "岗位所需的技术栈、工具、方法论、语言与证书，熟练度与实战落地经验的匹配程度。",
-  },
-  {
-    id: "projects",
-    name: "项目经验",
-    weight: 15,
-    description: "主导或核心参与的项目规模、复杂度、业务结果，以及与目标岗位的职责相似性。",
-  },
-  {
-    id: "motivation",
-    name: "求职动机",
-    weight: 10,
-    description: "求职原因、稳定性、薪酬期望、文化契合度、团队配合意愿与长期发展潜力。",
-  },
-];
-
-/** 解析后端 screening_dims_json（JSON 字符串），失败时返回默认值。 */
-function parseDimensionsOrDefaults(raw: string | null | undefined): ScreeningDimension[] {
-  if (!raw) return DEFAULT_SCREENING_DIMENSIONS;
-  try {
-    const parsed = JSON.parse(raw) as ScreeningDimension[];
-    if (!Array.isArray(parsed)) return DEFAULT_SCREENING_DIMENSIONS;
-    // 以默认 id 集合为基准合并，避免缺列 / 非法字段
-    return DEFAULT_SCREENING_DIMENSIONS.map((defRow) => {
-      const saved = parsed.find((p) => p.id === defRow.id);
-      if (!saved) return defRow;
-      const weight = Number.isFinite(+saved.weight) ? Math.max(0, Math.min(100, +saved.weight)) : defRow.weight;
-      const description = typeof saved.description === "string" && saved.description.length > 0
-        ? saved.description : defRow.description;
-      return { ...defRow, weight, description };
-    });
-  } catch {
-    return DEFAULT_SCREENING_DIMENSIONS;
-  }
-}
-
-/** AI 简历筛选主页：左侧六维评估列表（可编辑 + 后端持久化），右侧仍是 AI 招聘助手对话框（父级布局已提供两列） */
-function ScreeningEvaluationPanel({
-  task,
-  workspaceId,
-  initialScreeningDimsJson,
-}: {
-  task: TaskSummary | null;
-  workspaceId: string;
-  /** 父组件从 detail.screeningDimsJson 直接带入的后端初始值，可省去首次拉取 */
-  initialScreeningDimsJson: string | null;
-}) {
-  // 六维评估项列表
-  const [dimensions, setDimensions] = useState<ScreeningDimension[]>(() =>
-    parseDimensionsOrDefaults(initialScreeningDimsJson),
-  );
-  // 正在编辑的行 id，null 表示全部只读
-  const [editingId, setEditingId] = useState<string | null>(null);
-  // 编辑中的临时值
-  const [draft, setDraft] = useState<ScreeningDimension | null>(null);
-  // 保存成功提示（短暂显示）
-  const [saveFlash, setSaveFlash] = useState(false);
-  // 正在保存的行（用于展示 loading + 禁用按钮）
-  const [saving, setSaving] = useState(false);
-  // 保存失败横幅
-  const [error, setError] = useState<string | null>(null);
-
-  const taskId = task?.id ?? null;
-
-  /** 组件挂载后：若父级没带初始 screeningDimsJson，则首次从后端拉取保证与 DB 一致 */
-  useEffect(() => {
-    if (!workspaceId || !taskId) return;
-    // 父级已经传入过合法初始值（不是空数组默认占位）就不重复拉
-    if (initialScreeningDimsJson && initialScreeningDimsJson !== "[]") return;
-
-    let cancelled = false;
-    setError(null);
-    fetchScreeningDimensions(workspaceId, taskId)
-      .then((res) => {
-        if (cancelled) return;
-        setDimensions(parseDimensionsOrDefaults(res.dimensionsJson));
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setDimensions(DEFAULT_SCREENING_DIMENSIONS);
-        const message = err instanceof ApiError ? err.message : "读取筛选配置失败";
-        setError(message);
-      });
-    return () => { cancelled = true; };
-  }, [workspaceId, taskId, initialScreeningDimsJson]);
-
-  const totalWeight = dimensions.reduce((sum, item) => sum + item.weight, 0);
-
-  const startEdit = (row: ScreeningDimension) => {
-    setEditingId(row.id);
-    setDraft({ ...row });
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setDraft(null);
-  };
-
-  /** 点击行内「保存」：先夹紧 weight，再调后端 API，成功后整体回写 state + 闪提示 */
-  const saveEdit = async () => {
-    if (!draft || !workspaceId || !taskId) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const weight = Math.max(0, Math.min(100, Number.isFinite(+draft.weight) ? +draft.weight : 0));
-      const next = dimensions.map((item) => (item.id === draft.id ? { ...draft, weight } : item));
-      const saved = await updateScreeningDimensions(workspaceId, taskId, next);
-      setDimensions(parseDimensionsOrDefaults(saved.dimensionsJson));
-      setEditingId(null);
-      setDraft(null);
-      setSaveFlash(true);
-      window.setTimeout(() => setSaveFlash(false), 1200);
-    } catch (err) {
-      const message = err instanceof ApiError ? err.message : "保存失败，请稍后再试";
-      setError(message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div>
-      {/* 头部：任务名 + 权重合计提示 + 保存提示 + 错误横幅 */}
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e1ebf5] pb-4">
-        <div>
-          <span className="inline-flex items-center gap-1 rounded-full bg-[#e9f8ff] px-2 py-1 text-[11px] font-semibold text-[#1778df]">
-            <UsersRound size={13} /> 简历筛选
-          </span>
-          <h2 className="mb-0 mt-2 text-xl font-bold text-[#102d64]">
-            {task?.title ?? "AI 简历筛选评估"}
-          </h2>
-          <p className="mb-0 mt-2 text-sm leading-5 text-[#60799f]">
-            下方为 AI 生成的六维人岗匹配评估项，点击每行右侧「编辑」可调整权重与说明；修改会保存到后端，跨设备打开本任务都可恢复。
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {saveFlash && (
-            <span className="inline-flex items-center gap-1 rounded-lg bg-[#eefbf5] px-2.5 py-1.5 text-xs font-semibold text-[#087a54]">
-              <CheckCircle2 size={13} /> 已保存
-            </span>
-          )}
-          <div className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
-            totalWeight === 100 ? "border-[#c3e9d9] bg-[#eefbf5] text-[#087a54]" : "border-[#ffe1b3] bg-[#fff8ec] text-[#a86b10]"
-          }`}>
-            权重合计 {totalWeight}%（建议 100%）
-          </div>
-        </div>
-      </div>
-
-      {error && (
-        <div className="mt-4 flex items-start gap-2 rounded-lg border border-[#fccccc] bg-[#fff5f5] px-3 py-2 text-xs font-semibold text-[#b12323]">
-          <AlertCircle size={14} className="mt-0.5 shrink-0" />
-          <span className="min-w-0">{error}</span>
-        </div>
-      )}
-
-      {/* 表格 */}
-      <div className="mt-5 overflow-hidden rounded-xl border border-[#e2ebf5]">
-        <div className="grid grid-cols-[minmax(140px,1.2fr)_96px_minmax(0,2.5fr)_92px] bg-[#f5faff] px-4 py-3 text-xs font-semibold text-[#3b5580]">
-          <span>评估项</span>
-          <span className="text-center">评估权重</span>
-          <span>评估说明</span>
-          <span className="text-right">操作</span>
-        </div>
-        <ul className="divide-y divide-[#edf1f5]">
-          {dimensions.map((row) => {
-            const isEditing = editingId === row.id;
-            const editingRow = isEditing ? draft! : row;
-            return (
-              <li key={row.id} className="grid grid-cols-[minmax(140px,1.2fr)_96px_minmax(0,2.5fr)_92px] items-center gap-2 px-4 py-3 hover:bg-[#fafcff]">
-                {/* 评估项名称（只读） */}
-                <div className="flex items-center gap-2">
-                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#edf8f7] text-[#159d8e]">
-                    <Filter size={13} />
-                  </span>
-                  <span className="text-sm font-semibold text-[#173568]">{row.name}</span>
-                </div>
-
-                {/* 评估权重 */}
-                <div className="justify-self-center">
-                  {isEditing ? (
-                    <div className="flex items-center">
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={editingRow.weight}
-                        onChange={(event) => setDraft({ ...editingRow, weight: +event.target.value })}
-                        disabled={saving}
-                        className="h-8 w-14 rounded-md border border-[#cbdced] px-2 text-center text-sm outline-none focus:border-[#4a8be8] disabled:bg-[#f3f6fb]"
-                      />
-                      <span className="ml-1 text-xs text-[#657996]">%</span>
-                    </div>
-                  ) : (
-                    <span className="inline-flex items-center justify-center rounded-full bg-[#f2fbf6] px-2.5 py-1 text-xs font-bold text-[#0a8f6a]">
-                      {row.weight}%
-                    </span>
-                  )}
-                </div>
-
-                {/* 评估说明 */}
-                <div className="min-w-0">
-                  {isEditing ? (
-                    <textarea
-                      value={editingRow.description}
-                      onChange={(event) => setDraft({ ...editingRow, description: event.target.value })}
-                      rows={3}
-                      maxLength={500}
-                      disabled={saving}
-                      className="w-full rounded-md border border-[#cbdced] px-2.5 py-2 text-xs leading-5 text-[#203b68] outline-none focus:border-[#4a8be8] disabled:bg-[#f3f6fb]"
-                    />
-                  ) : (
-                    <p className="mb-0 line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-[#55709d]">
-                      {row.description}
-                    </p>
-                  )}
-                </div>
-
-                {/* 操作列 */}
-                <div className="justify-self-end">
-                  {isEditing ? (
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={saveEdit}
-                        disabled={saving}
-                        className="rounded-md bg-[#159d8e] px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-[#128a7d] disabled:bg-[#a0d2cc]"
-                      >
-                        {saving ? "保存中…" : "保存"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={cancelEdit}
-                        disabled={saving}
-                        className="rounded-md border border-[#cbdced] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#3b5580] hover:bg-[#f5faff] disabled:bg-[#f5faff] disabled:text-[#9fb2cf]"
-                      >
-                        取消
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => startEdit(row)}
-                      className="flex items-center gap-1 rounded-md border border-[#d2e4f5] bg-[#f5faff] px-2.5 py-1.5 text-xs font-semibold text-[#176ce5] hover:bg-[#eaf3ff]"
-                    >
-                      <Pencil size={12} /> 编辑
-                    </button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    </div>
-  );
-}
-
 function quoteFor(feature: SelectedFeature, content: string) {
   if (feature === "JD_GENERATION") return "预计 ¥0.80 / 次";
   if (feature === "CANDIDATE_SCREENING") return "¥0.80 / 成功候选人";
@@ -1136,19 +806,26 @@ function JdWaitingState({ task, running }: { task: TaskSummary; running: boolean
   </div>;
 }
 
-function JdEditor({ draft, busy, confirmed, editing, jobId, onEdit, onChange, onSave, onConfirm }: { draft: JdDraft; busy: boolean; confirmed: boolean; editing: boolean; jobId: string | null; onEdit: () => void; onChange: (draft: JdDraft) => void; onSave: () => void; onConfirm: () => void }) {
-  const update = (key: keyof JdDraft, value: string) => onChange({ ...draft, [key]: value });
+function JdEditor({ draft, busy, confirmed, editing, jobId, onEdit, onSave, onConfirm }: { draft: JdDraft; busy: boolean; confirmed: boolean; editing: boolean; jobId: string | null; onEdit: () => void; onSave: (draft: JdDraft) => void; onConfirm: () => void }) {
   const editable = !confirmed || editing;
+  const text = `职位名称：${draft.title}\n企业名称：${draft.companyName}\n工作地点：${draft.location}\n经验要求：${draft.experienceLevel}\n学历要求：${draft.education}\n用工类型：${draft.jobType}\n\n岗位职责\n${draft.responsibilities}\n\n任职要求\n${draft.requirements}\n\n关键技能\n${draft.skills}\n\n人才画像\n${draft.talentProfile}`;
+  const [rawText, setRawText] = useState(text);
+  useEffect(() => setRawText(text), [draft.id, draft.revision, text]);
   return <div>
-    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e1ebf5] pb-4"><div><span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold ${confirmed ? "bg-[#ddf8ed] text-[#07875b]" : "bg-[#fff6d8] text-[#9a6b00]"}`}>{confirmed ? <CheckCircle2 size={13}/> : <TriangleAlert size={13}/>} {confirmed ? "已确认版本" : `草稿 revision ${draft.revision}`}</span><h2 className="mb-0 mt-2 text-xl font-bold text-[#102d64]">结构化 JD</h2></div><div className="flex gap-2">{confirmed ? <>{editing && <button type="button" className="outline-button" disabled={busy} onClick={onSave}><Save size={15}/>保存修改</button>} {!editing && <button type="button" className="outline-button" disabled={busy} onClick={onEdit}><Pencil size={15}/>编辑 JD</button>}{jobId && <Link href="/jobs" className="primary-button"><BriefcaseBusiness size={15}/>查看职位库</Link>}</> : <><button type="button" className="outline-button" disabled={busy} onClick={onSave}><Save size={15}/>保存草稿</button><button type="button" className="primary-button" disabled={busy} onClick={onConfirm}><CheckCircle2 size={15}/>确认并发布</button></>}</div></div>
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e1ebf5] pb-4"><h2 className="m-0 text-xl font-bold text-[#102d64]">{draft.title}</h2><span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold ${confirmed ? "bg-[#ddf8ed] text-[#07875b]" : "bg-[#fff6d8] text-[#9a6b00]"}`}>{confirmed ? <CheckCircle2 size={13}/> : <TriangleAlert size={13}/>} {confirmed ? "已发布" : "草稿"}</span></div>
     {!confirmed && draft.warnings.length > 0 && <div className="mt-4 rounded-lg border border-[#f6d58a] bg-[#fffaf0] px-4 py-3"><p className="m-0 flex items-center gap-2 text-xs font-semibold text-[#8d6200]"><TriangleAlert size={15}/>发布前待确认</p><ul className="mb-0 mt-2 list-disc space-y-1 pl-5 text-xs text-[#8a6a28]">{draft.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
-    <div className="mt-4 grid gap-3 md:grid-cols-2"><EditorField label="职位名称" value={draft.title} disabled={!editable} onChange={(value) => update("title", value)}/><EditorField label="企业名称" value={draft.companyName} disabled={!editable} onChange={(value) => update("companyName", value)}/><EditorField label="工作地点" value={draft.location} disabled={!editable} onChange={(value) => update("location", value)}/><EditorField label="经验要求" value={draft.experienceLevel} disabled={!editable} onChange={(value) => update("experienceLevel", value)}/><EditorField label="学历要求" value={draft.education} disabled={!editable} onChange={(value) => update("education", value)}/><EditorField label="用工类型" value={draft.jobType} disabled={!editable} onChange={(value) => update("jobType", value)}/></div>
-    <EditorArea label="岗位职责" value={draft.responsibilities} disabled={!editable} onChange={(value) => update("responsibilities", value)}/><EditorArea label="任职要求" value={draft.requirements} disabled={!editable} onChange={(value) => update("requirements", value)}/><EditorArea label="关键技能" value={draft.skills} disabled={!editable} onChange={(value) => update("skills", value)}/><EditorArea label="人才画像" value={draft.talentProfile} disabled={!editable} onChange={(value) => update("talentProfile", value)}/>
+    <textarea readOnly={!editable} value={rawText} onChange={(event) => setRawText(event.target.value)} className="mt-4 min-h-[500px] w-full resize-y rounded-lg border border-[#cbdced] bg-white px-4 py-3 text-sm leading-6 text-[#28476f] outline-none read-only:bg-[#fafdff] focus:border-[#4a8be8]" aria-label={`${draft.title} JD 全文`}/>
+    <div className="mt-4 flex flex-wrap gap-2">{confirmed && !editing && <button type="button" className="outline-button" disabled={busy} onClick={onEdit}><Pencil size={15}/>编辑</button>}{editable && <button type="button" className="outline-button" disabled={busy} onClick={() => onSave(parseJdText(rawText, draft))}><Save size={15}/>保存草稿</button>}<button type="button" className="outline-button" onClick={() => void navigator.clipboard.writeText(rawText)}><Copy size={15}/>复制</button>{!confirmed && <button type="button" className="primary-button" disabled={busy} onClick={onConfirm}><CheckCircle2 size={15}/>确认并发布</button>}{confirmed && jobId && <Link href="/jobs" className="primary-button"><BriefcaseBusiness size={15}/>查看职位库</Link>}</div>
   </div>;
 }
 
-function EditorField({ label, value, disabled, onChange }: { label: string; value: string; disabled: boolean; onChange: (value: string) => void }) { return <label className="block text-xs font-semibold text-[#36527f]">{label}<input value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-[#cbdced] px-3 text-sm font-normal outline-none disabled:bg-[#f5f8fb]"/></label>; }
-function EditorArea({ label, value, disabled, onChange }: { label: string; value: string; disabled: boolean; onChange: (value: string) => void }) { return <label className="mt-4 block text-xs font-semibold text-[#36527f]">{label}<textarea value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className="mt-1.5 min-h-[110px] w-full rounded-lg border border-[#cbdced] px-3 py-2 text-sm font-normal leading-6 outline-none disabled:bg-[#f5f8fb]"/></label>; }
+function parseJdText(text: string, fallback: JdDraft): JdDraft {
+  const fields: Record<string, keyof JdDraft> = { "职位名称": "title", "企业名称": "companyName", "工作地点": "location", "经验要求": "experienceLevel", "学历要求": "education", "用工类型": "jobType" };
+  const sections: Record<string, keyof JdDraft> = { "岗位职责": "responsibilities", "任职要求": "requirements", "关键技能": "skills", "人才画像": "talentProfile" };
+  const result = { ...fallback }; let current: keyof JdDraft | null = null;
+  for (const line of text.split("\n")) { const pair = line.match(/^([^：]+)：(.*)$/); if (pair && fields[pair[1]]) { result[fields[pair[1]]] = pair[2].trim() as never; current = null; } else if (sections[line.trim()]) { current = sections[line.trim()]; result[current] = "" as never; } else if (current) result[current] = `${String(result[current] ?? "")}${String(result[current] ?? "").trim() ? "\n" : ""}${line}` as never; }
+  return result;
+}
 
 function WorkflowSection({ title, description }: { title: string; description: string }) { return <div className="grid min-h-[520px] place-items-center text-center"><div className="max-w-md"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#eaf8f5] text-[#169b83]"><Sparkles size={26}/></span><h2 className="mb-0 mt-5 text-xl font-bold text-[#173568]">{title}</h2><p className="mt-3 text-sm leading-6 text-[#60799f]">{description}</p><p className="mt-5 text-xs text-[#7187a8]">该功能正在此工作台分区中展开；右侧 AI 助手会持续提供操作提示。</p></div></div>; }
 function StatePage({ icon, text }: { icon: React.ReactNode; text: string }) { return <AppShell activeItem="智能招聘"><div className="flex h-64 flex-col items-center justify-center gap-3 text-[#6780a3]"><span className="text-[#2878da]">{icon}</span><p className="text-sm">{text}</p></div></AppShell>; }

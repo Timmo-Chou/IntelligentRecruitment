@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Bot, BriefcaseBusiness, ChevronRight, Filter, LayoutDashboard, Library, MoreHorizontal, Pencil, Plus, Settings, Sparkles, Trash2, Users } from "lucide-react";
+import { Bell, Bot, BriefcaseBusiness, ChevronRight, LayoutDashboard, Library, MoreHorizontal, Pencil, Plus, Settings, Sparkles, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import React, { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -14,7 +14,7 @@ import { AIChatDialog } from "../ai-assistant/ai-chat-dialog";
 
 const navItems = [
   ["概览", LayoutDashboard, "/"], ["智能招聘", Sparkles, "/recruitment"],
-  ["职位库", BriefcaseBusiness, "/jobs"], ["人才库", Users, "/candidates"], ["简历筛选", Filter, "/screening"], ["面试题库", Library, "/interviews"], ["设置", Settings, "/settings"],
+  ["职位库", BriefcaseBusiness, "/jobs"], ["人才库", Users, "/candidates"], ["面试题库", Library, "/interviews"], ["设置", Settings, "/settings"],
 ] as const;
 
 function NotificationBell() {

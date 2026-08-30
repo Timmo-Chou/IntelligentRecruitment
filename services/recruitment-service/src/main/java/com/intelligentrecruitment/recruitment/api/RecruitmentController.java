@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
@@ -126,27 +127,9 @@ public class RecruitmentController {
 
     @PostMapping("/{taskId}/jd-draft/confirm")
     JobService.JobView confirm(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
+                               @RequestParam UUID draftId,
                                Authentication authentication) {
-        return recruitment.confirmDraft(CurrentUser.id(authentication), workspaceId, taskId);
-    }
-
-    /** 读取简历筛选六维评估配置 */
-    @GetMapping("/{taskId}/screening-dims")
-    RecruitmentService.ScreeningDimsView getScreeningDims(@PathVariable UUID workspaceId,
-                                                          @PathVariable UUID taskId,
-                                                          Authentication authentication) {
-        String json = recruitment.getScreeningDims(CurrentUser.id(authentication), workspaceId, taskId);
-        return new RecruitmentService.ScreeningDimsView(json);
-    }
-
-    /** 保存简历筛选六维评估配置（整体覆盖） */
-    @PutMapping("/{taskId}/screening-dims")
-    RecruitmentService.ScreeningDimsView updateScreeningDims(@PathVariable UUID workspaceId,
-                                                            @PathVariable UUID taskId,
-                                                            @RequestBody RecruitmentService.UpdateScreeningDimsInput input,
-                                                            Authentication authentication) {
-        String json = recruitment.updateScreeningDims(CurrentUser.id(authentication), workspaceId, taskId, input);
-        return new RecruitmentService.ScreeningDimsView(json);
+        return recruitment.confirmDraft(CurrentUser.id(authentication), workspaceId, taskId, draftId);
     }
 
     private static long parseCursor(String value) {

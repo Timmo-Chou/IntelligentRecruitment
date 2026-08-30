@@ -119,7 +119,11 @@ public class RecruitmentService {
                 SELECT t.id,t.company_id,t.workspace_id,t.title,t.status,t.current_stage,t.created_by,
                        t.created_at,t.updated_at,j.id AS job_id,j.title AS job_title
                 FROM recruitment_tasks t
-                LEFT JOIN jobs j ON j.recruitment_task_id=t.id AND j.workspace_id=t.workspace_id AND j.status<>'ARCHIVED'
+                LEFT JOIN LATERAL (
+                    SELECT id,title FROM jobs
+                    WHERE recruitment_task_id=t.id AND workspace_id=t.workspace_id AND status<>'ARCHIVED'
+                    ORDER BY updated_at DESC LIMIT 1
+                ) j ON true
                 WHERE t.workspace_id=? ORDER BY t.updated_at DESC LIMIT 100
                 """, (rs, n) -> new TaskSummary(rs.getObject("id", UUID.class),
                 rs.getObject("company_id", UUID.class), rs.getObject("workspace_id", UUID.class),
@@ -132,28 +136,6 @@ public class RecruitmentService {
     public TaskDetail getTask(UUID userId, UUID workspaceId, UUID taskId) {
         workspaceAccess.requireBusinessAccess(userId, workspaceId);
         return detailScoped(workspaceId, taskId);
-    }
-
-    /** 读取简历筛选六维评估配置（如果数据库为空则返回默认值 JSON） */
-    public String getScreeningDims(UUID userId, UUID workspaceId, UUID taskId) {
-        workspaceAccess.requireBusinessAccess(userId, workspaceId);
-        String saved = jdbc.queryForObject("""
-                SELECT screening_dims_json::text FROM recruitment_tasks WHERE id=? AND workspace_id=?
-                """, String.class, taskId, workspaceId);
-        return (saved == null || saved.isBlank() || "[]".equals(saved)) ? defaultScreeningDimsJson() : saved;
-    }
-
-    /** 保存简历筛选六维评估配置（整体覆盖写入） */
-    @Transactional
-    public String updateScreeningDims(UUID userId, UUID workspaceId, UUID taskId, UpdateScreeningDimsInput input) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
-        taskForUpdate(workspaceId, taskId);
-        String raw = required(input == null ? null : input.dimensionsJson(), "筛选维度不能为空", 200_000);
-        String normalized = normalizeScreeningDimsJson(raw);
-        jdbc.update("UPDATE recruitment_tasks SET screening_dims_json=?::jsonb,updated_at=? WHERE id=? AND workspace_id=?",
-                normalized, timestamp(Instant.now()), taskId, workspaceId);
-        audit(userId, scope, "SCREENING_DIMS_UPDATED", "RECRUITMENT_TASK", taskId);
-        return normalized;
     }
 
     @Transactional
@@ -175,6 +157,12 @@ public class RecruitmentService {
                 Integer.class, taskId, workspaceId);
         if (jobCount != null && jobCount > 0) {
             throw new ApiException("RECRUITMENT_TASK_HAS_JOB", "该任务已创建职位，无法删除。请保留任务以追溯职位来源。", HttpStatus.CONFLICT);
+        }
+        Integer screeningPlanCount = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM screening_plans WHERE recruitment_task_id=? AND workspace_id=?
+                """, Integer.class, taskId, workspaceId);
+        if (screeningPlanCount != null && screeningPlanCount > 0) {
+            throw new ApiException("RECRUITMENT_TASK_HAS_SCREENING", "该任务已创建筛选方案或筛选记录，无法删除。请保留任务以追溯筛选依据与结果。", HttpStatus.CONFLICT);
         }
         jdbc.update("""
                 DELETE FROM outbox_events WHERE aggregate_type='AI_RUN'
@@ -198,13 +186,14 @@ public class RecruitmentService {
         insertMessage(scope, task.conversationId(), "USER", content, "REQUIREMENT_CHAT", userId, now);
         ConversationAgentCommand command = new ConversationAgentCommand(workspaceId.toString(),
                 scope.companyId() == null ? null : scope.companyId().toString(), userId.toString(), taskId.toString(),
-                conversationContext(task.conversationId(), workspaceId), jdDraftContext(workspaceId, taskId));
+                conversationContext(task.conversationId(), workspaceId), jdDraftContext(workspaceId, taskId, input.jdDraftId()));
         String reply;
         try {
             if (!command.jdDraft().isEmpty()) {
                 StructuredResult revisedResult = aiPlatform.reviseJdInPlace(command);
                 JdDraftContent revised = structuredResultMapper.toDraft(revisedResult);
-                updateDraftInPlace(scope, taskId, userId, revised);
+                if ("CREATE_NEW_JD".equals(revisedResult.data().get("action"))) insertAdditionalDraft(scope, taskId, userId, revised);
+                else updateDraftInPlace(scope, taskId, input.jdDraftId(), userId, revised);
                 reply = optionalAssistantMessage(revisedResult);
             } else {
                 reply = aiPlatform.continueConversation(command);
@@ -409,21 +398,20 @@ public class RecruitmentService {
         if (input == null) throw validation("JD 草稿不能为空");
         String warnings = json(input.warnings() == null ? List.of() : input.warnings());
         int updated = jdbc.update("""
-                UPDATE jd_drafts SET revision=revision+1,title=?,company_name=?,location=?,experience_level=?,
+                UPDATE jd_drafts SET revision=revision+1,status=CASE WHEN status='CONFIRMED' THEN 'DRAFT' ELSE status END,title=?,company_name=?,location=?,experience_level=?,
                     education=?,job_type=?,responsibilities=?,requirements=?,skills=?,talent_profile=?,warnings=?::jsonb,
                     updated_by=?,updated_at=?
-                WHERE recruitment_task_id=? AND workspace_id=? AND revision=? AND status IN ('DRAFT','CONFIRMED')
+                WHERE id=? AND recruitment_task_id=? AND workspace_id=? AND revision=? AND status IN ('DRAFT','CONFIRMED')
                 """, required(input.title(), "职位名称不能为空", 200),
                 required(input.companyName(), "企业名称不能为空", 200), optional(input.location(), 200),
                 optional(input.experienceLevel(), 80), optional(input.education(), 80),
                 defaulted(input.jobType(), "全职", 50), optional(input.responsibilities(), 20_000),
                 optional(input.requirements(), 20_000), optional(input.skills(), 4_000),
-                optional(input.talentProfile(), 10_000), warnings, userId, timestamp(Instant.now()), taskId,
+                optional(input.talentProfile(), 10_000), warnings, userId, timestamp(Instant.now()), input.id(), taskId,
                 workspaceId, input.revision());
         if (updated == 0) {
             throw new ApiException("JD_DRAFT_VERSION_CONFLICT", "JD 草稿已更新或已确认，请刷新后重试", HttpStatus.CONFLICT);
         }
-        syncPublishedJob(userId, workspaceId, taskId, input);
         insertMessage(scope, task.conversationId(), "SYSTEM", "JD 草稿已由招聘人员编辑保存。",
                 "JD_GENERATION", userId, Instant.now());
         audit(userId, scope, "JD_DRAFT_UPDATED", "JD_DRAFT", taskId);
@@ -431,15 +419,16 @@ public class RecruitmentService {
     }
 
     @Transactional
-    public JobService.JobView confirmDraft(UUID userId, UUID workspaceId, UUID taskId) {
+    public JobService.JobView confirmDraft(UUID userId, UUID workspaceId, UUID taskId, UUID draftId) {
         WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         TaskRow task = taskForUpdate(workspaceId, taskId);
         List<JdDraftView> drafts = draftRows(workspaceId, taskId);
         if (drafts.isEmpty()) throw new ApiException("JD_DRAFT_NOT_FOUND", "请先生成 JD 草稿", HttpStatus.CONFLICT);
-        JdDraftView draft = drafts.getFirst();
+        JdDraftView draft = drafts.stream().filter(item -> item.id().equals(draftId)).findFirst()
+                .orElseThrow(() -> new ApiException("JD_DRAFT_NOT_FOUND", "JD 草稿不存在", HttpStatus.NOT_FOUND));
         if ("CONFIRMED".equals(draft.status())) {
-            List<UUID> jobIds = jdbc.query("SELECT id FROM jobs WHERE recruitment_task_id=? AND workspace_id=?",
-                    (rs, n) -> rs.getObject("id", UUID.class), taskId, workspaceId);
+            List<UUID> jobIds = jdbc.query("SELECT id FROM jobs WHERE jd_draft_id=? AND workspace_id=?",
+                    (rs, n) -> rs.getObject("id", UUID.class), draft.id(), workspaceId);
             if (!jobIds.isEmpty()) return jobs.get(userId, workspaceId, jobIds.getFirst());
         }
         UUID sourceAiRunId = jdbc.queryForObject("SELECT source_ai_run_id FROM jd_drafts WHERE id=?",
@@ -447,7 +436,7 @@ public class RecruitmentService {
         JobService.JobInput jobInput = new JobService.JobInput(draft.title(), draft.companyName(), draft.location(),
                 draft.responsibilities(), draft.requirements(), draft.skills(), draft.experienceLevel(),
                 draft.education(), draft.jobType());
-        JobService.JobView job = jobs.createFromConfirmedJd(userId, workspaceId, taskId, sourceAiRunId, jobInput,
+        JobService.JobView job = jobs.createFromConfirmedJd(userId, workspaceId, taskId, draft.id(), sourceAiRunId, jobInput,
                 draft.talentProfile(), json(draft.warnings()));
         Instant now = Instant.now();
         jdbc.update("UPDATE jd_drafts SET status='CONFIRMED',updated_by=?,updated_at=? WHERE id=?",
@@ -466,7 +455,11 @@ public class RecruitmentService {
                 SELECT t.id,t.company_id,t.workspace_id,t.title,t.status,t.current_stage,t.created_by,
                        t.created_at,t.updated_at,j.id AS job_id,j.title AS job_title
                 FROM recruitment_tasks t
-                LEFT JOIN jobs j ON j.recruitment_task_id=t.id AND j.workspace_id=t.workspace_id AND j.status<>'ARCHIVED'
+                LEFT JOIN LATERAL (
+                    SELECT id,title FROM jobs
+                    WHERE recruitment_task_id=t.id AND workspace_id=t.workspace_id AND status<>'ARCHIVED'
+                    ORDER BY updated_at DESC LIMIT 1
+                ) j ON true
                 WHERE t.id=? AND t.workspace_id=?
                 """, (rs, n) -> new TaskSummary(rs.getObject("id", UUID.class),
                 rs.getObject("company_id", UUID.class), rs.getObject("workspace_id", UUID.class),
@@ -485,7 +478,8 @@ public class RecruitmentService {
                 rs.getString("content"), rs.getString("capability"), rs.getInt("sequence_number"),
                 rs.getObject("created_by", UUID.class), rs.getTimestamp("created_at").toInstant()),
                 conversationId, workspaceId);
-        JdDraftView draft = draftRows(workspaceId, taskId).stream().findFirst().orElse(null);
+        List<JdDraftView> drafts = draftRows(workspaceId, taskId);
+        JdDraftView draft = drafts.stream().findFirst().orElse(null);
         List<AiRunView> runs = jdbc.query("""
                 SELECT id,provider_task_id,status,progress,attempt_number,pricing_version,estimated_amount_minor,
                        settled_amount_minor,error_code,error_message,created_at,completed_at
@@ -497,12 +491,8 @@ public class RecruitmentService {
                 rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toInstant()),
                 taskId, workspaceId);
-        String dimsRaw = jdbc.queryForObject("""
-                SELECT screening_dims_json::text FROM recruitment_tasks WHERE id=? AND workspace_id=?
-                """, String.class, taskId, workspaceId);
-        String dimsJson = (dimsRaw == null || dimsRaw.isBlank() || "[]".equals(dimsRaw)) ? defaultScreeningDimsJson() : dimsRaw;
-        return new TaskDetail(summaries.getFirst(), conversationId, messages, draft,
-                runs.isEmpty() ? null : runs.getFirst(), dimsJson);
+        return new TaskDetail(summaries.getFirst(), conversationId, messages, drafts, draft,
+                runs.isEmpty() ? null : runs.getFirst());
     }
 
     private TaskRow taskForUpdate(UUID workspaceId, UUID taskId) {
@@ -520,7 +510,7 @@ public class RecruitmentService {
         return jdbc.query("""
                 SELECT id,revision,title,company_name,location,experience_level,education,job_type,
                        responsibilities,requirements,skills,talent_profile,warnings::text,status,updated_at
-                FROM jd_drafts WHERE recruitment_task_id=? AND workspace_id=?
+                FROM jd_drafts WHERE recruitment_task_id=? AND workspace_id=? ORDER BY created_at
                 """, (rs, n) -> new JdDraftView(rs.getObject("id", UUID.class), rs.getInt("revision"),
                 rs.getString("title"), rs.getString("company_name"), rs.getString("location"),
                 rs.getString("experience_level"), rs.getString("education"), rs.getString("job_type"),
@@ -540,10 +530,10 @@ public class RecruitmentService {
                 conversationId, workspaceId);
     }
 
-    private Map<String, Object> jdDraftContext(UUID workspaceId, UUID taskId) {
+    private Map<String, Object> jdDraftContext(UUID workspaceId, UUID taskId, UUID draftId) {
         List<JdDraftView> drafts = draftRows(workspaceId, taskId);
         if (drafts.isEmpty()) return Map.of();
-        JdDraftView draft = drafts.getFirst();
+        JdDraftView draft = drafts.stream().filter(item -> draftId == null || item.id().equals(draftId)).findFirst().orElse(drafts.getFirst());
         return Map.ofEntries(Map.entry("title", draft.title()), Map.entry("company_name", draft.companyName()),
                 Map.entry("responsibilities", draft.responsibilities()), Map.entry("requirements", draft.requirements()),
                 Map.entry("skills", draft.skills()), Map.entry("talent_profile", draft.talentProfile()),
@@ -564,39 +554,36 @@ public class RecruitmentService {
                  location,experience_level,education,job_type,responsibilities,requirements,skills,talent_profile,
                  warnings,status,updated_by,created_at,updated_at)
                 VALUES (?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?::jsonb,'DRAFT',?,?,?)
-                ON CONFLICT (recruitment_task_id) DO UPDATE SET source_ai_run_id=EXCLUDED.source_ai_run_id,
-                 revision=jd_drafts.revision+1,title=EXCLUDED.title,company_name=EXCLUDED.company_name,
-                 location=EXCLUDED.location,experience_level=EXCLUDED.experience_level,education=EXCLUDED.education,
-                 job_type=EXCLUDED.job_type,responsibilities=EXCLUDED.responsibilities,
-                 requirements=EXCLUDED.requirements,skills=EXCLUDED.skills,talent_profile=EXCLUDED.talent_profile,
-                 warnings=EXCLUDED.warnings,status='DRAFT',updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at
                 """, UUID.randomUUID(), scope.companyId(), scope.workspaceId(), taskId, runId, draft.title(),
                 draft.companyName(), draft.location(), draft.experienceLevel(), draft.education(), draft.jobType(),
                 draft.responsibilities(), draft.requirements(), draft.skills(), draft.talentProfile(),
                 json(draft.warnings()), userId, timestamp(now), timestamp(now));
     }
 
-    private void updateDraftInPlace(WorkspaceScope scope, UUID taskId, UUID userId, JdDraftContent draft) {
+    private void updateDraftInPlace(WorkspaceScope scope, UUID taskId, UUID draftId, UUID userId, JdDraftContent draft) {
         int updated = jdbc.update("""
-                UPDATE jd_drafts SET title=?,company_name=?,location=?,experience_level=?,education=?,job_type=?,
+                UPDATE jd_drafts SET status=CASE WHEN status='CONFIRMED' THEN 'DRAFT' ELSE status END,title=?,company_name=?,location=?,experience_level=?,education=?,job_type=?,
                  responsibilities=?,requirements=?,skills=?,talent_profile=?,warnings=?::jsonb,updated_by=?,updated_at=?
-                WHERE recruitment_task_id=? AND workspace_id=? AND status IN ('DRAFT','CONFIRMED')
+                WHERE id=? AND recruitment_task_id=? AND workspace_id=? AND status IN ('DRAFT','CONFIRMED')
                 """, draft.title(), draft.companyName(), draft.location(), draft.experienceLevel(), draft.education(),
                 draft.jobType(), draft.responsibilities(), draft.requirements(), draft.skills(), draft.talentProfile(),
-                json(draft.warnings()), userId, timestamp(Instant.now()), taskId, scope.workspaceId());
+                json(draft.warnings()), userId, timestamp(Instant.now()), draftId, taskId, scope.workspaceId());
         if (updated == 0) throw new ApiException("JD_DRAFT_NOT_FOUND", "当前 JD 不存在，无法更新", HttpStatus.CONFLICT);
-        jobs.updateFromRecruitmentJd(userId, scope.workspaceId(), taskId, new JobService.JobInput(
-                draft.title(), draft.companyName(), draft.location(), draft.responsibilities(), draft.requirements(),
-                draft.skills(), draft.experienceLevel(), draft.education(), draft.jobType()));
     }
 
-    private void syncPublishedJob(UUID userId, UUID workspaceId, UUID taskId, UpdateDraftInput input) {
-        jobs.updateFromRecruitmentJd(userId, workspaceId, taskId, new JobService.JobInput(
-                required(input.title(), "职位名称不能为空", 200), required(input.companyName(), "企业名称不能为空", 200),
-                optional(input.location(), 200), optional(input.responsibilities(), 20_000),
-                optional(input.requirements(), 20_000), optional(input.skills(), 4_000),
-                optional(input.experienceLevel(), 80), optional(input.education(), 80), defaulted(input.jobType(), "全职", 50)));
+    private void insertAdditionalDraft(WorkspaceScope scope, UUID taskId, UUID userId, JdDraftContent draft) {
+        Instant now = Instant.now();
+        jdbc.update("""
+                INSERT INTO jd_drafts (id,company_id,workspace_id,recruitment_task_id,revision,title,company_name,
+                  location,experience_level,education,job_type,responsibilities,requirements,skills,talent_profile,
+                  warnings,status,updated_by,created_at,updated_at)
+                VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?::jsonb,'DRAFT',?,?,?)
+                """, UUID.randomUUID(), scope.companyId(), scope.workspaceId(), taskId, draft.title(), draft.companyName(),
+                draft.location(), draft.experienceLevel(), draft.education(), draft.jobType(), draft.responsibilities(),
+                draft.requirements(), draft.skills(), draft.talentProfile(), json(draft.warnings()), userId,
+                timestamp(now), timestamp(now));
     }
+
 
     private void insertMessage(WorkspaceScope scope, UUID conversationId, String role, String content,
                                String capability, UUID createdBy, Instant now) {
@@ -781,7 +768,7 @@ public class RecruitmentService {
 
     public record RenameTaskInput(String title) { }
 
-    public record MessageInput(String content) { }
+    public record MessageInput(String content, UUID jdDraftId) { }
 
     public record RouteMessageInput(String message) { }
 
@@ -789,12 +776,10 @@ public class RecruitmentService {
                                   String experienceLevel, String education, String jobType, String skills,
                                   String scenario) { }
 
-    public record UpdateDraftInput(int revision, String title, String companyName, String location,
+    public record UpdateDraftInput(UUID id, int revision, String title, String companyName, String location,
                                    String experienceLevel, String education, String jobType,
                                    String responsibilities, String requirements, String skills,
                                    String talentProfile, List<String> warnings) { }
-
-    public record UpdateScreeningDimsInput(String dimensionsJson) { }
 
     public record TaskSummary(UUID id, UUID companyId, UUID workspaceId, String title, String status,
                               String currentStage, UUID jobId, String jobTitle, UUID createdBy,
@@ -812,67 +797,12 @@ public class RecruitmentService {
                             String pricingVersion, long estimatedAmountMinor, long settledAmountMinor,
                             String errorCode, String errorMessage, Instant createdAt, Instant completedAt) { }
 
-    public record TaskDetail(TaskSummary task, UUID conversationId, List<MessageView> messages,
-                             JdDraftView jdDraft, AiRunView latestAiRun, String screeningDimsJson) { }
-
-    public record ScreeningDimsView(String dimensionsJson) { }
+    public record TaskDetail(TaskSummary task, UUID conversationId, List<MessageView> messages, List<JdDraftView> jdDrafts,
+                             JdDraftView jdDraft, AiRunView latestAiRun) { }
 
     public record RunEvent(long eventId, UUID runId, String eventType, String data, Instant createdAt) { }
 
     public record OutboxClaim(UUID eventId, UUID runId, int attempts) { }
-
-    /** 简历筛选六维评估维度默认值（必须与前端 DEFAULT_SCREENING_DIMENSIONS 保持一致） */
-    private String defaultScreeningDimsJson() {
-        try {
-            List<Map<String, Object>> dims = List.of(
-                    Map.of("id", "basic_info", "name", "基本信息", "weight", 10,
-                            "description", "年龄、性别、所在地、期望薪资、到岗时间等基本信息，是否满足岗位硬性门槛与到岗节奏。"),
-                    Map.of("id", "education", "name", "教育背景", "weight", 15,
-                            "description", "学历层次、学校等级、专业相关性，在校期间的成绩、奖学金、科研与项目经历。"),
-                    Map.of("id", "career", "name", "职业履历", "weight", 25,
-                            "description", "工作年限、行业/岗位匹配度、公司平台层级、岗位稳定性、晋升速度与管理经验。"),
-                    Map.of("id", "skills", "name", "专业技能", "weight", 25,
-                            "description", "岗位所需的技术栈、工具、方法论、语言与证书，熟练度与实战落地经验的匹配程度。"),
-                    Map.of("id", "projects", "name", "项目经验", "weight", 15,
-                            "description", "主导或核心参与的项目规模、复杂度、业务结果，以及与目标岗位的职责相似性。"),
-                    Map.of("id", "motivation", "name", "求职动机", "weight", 10,
-                            "description", "求职原因、稳定性、薪酬期望、文化契合度、团队配合意愿与长期发展潜力。")
-            );
-            return objectMapper.writeValueAsString(dims);
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("无法构建筛选维度默认值", exception);
-        }
-    }
-
-    /** 归一化前端传入的六维配置 JSON：校验通过并压缩为合法 JSON 字符串。 */
-    private String normalizeScreeningDimsJson(String raw) {
-        try {
-            List<Map<String, Object>> parsed = objectMapper.readValue(raw, new TypeReference<>() {});
-            if (parsed == null || parsed.isEmpty()) return defaultScreeningDimsJson();
-            List<Map<String, Object>> defaults = objectMapper.readValue(defaultScreeningDimsJson(), new TypeReference<>() {});
-            // 以默认 id 集合为基准合并，避免缺列/多列/非法字段
-            List<Map<String, Object>> normalized = defaults.stream().map(def -> {
-                Map<String, Object> saved = parsed.stream()
-                        .filter(m -> def.get("id").equals(m.get("id"))).findFirst().orElse(null);
-                if (saved == null) return def;
-                int weight;
-                try {
-                    Number n = (Number) saved.get("weight");
-                    weight = Math.max(0, Math.min(100, n.intValue()));
-                } catch (Exception ignored) {
-                    weight = (int) def.get("weight");
-                }
-                String description;
-                Object desc = saved.get("description");
-                description = (desc instanceof String s && !s.isBlank()) ? s : (String) def.get("description");
-                if (description.length() > 500) description = description.substring(0, 500);
-                return Map.of("id", def.get("id"), "name", def.get("name"), "weight", weight, "description", description);
-            }).toList();
-            return objectMapper.writeValueAsString(normalized);
-        } catch (Exception exception) {
-            throw validation("筛选维度 JSON 格式不正确");
-        }
-    }
 
     private void updateLegacyDefaultTaskTitle(TaskRow task, String requirement, Instant now) {
         if (!LEGACY_DEFAULT_TASK_TITLE.equals(task.title())) return;

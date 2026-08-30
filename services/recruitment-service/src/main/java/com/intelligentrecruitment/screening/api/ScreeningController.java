@@ -33,8 +33,10 @@ public class ScreeningController {
     }
 
     @GetMapping("/screening-plans")
-    List<ScreeningService.ScreeningPlanView> plans(@PathVariable UUID workspaceId, Authentication authentication) {
-        return screening.listPlans(CurrentUser.id(authentication), workspaceId);
+    List<ScreeningService.ScreeningPlanView> plans(@PathVariable UUID workspaceId,
+                                                    @RequestParam(required = false) UUID recruitmentTaskId,
+                                                    Authentication authentication) {
+        return screening.listPlans(CurrentUser.id(authentication), workspaceId, recruitmentTaskId);
     }
 
     @PostMapping("/screening-quotes")
@@ -58,8 +60,10 @@ public class ScreeningController {
     }
 
     @GetMapping("/screening-runs")
-    List<ScreeningService.ScreeningRunSummary> runs(@PathVariable UUID workspaceId, Authentication authentication) {
-        return screening.listRuns(CurrentUser.id(authentication), workspaceId);
+    List<ScreeningService.ScreeningRunSummary> runs(@PathVariable UUID workspaceId,
+                                                     @RequestParam(required = false) UUID recruitmentTaskId,
+                                                     Authentication authentication) {
+        return screening.listRuns(CurrentUser.id(authentication), workspaceId, recruitmentTaskId);
     }
 
     @GetMapping("/screening-runs/{runId}")

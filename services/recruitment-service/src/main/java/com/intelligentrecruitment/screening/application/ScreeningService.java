@@ -79,6 +79,7 @@ public class ScreeningService {
         WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         if (input == null || input.jobId() == null) throw validation("请选择职位");
         JobRow job = job(workspaceId, input.jobId());
+        UUID recruitmentTaskId = recruitmentTask(workspaceId, input.recruitmentTaskId());
         List<DimensionInput> dimensions = normalizeDimensions(input.dimensions());
         UUID planId = UUID.randomUUID();
         UUID versionId = UUID.randomUUID();
@@ -87,9 +88,9 @@ public class ScreeningService {
         if (name.length() > 200) throw validation("筛选方案名称不能超过200字");
         jdbc.update("""
                 INSERT INTO screening_plans
-                (id,company_id,workspace_id,job_id,name,status,created_by,created_at,updated_at)
-                VALUES (?,?,?,?,?,'ACTIVE',?,?,?)
-                """, planId, scope.companyId(), workspaceId, job.id(), name, userId, timestamp(now), timestamp(now));
+                (id,company_id,workspace_id,recruitment_task_id,job_id,name,status,created_by,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,'ACTIVE',?,?,?)
+                """, planId, scope.companyId(), workspaceId, recruitmentTaskId, job.id(), name, userId, timestamp(now), timestamp(now));
         jdbc.update("""
                 INSERT INTO screening_plan_versions
                 (id,company_id,workspace_id,plan_id,version_number,rules_snapshot,created_by,created_at)
@@ -119,10 +120,16 @@ public class ScreeningService {
         return planScoped(workspaceId, planId);
     }
 
-    public List<ScreeningPlanView> listPlans(UUID userId, UUID workspaceId) {
+    public List<ScreeningPlanView> listPlans(UUID userId, UUID workspaceId, UUID recruitmentTaskId) {
         workspaceAccess.requireBusinessAccess(userId, workspaceId);
-        return jdbc.query(planSelect() + " WHERE p.workspace_id=? AND p.status='ACTIVE' ORDER BY p.updated_at DESC",
-                (rs, n) -> plan(rs), workspaceId);
+        recruitmentTask(workspaceId, recruitmentTaskId);
+        String taskFilter = recruitmentTaskId == null ? "" : " AND p.recruitment_task_id=?";
+        List<Object> params = new ArrayList<>();
+        params.add(workspaceId);
+        if (recruitmentTaskId != null) params.add(recruitmentTaskId);
+        return jdbc.query(planSelect() + " WHERE p.workspace_id=? AND p.status='ACTIVE'" + taskFilter
+                        + " ORDER BY p.updated_at DESC",
+                (rs, n) -> plan(rs), params.toArray());
     }
 
     @Transactional
@@ -190,7 +197,7 @@ public class ScreeningService {
         List<QueuedCandidate> queued = candidates.stream()
                 .map(value -> new QueuedCandidate(value.id(), value.parseVersionId(), null, 1)).toList();
         return createQueuedRun(scope, userId, key, requestHash, quote, job.id(), job.versionId(),
-                plan.currentVersionId(), scenario, queued, null, null);
+                plan.currentVersionId(), plan.recruitmentTaskId(), scenario, queued, null, null);
     }
 
     @Transactional
@@ -244,12 +251,12 @@ public class ScreeningService {
         }
         UUID rootRunId = context.rootRunId() == null ? originalRunId : context.rootRunId();
         return createQueuedRun(scope, userId, key, requestHash, quote, context.jobId(), context.jobVersionId(),
-                context.planVersionId(), "NORMAL", failed, originalRunId, rootRunId);
+                context.planVersionId(), context.recruitmentTaskId(), "NORMAL", failed, originalRunId, rootRunId);
     }
 
     private ScreeningRunDetail createQueuedRun(WorkspaceScope scope, UUID userId, String key, String requestHash,
                                                 QuoteRow quote, UUID jobId, UUID jobVersionId,
-                                                UUID planVersionId, String scenario,
+                                                UUID planVersionId, UUID recruitmentTaskId, String scenario,
                                                 List<QueuedCandidate> candidates, UUID parentRunId, UUID rootRunId) {
         UUID runId = UUID.randomUUID();
         Instant now = Instant.now();
@@ -265,11 +272,11 @@ public class ScreeningService {
                 "screening-run:" + runId, inputVersions, false);
         jdbc.update("""
                 INSERT INTO screening_runs
-                (id,company_id,workspace_id,job_id,job_version_id,plan_version_id,quote_id,parent_run_id,
+                (id,company_id,workspace_id,recruitment_task_id,job_id,job_version_id,plan_version_id,quote_id,parent_run_id,
                  root_run_id,status,progress,scenario,pricing_version,unit_price_minor,estimated_amount_minor,
                  idempotency_key,request_hash,created_by,created_at,policy_decision,execution_context)
-                VALUES (?,?,?,?,?,?,?,?,?,'RUNNING',5,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb)
-                """, runId, scope.companyId(), scope.workspaceId(), jobId, jobVersionId, planVersionId, quote.id(),
+                VALUES (?,?,?,?,?,?,?,?,?,?,'RUNNING',5,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb)
+                """, runId, scope.companyId(), scope.workspaceId(), recruitmentTaskId, jobId, jobVersionId, planVersionId, quote.id(),
                 parentRunId, rootRunId, scenario, quote.pricingVersion(), quote.unitPriceMinor(),
                 quote.estimatedAmountMinor(), key, requestHash, userId, timestamp(now), json(policyDecision),
                 json(executionContext));
@@ -481,21 +488,26 @@ public class ScreeningService {
         return runScoped(workspaceId, runId);
     }
 
-    public List<ScreeningRunSummary> listRuns(UUID userId, UUID workspaceId) {
+    public List<ScreeningRunSummary> listRuns(UUID userId, UUID workspaceId, UUID recruitmentTaskId) {
         workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        recruitmentTask(workspaceId, recruitmentTaskId);
+        String taskFilter = recruitmentTaskId == null ? "" : " AND r.recruitment_task_id=?";
+        List<Object> params = new ArrayList<>();
+        params.add(workspaceId);
+        if (recruitmentTaskId != null) params.add(recruitmentTaskId);
         return jdbc.query("""
                 SELECT r.id,r.job_id,j.title AS job_title,r.status,r.progress,r.estimated_amount_minor,
-                       r.settled_amount_minor,r.created_at,r.completed_at,
+                       r.settled_amount_minor,r.created_at,r.completed_at,r.recruitment_task_id,
                        count(i.id) AS total_items,count(i.id) FILTER (WHERE i.status='SUCCEEDED') AS succeeded_items
                 FROM screening_runs r JOIN jobs j ON j.id=r.job_id
-                JOIN screening_run_items i ON i.run_id=r.id WHERE r.workspace_id=?
+                JOIN screening_run_items i ON i.run_id=r.id WHERE r.workspace_id=?""" + taskFilter + """
                 GROUP BY r.id,j.title ORDER BY r.created_at DESC LIMIT 100
                 """, (rs, n) -> new ScreeningRunSummary(rs.getObject("id", UUID.class),
                 rs.getObject("job_id", UUID.class), rs.getString("job_title"), rs.getString("status"),
                 rs.getInt("progress"), rs.getInt("total_items"), rs.getInt("succeeded_items"),
                 rs.getLong("estimated_amount_minor"), rs.getLong("settled_amount_minor"),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("completed_at") == null ? null :
-                rs.getTimestamp("completed_at").toInstant()), workspaceId);
+                rs.getTimestamp("completed_at").toInstant(), rs.getObject("recruitment_task_id", UUID.class)), params.toArray());
     }
 
     public ScreeningRunDetail getRun(UUID userId, UUID workspaceId, UUID runId) {
@@ -507,7 +519,7 @@ public class ScreeningService {
         List<RunRow> runs = jdbc.query("""
                 SELECT r.id,r.job_id,j.title AS job_title,p.id AS plan_id,p.name AS plan_name,r.status,r.progress,
                        r.scenario,r.pricing_version,r.unit_price_minor,r.estimated_amount_minor,
-                       r.settled_amount_minor,r.created_at,r.completed_at
+                       r.settled_amount_minor,r.created_at,r.completed_at,r.recruitment_task_id
                 FROM screening_runs r JOIN jobs j ON j.id=r.job_id
                 JOIN screening_plan_versions pv ON pv.id=r.plan_version_id JOIN screening_plans p ON p.id=pv.plan_id
                 WHERE r.id=? AND r.workspace_id=?
@@ -517,7 +529,7 @@ public class ScreeningService {
                 rs.getString("pricing_version"), rs.getLong("unit_price_minor"),
                 rs.getLong("estimated_amount_minor"), rs.getLong("settled_amount_minor"),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("completed_at") == null ? null :
-                rs.getTimestamp("completed_at").toInstant()), runId, workspaceId);
+                rs.getTimestamp("completed_at").toInstant(), rs.getObject("recruitment_task_id", UUID.class)), runId, workspaceId);
         if (runs.isEmpty()) throw new ApiException("SCREENING_RUN_NOT_FOUND", "筛选任务不存在", HttpStatus.NOT_FOUND);
         List<ScreeningItemView> items = jdbc.query("""
                 SELECT i.id,i.candidate_id,c.display_name_masked,i.status,i.error_code,i.attempt_number,
@@ -536,7 +548,8 @@ public class ScreeningService {
         RunRow run = runs.getFirst();
         return new ScreeningRunDetail(run.id(), run.jobId(), run.jobTitle(), run.planId(), run.planName(),
                 run.status(), run.progress(), run.scenario(), run.pricingVersion(), run.unitPriceMinor(),
-                run.estimatedAmountMinor(), run.settledAmountMinor(), items, run.createdAt(), run.completedAt());
+                run.estimatedAmountMinor(), run.settledAmountMinor(), items, run.createdAt(), run.completedAt(),
+                run.recruitmentTaskId());
     }
 
     private ScreeningPlanView planScoped(UUID workspaceId, UUID planId) {
@@ -548,7 +561,7 @@ public class ScreeningService {
 
     private static String planSelect() {
         return """
-                SELECT p.id,p.company_id,p.workspace_id,p.job_id,j.title AS job_title,p.current_version_id,
+                SELECT p.id,p.company_id,p.workspace_id,p.recruitment_task_id,p.job_id,j.title AS job_title,p.current_version_id,
                        pv.version_number,pv.rules_snapshot::text,p.name,p.status,p.created_at,p.updated_at
                 FROM screening_plans p JOIN jobs j ON j.id=p.job_id
                 JOIN screening_plan_versions pv ON pv.id=p.current_version_id
@@ -557,7 +570,7 @@ public class ScreeningService {
 
     private ScreeningPlanView plan(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new ScreeningPlanView(rs.getObject("id", UUID.class), rs.getObject("company_id", UUID.class),
-                rs.getObject("workspace_id", UUID.class), rs.getObject("job_id", UUID.class),
+                rs.getObject("workspace_id", UUID.class), rs.getObject("recruitment_task_id", UUID.class), rs.getObject("job_id", UUID.class),
                 rs.getString("job_title"), rs.getObject("current_version_id", UUID.class),
                 rs.getInt("version_number"), dimensions(rs.getString("rules_snapshot")), rs.getString("name"),
                 rs.getString("status"), rs.getTimestamp("created_at").toInstant(),
@@ -574,6 +587,17 @@ public class ScreeningService {
                 jobId, workspaceId);
         if (rows.isEmpty()) throw new ApiException("JOB_NOT_FOUND", "职位不存在或没有可用版本", HttpStatus.NOT_FOUND);
         return rows.getFirst();
+    }
+
+    private UUID recruitmentTask(UUID workspaceId, UUID recruitmentTaskId) {
+        if (recruitmentTaskId == null) return null;
+        Integer count = jdbc.queryForObject("""
+                SELECT count(*) FROM recruitment_tasks WHERE id=? AND workspace_id=?
+                """, Integer.class, recruitmentTaskId, workspaceId);
+        if (count == null || count == 0) {
+            throw new ApiException("RECRUITMENT_TASK_NOT_FOUND", "招聘任务不存在或不属于当前工作空间", HttpStatus.NOT_FOUND);
+        }
+        return recruitmentTaskId;
     }
 
     private List<CandidateRow> candidates(UUID workspaceId, List<UUID> ids) {
@@ -673,14 +697,14 @@ public class ScreeningService {
 
     private RetryContext retryContext(UUID workspaceId, UUID originalRunId) {
         List<RetryContext> rows = jdbc.query("""
-                SELECT r.job_id,r.job_version_id,r.plan_version_id,p.id AS plan_id,r.root_run_id,r.status
+                SELECT r.job_id,r.job_version_id,r.plan_version_id,p.id AS plan_id,r.recruitment_task_id,r.root_run_id,r.status
                 FROM screening_runs r
                 JOIN screening_plan_versions pv ON pv.id=r.plan_version_id
                 JOIN screening_plans p ON p.id=pv.plan_id
                 WHERE r.id=? AND r.workspace_id=?
                 """, (rs, n) -> new RetryContext(rs.getObject("job_id", UUID.class),
                 rs.getObject("job_version_id", UUID.class), rs.getObject("plan_version_id", UUID.class),
-                rs.getObject("plan_id", UUID.class), rs.getObject("root_run_id", UUID.class),
+                rs.getObject("plan_id", UUID.class), rs.getObject("recruitment_task_id", UUID.class), rs.getObject("root_run_id", UUID.class),
                 rs.getString("status")), originalRunId, workspaceId);
         if (rows.isEmpty()) throw new ApiException("SCREENING_RUN_NOT_FOUND", "筛选任务不存在", HttpStatus.NOT_FOUND);
         if ("RUNNING".equals(rows.getFirst().status())) {
@@ -825,10 +849,11 @@ public class ScreeningService {
     private record RunRow(UUID id, UUID jobId, String jobTitle, UUID planId, String planName, String status,
                           int progress, String scenario, String pricingVersion, long unitPriceMinor,
                           long estimatedAmountMinor, long settledAmountMinor, Instant createdAt,
-                          Instant completedAt) { }
+                          Instant completedAt, UUID recruitmentTaskId) { }
     private record QueuedCandidate(UUID candidateId, UUID parseVersionId, UUID sourceRunItemId,
                                    int attemptNumber) { }
     private record RetryContext(UUID jobId, UUID jobVersionId, UUID planVersionId, UUID planId,
+                                UUID recruitmentTaskId,
                                 UUID rootRunId, String status) { }
     private record ExecutionRow(UUID id, UUID companyId, UUID workspaceId, UUID jobVersionId,
                                 UUID planVersionId, String providerTaskId, String status, String scenario,
@@ -840,7 +865,7 @@ public class ScreeningService {
 
     public record DimensionInput(String name, int weight, String description, boolean required,
                                  String exclusionRule, String missingPolicy) { }
-    public record PlanInput(UUID jobId, String name, List<DimensionInput> dimensions) { }
+    public record PlanInput(UUID jobId, String name, List<DimensionInput> dimensions, UUID recruitmentTaskId) { }
     public record PlanUpdateInput(List<DimensionInput> dimensions) { }
     public record QuoteInput(UUID planId, List<UUID> candidateIds) { }
     public record RunInput(UUID planId, List<UUID> candidateIds, String scenario, UUID quoteId) { }
@@ -850,12 +875,13 @@ public class ScreeningService {
     public record ScreeningQuoteView(UUID id, UUID workspaceId, UUID planId, UUID planVersionId,
                                      int candidateCount, String pricingVersion, long unitPriceMinor,
                                      long estimatedAmountMinor, long availableAmountMinor, Instant expiresAt) { }
-    public record ScreeningPlanView(UUID id, UUID companyId, UUID workspaceId, UUID jobId, String jobTitle,
+    public record ScreeningPlanView(UUID id, UUID companyId, UUID workspaceId, UUID recruitmentTaskId, UUID jobId, String jobTitle,
                                     UUID currentVersionId, int versionNumber, List<DimensionInput> dimensions,
                                     String name, String status, Instant createdAt, Instant updatedAt) { }
     public record ScreeningRunSummary(UUID id, UUID jobId, String jobTitle, String status, int progress,
                                       int totalItems, int succeededItems, long estimatedAmountMinor,
-                                      long settledAmountMinor, Instant createdAt, Instant completedAt) { }
+                                      long settledAmountMinor, Instant createdAt, Instant completedAt,
+                                      UUID recruitmentTaskId) { }
     public record ScreeningItemView(UUID id, UUID candidateId, String candidateName, String status,
                                     String errorCode, int attemptNumber, Integer score, String level,
                                     List<String> matchedPoints, List<String> unmatchedPoints,
@@ -864,5 +890,6 @@ public class ScreeningService {
     public record ScreeningRunDetail(UUID id, UUID jobId, String jobTitle, UUID planId, String planName,
                                      String status, int progress, String scenario, String pricingVersion,
                                      long unitPriceMinor, long estimatedAmountMinor, long settledAmountMinor,
-                                     List<ScreeningItemView> items, Instant createdAt, Instant completedAt) { }
+                                     List<ScreeningItemView> items, Instant createdAt, Instant completedAt,
+                                     UUID recruitmentTaskId) { }
 }

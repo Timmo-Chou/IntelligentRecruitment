@@ -95,13 +95,13 @@ public class JobService {
     }
 
     @Transactional
-    public JobView createFromConfirmedJd(UUID userId, UUID workspaceId, UUID recruitmentTaskId, UUID sourceAiRunId,
+    public JobView createFromConfirmedJd(UUID userId, UUID workspaceId, UUID recruitmentTaskId, UUID jdDraftId, UUID sourceAiRunId,
                                          JobInput input, String talentProfile, String warningsJson) {
         WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         List<UUID> existing = jdbc.query("""
-                SELECT id FROM jobs WHERE recruitment_task_id=? AND workspace_id=? AND status<>'ARCHIVED'
-                """, (rs, n) -> rs.getObject("id", UUID.class), recruitmentTaskId, workspaceId);
-        if (!existing.isEmpty()) return getScoped(workspaceId, existing.getFirst());
+                SELECT id FROM jobs WHERE jd_draft_id=? AND workspace_id=? AND status<>'ARCHIVED'
+                """, (rs, n) -> rs.getObject("id", UUID.class), jdDraftId, workspaceId);
+        if (!existing.isEmpty()) return update(userId, workspaceId, existing.getFirst(), input);
         JobInput clean = clean(input);
         UUID jobId = UUID.randomUUID();
         Instant now = Instant.now();
@@ -110,12 +110,12 @@ public class JobService {
         jdbc.update("""
                 INSERT INTO jobs
                 (id,company_id,workspace_id,title,company_name,location,description,requirements,skills,
-                 experience_level,education,job_type,status,source,recruitment_task_id,talent_profile,warnings,
+                 experience_level,education,job_type,status,source,recruitment_task_id,jd_draft_id,talent_profile,warnings,
                  created_by,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'ACTIVE','AI_GENERATED',?,?,?::jsonb,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'ACTIVE','AI_GENERATED',?,?,?,?::jsonb,?,?,?)
                 """, jobId, scope.companyId(), workspaceId, clean.title(), clean.companyName(), clean.location(),
                 clean.description(), clean.requirements(), clean.skills(), clean.experienceLevel(), clean.education(),
-                clean.jobType(), recruitmentTaskId, cleanProfile, safeWarnings, userId, timestamp(now), timestamp(now));
+                clean.jobType(), recruitmentTaskId, jdDraftId, cleanProfile, safeWarnings, userId, timestamp(now), timestamp(now));
         ConfirmedJdSnapshot snapshot = new ConfirmedJdSnapshot(clean, cleanProfile, safeWarnings);
         UUID versionId = saveSnapshot(scope, jobId, 1, snapshot, "确认 AI JD 草稿", userId, now, sourceAiRunId);
         jdbc.update("UPDATE jobs SET current_version_id=? WHERE id=?", versionId, jobId);
@@ -147,10 +147,10 @@ public class JobService {
 
     /** Keeps the published job and its immutable version history aligned with an edited AI JD. */
     @Transactional
-    public void updateFromRecruitmentJd(UUID userId, UUID workspaceId, UUID recruitmentTaskId, JobInput input) {
+    public void updateFromRecruitmentJd(UUID userId, UUID workspaceId, UUID jdDraftId, JobInput input) {
         List<UUID> jobIds = jdbc.query("""
-                SELECT id FROM jobs WHERE recruitment_task_id=? AND workspace_id=? AND status<>'ARCHIVED'
-                """, (rs, n) -> rs.getObject("id", UUID.class), recruitmentTaskId, workspaceId);
+                SELECT id FROM jobs WHERE jd_draft_id=? AND workspace_id=? AND status<>'ARCHIVED'
+                """, (rs, n) -> rs.getObject("id", UUID.class), jdDraftId, workspaceId);
         if (!jobIds.isEmpty()) update(userId, workspaceId, jobIds.getFirst(), input);
     }
 
