@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError, setAccessToken } from "@/lib/api-client";
+import { useWorkspace } from "@/lib/workspace-context";
 
 type Mode = "personal" | "company";
 type CompanySubMode = "create" | "join";
@@ -143,6 +144,7 @@ function ModeButton({ active, onClick, icon, title, desc }: {active:boolean; onC
 
 function PersonalForm() {
   const router = useRouter();
+  const { refresh: refreshWorkspaces } = useWorkspace();
   const [name, setName] = useState("我的招聘空间");
   const [nickname, setNickname] = useState("");
   const [realName, setRealName] = useState("");
@@ -155,6 +157,8 @@ function PersonalForm() {
       if (!created) { await apiFetch("/workspaces/personal", {method:"POST", body:JSON.stringify({name})}); setCreated(true); }
       if (nickname.trim()) await apiFetch("/me/display-name", {method:"PUT", body:JSON.stringify({displayName:nickname.trim()})});
       if (realName && identityNumber) await apiFetch("/personal-verifications", {method:"POST", body:JSON.stringify({realName, identityNumber})});
+      // 创建后立即刷新全局 Workspace 状态，再进入招聘页，避免展示“没有空间”的旧状态。
+      await refreshWorkspaces();
       status.success(realName && identityNumber ? "实名认证已提交，平台审核通过后发放30元试用金。" : "个人空间已创建，可稍后在设置中实名认证。", () => router.push("/recruitment"));
     } catch (error) { status.fail(error); }
   }

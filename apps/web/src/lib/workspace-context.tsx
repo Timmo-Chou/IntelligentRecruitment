@@ -23,7 +23,7 @@ type WorkspaceContextValue = {
   loading: boolean;
   error: string | null;
   notAuthenticated: boolean;
-  refresh: () => void;
+  refresh: () => Promise<void>;
   selectWorkspace: (workspaceId: string) => void;
 };
 
@@ -34,7 +34,7 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
   loading: true,
   error: null,
   notAuthenticated: false,
-  refresh: () => {},
+  refresh: async () => {},
   selectWorkspace: () => {},
 });
 
@@ -51,7 +51,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     loading: true,
     error: null,
     notAuthenticated: false,
-    refresh: () => {},
+    refresh: async () => {},
     selectWorkspace: () => {},
   });
 
