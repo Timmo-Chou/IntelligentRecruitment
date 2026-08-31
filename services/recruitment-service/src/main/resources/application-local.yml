@@ -3,8 +3,12 @@ logging:
     com.intelligentrecruitment: INFO
 app:
   auth:
-    expose-mock-code: true
+    # 本地默认展示测试验证码；通过 .env 的 EXPOSE_MOCK_CODE 可切换。
+    expose-mock-code: ${EXPOSE_MOCK_CODE:true}
     secure-cookie: false
+    verification-code:
+      # 本地默认使用测试验证码；通过 .env 的 VERIFICATION_CODE_PROVIDER=aliyun 切换为阿里云短信。
+      provider: ${VERIFICATION_CODE_PROVIDER:local}
   platform-admin-key: ${PLATFORM_ADMIN_KEY:phase2-local-admin}
   phase3:
     # 留出可观察的异步状态和 SSE 断线重连窗口。

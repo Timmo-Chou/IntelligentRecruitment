@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.security.SecureRandom;
 
 import static com.intelligentrecruitment.shared.database.SqlTimes.timestamp;
 
@@ -24,16 +25,19 @@ public class IdentityService {
     public static final Duration REFRESH_TTL = Duration.ofDays(14);
     private static final Duration CHALLENGE_TTL = Duration.ofMinutes(5);
     private static final String MOCK_CODE = "123456";
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final JdbcTemplate jdbc;
     private final boolean exposeMockCode;
     private final PasswordEncoder passwordEncoder;
+    private final VerificationCodeSender verificationCodeSender;
 
     public IdentityService(JdbcTemplate jdbc, @Value("${app.auth.expose-mock-code:false}") boolean exposeMockCode,
-                           PasswordEncoder passwordEncoder) {
+                           PasswordEncoder passwordEncoder, VerificationCodeSender verificationCodeSender) {
         this.jdbc = jdbc;
         this.exposeMockCode = exposeMockCode;
         this.passwordEncoder = passwordEncoder;
+        this.verificationCodeSender = verificationCodeSender;
     }
 
     @Transactional
@@ -48,13 +52,16 @@ public class IdentityService {
         }
         UUID id = UUID.randomUUID();
         Instant now = Instant.now();
+        String code = verificationCodeSender.isLocalTestMode() ? MOCK_CODE : randomCode();
         jdbc.update("""
                 INSERT INTO verification_challenges
                 (id, phone_hash, purpose, code_hash, expires_at, attempt_count, created_at)
                 VALUES (?, ?, 'LOGIN', ?, ?, 0, ?)
-                """, id, phoneHash, SecurityHashes.sha256(id + ":" + MOCK_CODE),
+                """, id, phoneHash, SecurityHashes.sha256(id + ":" + code),
                 timestamp(now.plus(CHALLENGE_TTL)), timestamp(now));
-        return new Challenge(id, now.plus(CHALLENGE_TTL), exposeMockCode ? MOCK_CODE : null);
+        verificationCodeSender.send(normalized, code);
+        return new Challenge(id, now.plus(CHALLENGE_TTL),
+                verificationCodeSender.isLocalTestMode() && exposeMockCode ? code : null);
     }
 
     @Transactional
@@ -232,6 +239,10 @@ public class IdentityService {
             throw new ApiException("INVALID_PHONE", "请输入正确的11位手机号", HttpStatus.BAD_REQUEST);
         }
         return normalized;
+    }
+
+    private static String randomCode() {
+        return "%06d".formatted(SECURE_RANDOM.nextInt(1_000_000));
     }
 
     private static String safeDevice(String value) {

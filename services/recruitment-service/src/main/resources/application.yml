@@ -47,6 +47,17 @@ app:
   auth:
     expose-mock-code: ${EXPOSE_MOCK_CODE:false}
     secure-cookie: ${AUTH_SECURE_COOKIE:true}
+    verification-code:
+      # local：仅本地测试；aliyun：调用国内短信 SendSms。生产环境请显式设置为 aliyun。
+      provider: ${VERIFICATION_CODE_PROVIDER:local}
+      aliyun:
+        access-key-id: ${ALIYUN_SMS_ACCESS_KEY_ID:}
+        access-key-secret: ${ALIYUN_SMS_ACCESS_KEY_SECRET:}
+        sign-name: ${ALIYUN_SMS_SIGN_NAME:}
+        template-code: ${ALIYUN_SMS_TEMPLATE_CODE:}
+        endpoint: ${ALIYUN_SMS_ENDPOINT:dysmsapi.aliyuncs.com}
+        connect-timeout-ms: ${ALIYUN_SMS_CONNECT_TIMEOUT_MS:2000}
+        read-timeout-ms: ${ALIYUN_SMS_READ_TIMEOUT_MS:3000}
   platform-admin-key: ${PLATFORM_ADMIN_KEY:phase2-local-admin}
   ai-platform:
     # JD 草稿默认必须由临时 AI Platform 的模型生成；Mock 仅允许显式用于测试。

@@ -47,6 +47,12 @@ cd services/recruitment-service
 - Phase 2 本地 Mock 验证码：`123456`（仅 `local` Profile 会在验证码响应中返回）。
 - Phase 2 本地平台审核 Key：`phase2-local-admin`，通过 `X-Platform-Admin-Key` 请求头传递。
 
+### 阿里云短信验证码
+
+默认使用本地通道：`VERIFICATION_CODE_PROVIDER=local`，验证码为 `123456`，且仅在 `EXPOSE_MOCK_CODE=true` 时随挑战接口响应返回。
+
+正式环境设为 `VERIFICATION_CODE_PROVIDER=aliyun`，并通过环境变量注入 `ALIYUN_SMS_ACCESS_KEY_ID`、`ALIYUN_SMS_ACCESS_KEY_SECRET`、`ALIYUN_SMS_SIGN_NAME`、`ALIYUN_SMS_TEMPLATE_CODE`。模板必须使用 `code` 变量，例如“您的验证码是${code}，5分钟内有效”。正式通道由后端随机生成六码验证码，调用阿里云国内短信 `SendSms`，不会向浏览器返回明文验证码。
+
 异步链路探针只在 `local/test` Profile 开放，用于验证 PostgreSQL → RabbitMQ → Worker → PostgreSQL。
 
 ## 启动客户端
