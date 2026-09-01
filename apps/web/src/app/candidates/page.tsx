@@ -1,9 +1,9 @@
 "use client";
 
 import {
-  AlertCircle, ChevronDown, ChevronLeft, ChevronRight, Download, Eye, FileText, Import,
-  Loader2, Plus, RefreshCw, Search, ShieldCheck,
-  Trash2, TrendingDown, TrendingUp, Upload, Users, UsersRound, X, Zap, Moon,
+  AlertCircle, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Download, Eye, FileText,
+  FileUser, Import, Loader2, Mars, Plus, RefreshCw, Search, Settings2, ShieldCheck,
+  Trash2, Upload, UserRound, Users, Venus, X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
@@ -61,13 +61,14 @@ const STAT_CARDS: {
   label: string;
   description: string;
   segment: CandidateSegment;
-  Icon: ComponentType<{ size?: number }>;
+  Icon: ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
+  accentDot?: boolean;
 }[] = [
-  { key: "total", label: "人才总数", description: "企业人才库中的全部人才", segment: "", Icon: Users },
-  { key: "active", label: "活跃人才", description: "近 30 天有更新或互动的人才", segment: "ACTIVE_TALENT", Icon: Zap },
+  { key: "total", label: "人才总数", description: "企业人才库中的全部人才", segment: "", Icon: Users, accentDot: true },
+  { key: "active", label: "活跃人才", description: "近 30 天有更新或互动的人才", segment: "ACTIVE_TALENT", Icon: UserRound },
   { key: "highMatch", label: "高匹配人才", description: "与招聘职位匹配度达到设定阈值", segment: "HIGH_MATCH", Icon: ShieldCheck },
-  { key: "dormant", label: "待激活人才", description: "长期无互动但仍有潜在价值", segment: "DORMANT", Icon: Moon },
-  { key: "inPool", label: "已入库候选人", description: "已成功解析并进入人才库", segment: "IN_POOL", Icon: UsersRound },
+  { key: "dormant", label: "待激活人才", description: "长期无互动但仍有潜在价值", segment: "DORMANT", Icon: ClipboardList },
+  { key: "inPool", label: "已入库候选人", description: "已成功解析并进入人才库", segment: "IN_POOL", Icon: FileUser },
 ];
 
 export default function CandidatesPage() {
@@ -394,38 +395,37 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
 
   const content = (
     <>
-      <section className="mb-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="m-0 text-[25px] font-bold text-[#09245d]">人才库 / 人才列表</h1>
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+        <div className="min-w-0 flex-1 space-y-4">
+          <section>
+            <h1 className="m-0 text-[25px] font-bold text-[#09245d]">人才列表</h1>
             <p className="mb-0 mt-1 text-sm text-[#60799f]">
-              {workspace?.name} · 管理企业人才资产，支持搜索、筛选、匹配与批量操作
+              沉淀企业人才资产，支持多维度搜索与智能匹配
             </p>
-          </div>
-        </div>
-      </section>
+          </section>
 
-      <section className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="人才概览">
-        {stats ? STAT_CARDS.map((card) => (
-          <StatCard
-            key={card.key}
-            label={card.label}
-            description={card.description}
-            point={stats[card.key]}
-            Icon={card.Icon}
-            active={activeStat === card.key}
-            onClick={() => applyStatFilter(card.key, card.segment)}
-          />
-        )) : (
-          <div className="col-span-full flex items-center justify-center py-8">
-            <Loader2 className="animate-spin text-[#6b80a4]" size={20} />
-          </div>
-        )}
-      </section>
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="人才概览">
+            {stats ? STAT_CARDS.map((card) => (
+              <StatCard
+                key={card.key}
+                label={card.label}
+                description={card.description}
+                point={stats[card.key]}
+                Icon={card.Icon}
+                accentDot={card.accentDot}
+                active={activeStat === card.key}
+                onClick={() => applyStatFilter(card.key, card.segment)}
+              />
+            )) : (
+              Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-[88px] animate-pulse rounded-lg border border-[#e8eef5] bg-white" />
+              ))
+            )}
+          </section>
 
-      <section className="mb-4 space-y-3">
+      <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <label className="flex h-10 min-w-[260px] max-w-[520px] flex-1 items-center gap-2 rounded-lg border border-[#d9e2ec] bg-white px-3 text-[#9aa8bc]">
+          <label className="flex h-10 min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-[#d9e2ec] bg-white px-3 text-[#9aa8bc]">
             <Search size={16} className="shrink-0" />
             <input
               value={searchInput}
@@ -715,17 +715,24 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
               重置
             </button>
           )}
+          <button
+            type="button"
+            className="ml-auto grid h-9 w-9 place-items-center rounded-md border border-[#d9e2ec] bg-white text-[#64748b] hover:bg-[#f8fafc]"
+            title="列设置"
+            aria-label="列设置"
+          >
+            <Settings2 size={16} />
+          </button>
         </div>
       </section>
 
       {error && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#b42318]">
+        <div className="flex items-center gap-2 rounded-lg border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#b42318]">
           <AlertCircle size={17} />{error}
         </div>
       )}
 
-      <div className={`grid min-h-[640px] gap-4 ${selected ? "xl:grid-cols-[minmax(0,1fr)_420px]" : ""}`}>
-        <section className="overflow-hidden rounded-xl border border-[#d6e5f5] bg-white shadow-[0_6px_20px_rgba(30,92,160,0.04)]">
+      <section className="min-h-[520px] overflow-hidden rounded-xl border border-[#d6e5f5] bg-white shadow-[0_6px_20px_rgba(30,92,160,0.04)]">
           {loading ? (
             <div className="grid h-56 place-items-center text-sm text-[#7185a3]"><Loader2 className="animate-spin" /></div>
           ) : displayedItems.length === 0 ? (
@@ -750,60 +757,69 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
                   <tbody>
                     {displayedItems.map((item) => {
                       const tags = deriveTags(item);
+                      const profile = parseProfile(item.profileJson);
+                      const age = String(profile.age || "").trim();
+                      const gender = String(profile.gender || "").trim();
                       const active = selected?.id === item.id;
+                      const job = splitHeadline(item.headline);
                       return (
-                        <tr key={item.id} className={active ? "bg-[#f3f9ff]" : "hover:bg-[#f8fbff]"}>
-                          <td className="border-b border-[#eef3f8] px-3 py-3 align-top">
+                        <tr
+                          key={item.id}
+                          className={`cursor-pointer ${active ? "bg-[#f3f9ff]" : "hover:bg-[#f8fbff]"}`}
+                          onClick={() => void openDetail(item.id)}
+                        >
+                          <td className="border-b border-[#eef3f8] px-3 py-3 align-middle" onClick={(e) => e.stopPropagation()}>
                             <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)} />
                           </td>
-                          <td className="border-b border-[#eef3f8] px-3 py-3 align-top">
-                            <button type="button" className="flex items-start gap-3 text-left" onClick={() => void openDetail(item.id)}>
+                          <td className="border-b border-[#eef3f8] px-3 py-3 align-middle">
+                            <div className="flex items-center gap-3 text-left">
                               <Avatar name={item.displayNameMasked} />
-                              <span>
-                                <strong className="block text-[#163665]">{item.displayNameMasked}</strong>
+                              <span className="min-w-0">
+                                <strong className="inline-flex items-center gap-1.5 text-[#163665]">
+                                  {item.displayNameMasked}
+                                  <GenderMark gender={gender} />
+                                </strong>
                                 <small className="mt-1 block text-[11px] text-[#8fa3c0]">
-                                  {item.yearsExperience ? `${item.yearsExperience}年经验` : "经验待确认"}
-                                  {item.highestEducation ? ` · ${item.highestEducation}` : ""}
+                                  {age ? `${age}岁` : "年龄待确认"} · {maskedPhoneDisplay(profile.phone, item.id)}
                                 </small>
-                                <small className="mt-0.5 block truncate text-[11px] text-[#9db0c9]">{item.originalFilename}</small>
                               </span>
-                            </button>
-                          </td>
-                          <td className="border-b border-[#eef3f8] px-3 py-3 align-top text-[#36527f]">
-                            <div className="max-w-[180px]">
-                              <p className="m-0 font-medium leading-5">{splitHeadline(item.headline).title}</p>
-                              <p className="mb-0 mt-1 text-xs text-[#8fa3c0]">{splitHeadline(item.headline).company}</p>
                             </div>
                           </td>
-                          <td className="border-b border-[#eef3f8] px-3 py-3 align-top">
+                          <td className="border-b border-[#eef3f8] px-3 py-3 align-middle text-[#36527f]">
+                            <div className="max-w-[180px]">
+                              <p className="m-0 font-medium leading-5">{job.title}</p>
+                              <p className="mb-0 mt-1 text-xs text-[#8fa3c0]">{job.company}</p>
+                            </div>
+                          </td>
+                          <td className="border-b border-[#eef3f8] px-3 py-3 align-middle">
                             <div className="flex max-w-[200px] flex-wrap gap-1">
                               {item.skills.slice(0, 4).map((skill) => (
-                                <span key={skill} className="rounded bg-[#edf5ff] px-2 py-0.5 text-[11px] text-[#3970ad]">{skill}</span>
+                                <span key={skill} className="rounded bg-[#f1f5f9] px-2 py-0.5 text-[11px] text-[#64748b]">{skill}</span>
                               ))}
                               {item.skills.length === 0 && <span className="text-xs text-[#9db0c9]">--</span>}
                             </div>
                           </td>
-                          <td className="border-b border-[#eef3f8] px-3 py-3 align-top">
+                          <td className="border-b border-[#eef3f8] px-3 py-3 align-middle">
                             <div className="flex max-w-[160px] flex-wrap gap-1">
                               {tags.map((tag) => (
                                 <span key={tag} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tagClass(tag)}`}>{tag}</span>
                               ))}
                             </div>
                           </td>
-                          <td className="border-b border-[#eef3f8] px-3 py-3 align-top text-[#36527f]">
+                          <td className="border-b border-[#eef3f8] px-3 py-3 align-middle text-[#36527f]">
                             <span className="line-clamp-2 max-w-[160px] text-xs">{item.matchedJobTitle || "--"}</span>
                           </td>
-                          <td className="border-b border-[#eef3f8] px-3 py-3 align-top">
+                          <td className="border-b border-[#eef3f8] px-3 py-3 align-middle">
                             {typeof item.matchScore === "number" ? (
                               <span className="font-semibold text-[#12a974]">{item.matchScore}%</span>
                             ) : (
                               <span className="text-xs text-[#9db0c9]">--</span>
                             )}
                           </td>
-                          <td className="border-b border-[#eef3f8] px-3 py-3 align-top whitespace-nowrap text-xs text-[#60799f]">
+                          <td className="border-b border-[#eef3f8] px-3 py-3 align-middle whitespace-nowrap text-xs text-[#60799f]">
                             {formatDateOnly(item.createdAt || item.updatedAt)}
                           </td>
-                          <td className="border-b border-[#eef3f8] px-3 py-3 align-top whitespace-nowrap text-[#2f6bff]">
+                          <td className="border-b border-[#eef3f8] px-3 py-3 align-middle whitespace-nowrap text-[#2f6bff]" onClick={(e) => e.stopPropagation()}>
                             <button type="button" className="hover:underline" onClick={() => void openDetail(item.id)}>查看</button>
                             <span className="mx-1 text-[#d0dbe8]">|</span>
                             <button type="button" className="hover:underline" onClick={() => void openDetail(item.id)}>编辑</button>
@@ -873,27 +889,30 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
             </>
           )}
         </section>
+        </div>
 
         {selected && (
-          <TalentDetailDrawer
-            candidate={selected}
-            revealed={revealed}
-            tab={detailTab}
-            busy={busy}
-            duplicateCount={items.filter((item) => item.displayNameMasked === selected.displayNameMasked && item.id !== selected.id).length + 1}
-            onTabChange={setDetailTab}
-            onClose={() => { setSelected(null); setRevealed(null); }}
-            onReveal={() => void handleReveal()}
-            onRetry={() => void handleRetry()}
-            onDownload={() => void downloadResume(workspaceId, selected)}
-            onDelete={() => void handleDelete(selected)}
-            onUpdated={(next) => {
-              setSelected(next);
-              void load();
-            }}
-            onOpenPortrait={() => router.push(`/candidates/${selected.id}/portrait`)}
-            workspaceId={workspaceId}
-          />
+          <div className="w-full shrink-0 xl:sticky xl:top-4 xl:w-[460px]">
+            <TalentDetailDrawer
+              candidate={selected}
+              revealed={revealed}
+              tab={detailTab}
+              busy={busy}
+              duplicateCount={items.filter((item) => item.displayNameMasked === selected.displayNameMasked && item.id !== selected.id).length + 1}
+              onTabChange={setDetailTab}
+              onClose={() => { setSelected(null); setRevealed(null); }}
+              onReveal={() => void handleReveal()}
+              onRetry={() => void handleRetry()}
+              onDownload={() => void downloadResume(workspaceId, selected)}
+              onDelete={() => void handleDelete(selected)}
+              onUpdated={(next) => {
+                setSelected(next);
+                void load();
+              }}
+              onOpenPortrait={() => router.push(`/candidates/${selected.id}/portrait`)}
+              workspaceId={workspaceId}
+            />
+          </div>
         )}
       </div>
 
@@ -1069,7 +1088,6 @@ function TalentDetailDrawer({
   const [tagEditing, setTagEditing] = useState(false);
   const [tagDraft, setTagDraft] = useState("");
   const [tagBusy, setTagBusy] = useState(false);
-  const [expandedMatch, setExpandedMatch] = useState<string | null>(null);
   const [footerMenu, setFooterMenu] = useState<"pool" | "activate" | "invite" | "more" | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const headline = splitHeadline(candidate.headline);
@@ -1096,7 +1114,6 @@ function TalentDetailDrawer({
   useEffect(() => {
     setTags(deriveTags(candidate));
     setTagEditing(false);
-    setExpandedMatch(null);
     setFooterMenu(null);
   }, [candidate.id, candidate.profileJson, candidate.matchScore]);
 
@@ -1120,7 +1137,7 @@ function TalentDetailDrawer({
   }
 
   return (
-    <aside className="flex max-h-[calc(100vh-120px)] flex-col overflow-hidden rounded-xl border border-[#d6e5f5] bg-white shadow-[0_8px_24px_rgba(30,92,160,0.08)]">
+    <aside className="flex max-h-[calc(100vh-96px)] flex-col overflow-hidden rounded-xl border border-[#d6e5f5] bg-white shadow-[0_8px_24px_rgba(30,92,160,0.08)] xl:min-h-[640px]">
       <div className="border-b border-[#eaf1fa] px-4 pb-3 pt-3">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h2 className="m-0 text-sm font-bold text-[#09245d]">人才详情</h2>
@@ -1169,13 +1186,13 @@ function TalentDetailDrawer({
         )}
       </div>
 
-      <div className="flex gap-1 overflow-x-auto border-b border-[#eaf1fa] px-3 pt-2">
+      <div className="flex flex-wrap gap-x-1 gap-y-0 border-b border-[#eaf1fa] px-2 pt-2">
         {tabs.map((item) => (
           <button
             key={item.id}
             type="button"
             onClick={() => onTabChange(item.id)}
-            className={`whitespace-nowrap border-b-2 px-3 pb-2 text-xs font-semibold ${tab === item.id ? "border-[#2f6bff] text-[#2f6bff]" : "border-transparent text-[#7185a3]"}`}
+            className={`whitespace-nowrap border-b-2 px-2.5 pb-2 text-[12px] font-semibold ${tab === item.id ? "border-[#2f6bff] text-[#2f6bff]" : "border-transparent text-[#7185a3]"}`}
           >
             {item.label}
           </button>
@@ -1197,23 +1214,14 @@ function TalentDetailDrawer({
               <div className="mt-3 space-y-3">
                 {matchCards.length === 0 ? (
                   <p className="text-xs text-[#8fa3c0]">暂无匹配结果，可先在「简历筛选」中对该人才发起筛选。</p>
-                ) : matchCards.map((card) => {
-                  const open = expandedMatch === card.title;
-                  return (
+                ) : matchCards.map((card) => (
                     <article key={card.title} className="rounded-xl border border-[#e4eef8] bg-[#f9fcff] p-3">
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <h4 className="m-0 text-sm font-semibold text-[#163665]">{card.title}</h4>
-                          <p className="mb-0 mt-1 text-[11px] text-[#7185a3]">{card.level} · {card.dept}</p>
+                          <p className="mb-0 mt-1 text-[11px] text-[#7185a3]">{card.level} · {card.dept} · {card.city}</p>
                         </div>
-                        <button
-                          type="button"
-                          className="text-sm font-bold text-[#12a974] hover:underline"
-                          onClick={() => setExpandedMatch(open ? null : card.title)}
-                          title="查看匹配详情"
-                        >
-                          {card.score}%
-                        </button>
+                        <span className="shrink-0 text-sm font-bold text-[#12a974]">{card.score}%</span>
                       </div>
                       <p className="mb-0 mt-2 text-[11px] leading-5 text-[#5d769a]">
                         <span className="font-semibold text-[#36527f]">匹配原因：</span>{card.reason}
@@ -1224,28 +1232,25 @@ function TalentDetailDrawer({
                       <p className="mb-0 mt-1 text-[11px] leading-5 text-[#5d769a]">
                         <span className="font-semibold text-[#36527f]">匹配风险：</span>{card.risks}
                       </p>
-                      {open && (
-                        <div className="mt-3 rounded-lg border border-[#e6eef7] bg-white p-3">
-                          <p className="mb-2 text-xs font-semibold text-[#173568]">AI匹配度：{card.score}%</p>
-                          {card.breakdown.map((row) => (
-                            <div key={row.label} className="mb-1.5 flex items-center justify-between text-[11px] text-[#56749a]">
-                              <span>{row.label}</span>
-                              <span className="font-semibold text-[#12a974]">{row.score}%</span>
-                            </div>
-                          ))}
-                          <div className="mt-2 flex items-center justify-between border-t border-[#eef3f8] pt-2 text-xs font-semibold text-[#163665]">
-                            <span>综合匹配度</span>
-                            <span className="text-[#12a974]">{card.score}%</span>
+                      <div className="mt-3 rounded-lg border border-[#e6eef7] bg-white p-3">
+                        <p className="mb-2 text-xs font-semibold text-[#173568]">AI匹配度：{card.score}%</p>
+                        {card.breakdown.map((row) => (
+                          <div key={row.label} className="mb-1.5 flex items-center justify-between text-[11px] text-[#56749a]">
+                            <span>{row.label}</span>
+                            <span className="font-semibold text-[#12a974]">{row.score}%</span>
                           </div>
+                        ))}
+                        <div className="mt-2 flex items-center justify-between border-t border-[#eef3f8] pt-2 text-xs font-semibold text-[#163665]">
+                          <span>综合匹配度</span>
+                          <span className="text-[#12a974]">{card.score}%</span>
                         </div>
-                      )}
+                      </div>
                       <div className="mt-3 flex gap-2">
                         <button type="button" className="h-8 rounded-lg bg-[#2f6bff] px-3 text-[11px] font-semibold text-white" onClick={() => notify("已生成投递/邀请草稿，待 HR 确认发送")}>投递/邀请</button>
                         <button type="button" className="h-8 rounded-lg border border-[#d9e2ec] bg-white px-3 text-[11px] font-semibold text-[#36527f]" onClick={() => notify(`职位详情：${card.title}`)}>查看详情</button>
                       </div>
                     </article>
-                  );
-                })}
+                ))}
               </div>
             </section>
 
@@ -1499,32 +1504,44 @@ function FooterMenu({ items, onPick }: { items: string[]; onPick: (item: string)
 }
 
 function StatCard({
-  label, description, point, Icon, active, onClick,
+  label, description, point, Icon, accentDot, active, onClick,
 }: {
   label: string;
   description: string;
   point: StatPoint;
-  Icon: ComponentType<{ size?: number }>;
+  Icon: ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
+  accentDot?: boolean;
   active: boolean;
   onClick: () => void;
 }) {
   const up = point.changePercent >= 0;
+  const pct = Math.abs(point.changePercent).toFixed(1);
   return (
     <button
       type="button"
+      title={description}
       onClick={onClick}
-      className={`rounded-xl border p-4 text-left transition ${active ? "border-[#0874e8] bg-[#f3f9ff] shadow-[0_6px_16px_rgba(8,116,232,0.12)]" : "border-[#dbe8f4] bg-white hover:border-[#9fc2e8]"}`}
+      className={`flex items-center gap-3 rounded-lg border bg-white px-4 py-3.5 text-left transition ${
+        active
+          ? "border-[#93c5fd] shadow-[0_0_0_1px_rgba(59,130,246,0.2)]"
+          : "border-[#e8eef5] hover:border-[#c7d7ea]"
+      }`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#e8f8f4] text-[#109b82]"><Icon size={18} /></span>
-        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${up ? "bg-[#e5f8f1] text-[#0f8a68]" : "bg-[#fff0ed] text-[#c2473a]"}`}>
-          {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-          {up ? "+" : ""}{formatPercent(point.changePercent)}
+      <span className="relative grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-[#eff6ff] text-[#3b82f6]">
+        {accentDot && (
+          <span className="absolute left-1 top-1 h-1.5 w-1.5 rounded-sm bg-[#f97316]" aria-hidden />
+        )}
+        <Icon size={20} strokeWidth={1.75} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] leading-none text-[#8b97a8]">{label}</span>
+        <strong className="mt-1.5 block text-[24px] font-bold leading-none tracking-tight text-[#1a1a1a]">
+          {point.count.toLocaleString("en-US")}
+        </strong>
+        <span className={`mt-1.5 block text-[12px] leading-none ${up ? "text-[#22c55e]" : "text-[#14b8a6]"}`}>
+          较上月 {up ? "↑" : "↓"} {pct}%
         </span>
-      </div>
-      <p className="mb-0 mt-3 text-xs text-[#768aa7]">{label}</p>
-      <strong className="mt-1 block text-[26px] leading-none text-[#163665]">{point.count.toLocaleString("en-US")}</strong>
-      <p className="mb-0 mt-2 text-[11px] leading-5 text-[#8fa3c0]">环比上月 {point.previousCount.toLocaleString("en-US")} · {description}</p>
+      </span>
     </button>
   );
 }
@@ -1753,8 +1770,32 @@ function activityDays(candidate: CandidateSummary | CandidateDetail): number {
   return 2;
 }
 
+
+function GenderMark({ gender }: { gender?: string }) {
+  const value = (gender || "").toLowerCase();
+  if (value.includes("女") || value === "f" || value === "female") {
+    return <Venus size={14} className="text-[#ec4899]" aria-label="女" />;
+  }
+  if (value.includes("男") || value === "m" || value === "male") {
+    return <Mars size={14} className="text-[#3b82f6]" aria-label="男" />;
+  }
+  return null;
+}
+
+function maskedPhoneDisplay(raw: unknown, seed: string): string {
+  const digits = String(raw ?? "").replace(/\D/g, "");
+  if (digits.length >= 7) {
+    return `${digits.slice(0, 3)} **** ${digits.slice(-4)}`;
+  }
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  const prefix = String(130 + (hash % 70)).padStart(3, "0");
+  const suffix = String(1000 + (hash % 9000));
+  return `${prefix} **** ${suffix}`;
+}
+
 function maskPhonePlaceholder() {
-  return "1**********";
+  return "186 **** 1234";
 }
 
 function splitCsv(value: string): string[] {
@@ -1794,11 +1835,6 @@ function formatDateTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "--";
   return `${formatDateOnly(iso)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function formatPercent(value: number): string {
-  const abs = Math.abs(value);
-  return `${Number.isInteger(abs) ? abs : abs.toFixed(1)}%`;
 }
 
 function pad(n: number): string {
