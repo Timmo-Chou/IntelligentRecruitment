@@ -31,14 +31,42 @@ public class CandidateController {
         return candidates.upload(CurrentUser.id(authentication), workspaceId, file, scenario);
     }
 
+    @PostMapping
+    CandidateService.CandidateDetail create(@PathVariable UUID workspaceId,
+                                            @RequestBody CandidateService.ManualTalentInput input,
+                                            Authentication authentication) {
+        return candidates.createManual(CurrentUser.id(authentication), workspaceId, input);
+    }
+
+    @GetMapping("/stats")
+    CandidateService.CandidateStats stats(@PathVariable UUID workspaceId, Authentication authentication) {
+        return candidates.stats(CurrentUser.id(authentication), workspaceId);
+    }
+
     @GetMapping
     CandidateService.CandidateListResult list(@PathVariable UUID workspaceId,
                                               @RequestParam(required = false) String search,
                                               @RequestParam(required = false) String status,
+                                              @RequestParam(required = false) String segment,
+                                              @RequestParam(required = false) Integer minMatchScore,
+                                              @RequestParam(required = false) String industry,
+                                              @RequestParam(required = false) String city,
+                                              @RequestParam(required = false) String tags,
+                                              @RequestParam(required = false) Integer yearsMin,
+                                              @RequestParam(required = false) Integer yearsMax,
+                                              @RequestParam(required = false) String education,
+                                              @RequestParam(required = false) String source,
+                                              @RequestParam(required = false) String activity,
+                                              @RequestParam(required = false) String talentStatus,
+                                              @RequestParam(required = false) String createdFrom,
+                                              @RequestParam(required = false) String createdTo,
                                               @RequestParam(defaultValue = "1") int page,
                                               @RequestParam(defaultValue = "20") int pageSize,
                                               Authentication authentication) {
-        return candidates.list(CurrentUser.id(authentication), workspaceId, search, status, page, pageSize);
+        return candidates.list(CurrentUser.id(authentication), workspaceId,
+                new CandidateService.CandidateListQuery(
+                        search, status, segment, minMatchScore, industry, city, tags, yearsMin, yearsMax,
+                        education, source, activity, talentStatus, createdFrom, createdTo, page, pageSize));
     }
 
     @GetMapping("/{candidateId}")
@@ -71,6 +99,15 @@ public class CandidateController {
                 .body(file.content());
     }
 
+    @PatchMapping("/{candidateId}/tags")
+    CandidateService.CandidateDetail updateTags(@PathVariable UUID workspaceId,
+                                                @PathVariable UUID candidateId,
+                                                @RequestBody TagsUpdateRequest request,
+                                                Authentication authentication) {
+        return candidates.updateTags(CurrentUser.id(authentication), workspaceId, candidateId,
+                request == null ? java.util.List.of() : request.tags());
+    }
+
     @DeleteMapping("/{candidateId}")
     ResponseEntity<Void> delete(@PathVariable UUID workspaceId, @PathVariable UUID candidateId,
                                 Authentication authentication) {
@@ -79,4 +116,5 @@ public class CandidateController {
     }
 
     public record ParseRequest(String scenario) { }
+    public record TagsUpdateRequest(java.util.List<String> tags) { }
 }
