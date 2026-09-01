@@ -35,7 +35,7 @@ export function ScreeningWorkspace({ embedded = false, recruitmentTaskId, initia
     setLoading(true); setError(null);
     try {
       const [jobResult, candidateResult, planResult, runResult, pricingResult] = await Promise.all([
-        fetchJobs(workspaceId, { page: 1, pageSize: 100 }), fetchCandidates(workspaceId, "", "PARSED"),
+        fetchJobs(workspaceId, { page: 1, pageSize: 100 }), fetchCandidates(workspaceId, { status: "PARSED", pageSize: 100 }),
         fetchScreeningPlans(workspaceId, recruitmentTaskId), fetchScreeningRuns(workspaceId, recruitmentTaskId), fetchScreeningPricing(workspaceId),
       ]);
       if (currentWorkspace.current !== workspaceId) return;
