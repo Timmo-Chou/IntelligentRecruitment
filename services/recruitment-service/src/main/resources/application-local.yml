@@ -1,6 +1,9 @@
 logging:
   level:
     com.intelligentrecruitment: INFO
+spring:
+  flyway:
+    out-of-order: true
 app:
   auth:
     # 本地默认展示测试验证码；通过 .env 的 EXPOSE_MOCK_CODE 可切换。

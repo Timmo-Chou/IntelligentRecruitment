@@ -543,13 +543,13 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
     setCandidateLoading(true);
     try {
       // 第一优先：已解析的候选人（多数已提取技能和经历）
-      const parsed = await fetchCandidates(workspaceId, keyword, "PARSED", 50);
+      const parsed = await fetchCandidates(workspaceId, { search: keyword, status: "PARSED", pageSize: 50 });
       if (parsed.items.length > 0) {
         setCandidateList(parsed.items);
         return;
       }
       // 第二优先：无结果则走全部状态（如上传后未解析也能选，解析交给后端 worker）
-      const all = await fetchCandidates(workspaceId, keyword, "", 50);
+      const all = await fetchCandidates(workspaceId, { search: keyword, pageSize: 50 });
       setCandidateList(all.items);
     } catch {
       setCandidateList([]);
