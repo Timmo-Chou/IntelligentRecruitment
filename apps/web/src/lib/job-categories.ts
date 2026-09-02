@@ -341,6 +341,17 @@ export function findCategoryPath(leafId: string, tree: CategoryNode[] = JOB_CATE
   return null;
 }
 
+export function findCategoryName(id: string, tree: CategoryNode[] = JOB_CATEGORY_TREE): string | null {
+  for (const node of tree) {
+    if (node.id === id) return node.name;
+    if (node.children?.length) {
+      const found = findCategoryName(id, node.children);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 export function formatCategorySelectionSummary(selectedIds: string[]): string {
   if (selectedIds.length === 0) return "全部分类";
   if (selectedIds.length === 1) {

@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppShell } from "@/components/layout/app-shell";
+import { CategoryTreePanel } from "@/components/jobs/category-tree-panel";
 import { useWorkspace } from "@/lib/workspace-context";
 import {
   fetchJobStats, fetchJobs, fetchJob, createJob, updateJob, deleteJob,
@@ -16,12 +17,10 @@ import {
 } from "@/lib/job-api";
 import {
   JOB_CATEGORY_TREE,
-  collectExpandedIdsForSearch,
   collectLeafIds,
-  filterCategoryTree,
+  findCategoryName,
   formatCategorySelectionSummary,
   getCategoryButtonLabel,
-  type CategoryNode,
 } from "@/lib/job-categories";
 
 const HIRE_STATUS_OPTIONS = [
@@ -158,6 +157,10 @@ export default function JobsPage() {
   const [batchConfirm, setBatchConfirm] = useState<"publish" | "deactivate" | "delete" | null>(null);
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchMenuOpen, setBatchMenuOpen] = useState(false);
+  const [categoryManageOpen, setCategoryManageOpen] = useState(false);
+  const [managedCategoryIds, setManagedCategoryIds] = useState<string[]>(() =>
+    JOB_CATEGORY_TREE.flatMap(collectLeafIds),
+  );
 
   const loadRequestRef = useRef(0);
   const hydratedWorkspaceRef = useRef<string | null>(null);
@@ -568,6 +571,7 @@ export default function JobsPage() {
               <CategoryTreeSelect
                 value={categoryFilters}
                 onChange={(next) => { setCategoryFilters(next); setPage(1); }}
+                onManage={() => setCategoryManageOpen(true)}
               />
 
               <div className="shrink-0">
@@ -844,10 +848,7 @@ export default function JobsPage() {
                   />
                   <InfoItem
                     label="职位分类"
-                    value={
-                      JOB_CATEGORY_TREE.find((item) => item.id === jobExtras[detailJob.id]?.categoryId)?.name
-                      ?? "--"
-                    }
+                    value={findCategoryName(jobExtras[detailJob.id]?.categoryId ?? "") ?? "--"}
                   />
                   <InfoItem label="工作地点" value={detailJob.location || "--"} />
                   <InfoItem label="薪资范围" value={detailJob.salaryRange || "--"} />
@@ -972,27 +973,34 @@ export default function JobsPage() {
           onCancel={() => !batchBusy && setBatchConfirm(null)}
         />
       )}
+
+      {categoryManageOpen && (
+        <CategoryManagementModal
+          value={managedCategoryIds}
+          onChange={setManagedCategoryIds}
+          onClose={() => setCategoryManageOpen(false)}
+        />
+      )}
     </AppShell>
   );
 }
 
-function CategoryTreeSelect({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
+function CategoryTreeSelect({
+  value,
+  onChange,
+  onManage,
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+  onManage?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<string[]>(value);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState("");
   const ref = useRef<HTMLDivElement>(null);
-
   const label = getCategoryButtonLabel(value);
-  const filteredTree = useMemo(() => filterCategoryTree(JOB_CATEGORY_TREE, search), [search]);
-  const searchActive = search.trim().length > 0;
 
   useEffect(() => {
-    if (open) {
-      setDraft(value);
-      setSearch("");
-      setExpanded(new Set());
-    }
+    if (open) setDraft(value);
   }, [open, value]);
 
   useEffect(() => {
@@ -1002,101 +1010,6 @@ function CategoryTreeSelect({ value, onChange }: { value: string[]; onChange: (n
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
-
-  useEffect(() => {
-    if (!searchActive) return;
-    setExpanded(collectExpandedIdsForSearch(filteredTree, search));
-  }, [filteredTree, search, searchActive]);
-
-  const toggleExpand = (id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleLeaf = (leafId: string) => {
-    setDraft((prev) => (
-      prev.includes(leafId) ? prev.filter((id) => id !== leafId) : [...prev, leafId]
-    ));
-  };
-
-  const toggleBranch = (node: CategoryNode) => {
-    const leafIds = collectLeafIds(node);
-    setDraft((prev) => {
-      const allSelected = leafIds.every((id) => prev.includes(id));
-      if (allSelected) return prev.filter((id) => !leafIds.includes(id));
-      return Array.from(new Set([...prev, ...leafIds]));
-    });
-  };
-
-  const branchState = (node: CategoryNode): "all" | "some" | "none" => {
-    const leafIds = collectLeafIds(node);
-    const selectedCount = leafIds.filter((id) => draft.includes(id)).length;
-    if (selectedCount === 0) return "none";
-    if (selectedCount === leafIds.length) return "all";
-    return "some";
-  };
-
-  const handleReset = () => setDraft([]);
-
-  const handleConfirm = () => {
-    onChange(draft);
-    setOpen(false);
-  };
-
-  const allSelected = draft.length === 0;
-
-  const renderNodes = (nodes: CategoryNode[], depth = 0): ReactNode =>
-    nodes.map((node) => {
-      const hasChildren = Boolean(node.children?.length);
-      const isExpanded = expanded.has(node.id);
-      const state = hasChildren ? branchState(node) : (draft.includes(node.id) ? "all" : "none");
-
-      return (
-        <div key={node.id}>
-          <div className="flex items-center pr-2" style={{ paddingLeft: 8 + depth * 14 }}>
-            {hasChildren ? (
-              <button
-                type="button"
-                className="mr-1 grid h-6 w-6 shrink-0 place-items-center text-[#36527f] hover:text-[#0874e8]"
-                onClick={() => toggleExpand(node.id)}
-                aria-label={isExpanded ? "收起" : "展开"}
-              >
-                {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              </button>
-            ) : (
-              <span className="mr-1 w-6 shrink-0" />
-            )}
-
-            {depth === 0 && hasChildren ? (
-              <span className="truncate py-1.5 text-[13px] font-semibold text-[#36527f]">
-                {node.name}
-              </span>
-            ) : (
-              <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1.5 text-[13px] font-semibold text-[#36527f] hover:text-[#0874e8]">
-                <input
-                  type="checkbox"
-                  className="accent-[#0874e8]"
-                  checked={state === "all"}
-                  ref={(el) => {
-                    if (el) el.indeterminate = state === "some";
-                  }}
-                  onChange={() => {
-                    if (hasChildren) toggleBranch(node);
-                    else toggleLeaf(node.id);
-                  }}
-                />
-                <span className="truncate">{node.name}</span>
-              </label>
-            )}
-          </div>
-          {hasChildren && isExpanded && renderNodes(node.children!, depth + 1)}
-        </div>
-      );
-    });
 
   return (
     <div className="relative w-[112px] shrink-0" ref={ref}>
@@ -1110,58 +1023,143 @@ function CategoryTreeSelect({ value, onChange }: { value: string[]; onChange: (n
       </button>
       {open && (
         <div className="absolute left-0 z-40 mt-1 w-[360px] overflow-hidden rounded-lg border border-[#d6e5f5] bg-white shadow-lg">
-          <div className="border-b border-[#eaf1fa] px-3 py-2.5">
-            <label className="flex items-center gap-2 rounded border border-[#bdd3ef] bg-white px-2.5 py-1.5 text-[#36527f]">
-              <Search size={14} className="shrink-0 text-[#8fa3c0]" />
-              <input
-                className="min-w-0 flex-1 border-0 bg-transparent text-[13px] font-semibold text-[#36527f] outline-none placeholder:font-normal placeholder:text-[#8fa3c0]"
-                placeholder="搜索职位分类"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </label>
-          </div>
-
-          <label className="flex cursor-pointer items-center gap-2 border-b border-[#eaf1fa] px-3 py-2.5 text-[13px] font-semibold text-[#36527f] hover:bg-[#f5f9ff]">
-            <input
-              type="checkbox"
-              className="accent-[#0874e8]"
-              checked={allSelected}
-              onChange={() => setDraft([])}
-            />
-            全部分类
-          </label>
-
-          <div className="max-h-72 overflow-auto py-1">
-            {filteredTree.length === 0 ? (
-              <p className="px-3 py-4 text-center text-[13px] text-[#8fa3c0]">未找到匹配分类</p>
-            ) : (
-              renderNodes(filteredTree)
-            )}
-          </div>
+          <CategoryTreePanel mode="multi" value={draft} onChange={setDraft} />
 
           <div className="border-t border-[#eaf1fa] px-3 py-2 text-[12px] text-[#55709d]">
             <span className="line-clamp-2">已选：{formatCategorySelectionSummary(draft)}</span>
           </div>
 
-          <div className="flex items-center justify-end gap-2 border-t border-[#eaf1fa] px-3 py-2.5">
-            <button
-              type="button"
-              className="h-8 rounded border border-[#bdd3ef] bg-white px-3 text-[13px] font-semibold text-[#36527f] hover:border-[#0874e8] hover:text-[#0874e8]"
-              onClick={handleReset}
-            >
-              重置
-            </button>
-            <button
-              type="button"
-              className="primary-button !h-8 !px-4 !text-[13px]"
-              onClick={handleConfirm}
-            >
-              确定
-            </button>
+          <div className="flex items-center justify-between gap-2 border-t border-[#eaf1fa] px-3 py-2.5">
+            {onManage ? (
+              <button
+                type="button"
+                className="text-[13px] font-semibold text-[#0874e8] hover:underline"
+                onClick={() => { setOpen(false); onManage(); }}
+              >
+                职位分类管理
+              </button>
+            ) : <span />}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="h-8 rounded border border-[#bdd3ef] bg-white px-3 text-[13px] font-semibold text-[#36527f] hover:border-[#0874e8] hover:text-[#0874e8]"
+                onClick={() => setDraft([])}
+              >
+                重置
+              </button>
+              <button
+                type="button"
+                className="primary-button !h-8 !px-4 !text-[13px]"
+                onClick={() => { onChange(draft); setOpen(false); }}
+              >
+                确定
+              </button>
+            </div>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function CategorySingleTreeSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const label = value ? (findCategoryName(value) ?? "请选择职位分类") : "请选择职位分类";
+  const selected = value ? [value] : [];
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        className={`flex h-10 w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 text-sm ${value ? "border-[#0874e8] text-[#132e61]" : "border-[#bdd3ef] text-[#8fa3c0]"}`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="truncate">{label}</span>
+        <ChevronDown size={14} className="shrink-0 text-[#8fa3c0]" />
+      </button>
+      {open && (
+        <div className="absolute left-0 z-40 mt-1 w-[min(100vw-2rem,360px)] overflow-hidden rounded-lg border border-[#d6e5f5] bg-white shadow-lg">
+          <CategoryTreePanel
+            mode="single"
+            value={selected}
+            onChange={(next) => {
+              onChange(next[0] ?? "");
+              setOpen(false);
+            }}
+            showSelectAll={false}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CategoryManagementModal({
+  value,
+  onChange,
+  onClose,
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState(value);
+
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div
+        className="flex max-h-[min(720px,90vh)] w-full max-w-[480px] flex-col overflow-hidden rounded-xl bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-[#eaf1fa] px-5 py-4">
+          <h3 className="m-0 text-base font-bold text-[#173568]">职位分类管理</h3>
+          <button type="button" className="text-[#7890ad]" onClick={onClose} aria-label="关闭">×</button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <CategoryTreePanel
+            mode="multi"
+            value={draft}
+            onChange={setDraft}
+            showSelectAll={false}
+            maxHeightClass="max-h-[min(52vh,420px)]"
+          />
+        </div>
+
+        <p className="border-t border-[#eaf1fa] px-5 py-2 text-[12px] text-[#55709d]">
+          已启用 {draft.length} 个分类节点 · 勾选表示在职位库中启用该分类
+        </p>
+
+        <div className="flex justify-end gap-3 border-t border-[#eaf1fa] px-5 py-4">
+          <button type="button" className="outline-button" onClick={onClose}>取消</button>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => { onChange(draft); onClose(); }}
+          >
+            保存
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1504,16 +1502,7 @@ function JobFormFields({
       </label>
       <label className="block">
         <span className="mb-1 block text-xs font-medium text-[#36527f]">职位分类</span>
-        <select
-          className="h-10 w-full rounded-lg border border-[#bdd3ef] px-3 text-sm text-[#132e61] outline-none focus:border-[#0874e8]"
-          value={categoryId}
-          onChange={(e) => onCategoryChange(e.target.value)}
-        >
-          <option value="">请选择职位分类</option>
-          {JOB_CATEGORY_TREE.map((item) => (
-            <option key={item.id} value={item.id}>{item.name}</option>
-          ))}
-        </select>
+        <CategorySingleTreeSelect value={categoryId} onChange={onCategoryChange} />
       </label>
       <Field label="工作地点" value={form.location} onChange={(v) => onFormChange("location", v)} />
       <Field label="薪资范围" value={form.salaryRange} onChange={(v) => onFormChange("salaryRange", v)} placeholder="如：25K-35K·14薪" />

@@ -139,9 +139,16 @@ function ImportTalentWorkspace() {
       }
 
       if (channel === "resume") {
-        const results = await Promise.allSettled(files.map((file) => uploadResume(workspaceId, file, "NORMAL")));
-        const ok = results.filter((item) => item.status === "fulfilled").length;
-        const failed = results.length - ok;
+        let ok = 0;
+        let failed = 0;
+        for (const file of files) {
+          try {
+            await uploadResume(workspaceId, file, "NORMAL");
+            ok += 1;
+          } catch {
+            failed += 1;
+          }
+        }
         setImportedCount(ok);
         if (failed > 0) setMessage(`成功导入 ${ok} 人，失败 ${failed} 个文件。`);
         else setMessage(`成功导入 ${ok} 人，已进入人才库。`);
