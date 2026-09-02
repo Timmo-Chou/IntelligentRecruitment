@@ -15,7 +15,9 @@ import com.intelligentrecruitment.aiplatform.application.RouteAgentCommand;
 import com.intelligentrecruitment.aiplatform.application.StartAiTaskCommand;
 import com.intelligentrecruitment.aiplatform.domain.AiCapability;
 import com.intelligentrecruitment.aiplatform.domain.AiTask;
+import com.intelligentrecruitment.aiplatform.domain.AiTaskStatus;
 import com.intelligentrecruitment.billing.application.BillingService;
+import com.intelligentrecruitment.billing.application.PricingService;
 import com.intelligentrecruitment.jobs.application.JobService;
 import com.intelligentrecruitment.recruitment.application.JdDraftGenerator.JdDraftContent;
 import com.intelligentrecruitment.shared.error.ApiException;
@@ -45,36 +47,65 @@ public class RecruitmentService {
 
     private static final Logger log = LoggerFactory.getLogger(RecruitmentService.class);
     private static final String JD_PRICING_VERSION = "JD_MOCK_V1";
+    private static final String RESUME_PARSING_PRICING_VERSION = "RESUME_MOCK_V1";
     private static final String LEGACY_DEFAULT_TASK_TITLE = "高级 Java 开发工程师招聘";
+
+    /** 计费项 code，与 pricing_items.code 保持一致 */
+    private static final String JD_BILLING_CODE = "JD_GENERATION";
+    private static final String RESUME_PARSING_BILLING_CODE = "RESUME_PARSING";
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final WorkspaceAccessService workspaceAccess;
     private final BillingService billing;
+    private final PricingService pricing;
     private final RecruitmentFlowCoordinator flowCoordinator;
     private final AiPlatformClient aiPlatform;
     private final JdStructuredResultMapper structuredResultMapper;
+    private final JdSourceFileService sourceFiles;
+    private final ResumeSourceFileService resumeSourceFiles;
     private final JobService jobs;
-    private final long jdPriceMinor;
+    /** pricing_items 表没启用对应计费项时的兜底默认值（分） */
+    private final long defaultJdPriceMinor;
+    private final long defaultResumePriceMinor;
     private final long outboxLeaseSeconds;
 
     public RecruitmentService(JdbcTemplate jdbc, ObjectMapper objectMapper, WorkspaceAccessService workspaceAccess,
-                              BillingService billing, RecruitmentFlowCoordinator flowCoordinator,
+                              BillingService billing, PricingService pricing, RecruitmentFlowCoordinator flowCoordinator,
                               AiPlatformClient aiPlatform,
                               JdStructuredResultMapper structuredResultMapper,
+                              JdSourceFileService sourceFiles,
+                              ResumeSourceFileService resumeSourceFiles,
                               JobService jobs,
-                              @Value("${app.phase3.jd-generation-price-minor:80}") long jdPriceMinor,
+                              @Value("${app.phase3.jd-generation-price-minor:80}") long defaultJdPriceMinor,
+                              @Value("${app.phase4.resume-parsing-price-minor:80}") long defaultResumePriceMinor,
                               @Value("${app.phase3.outbox-lease-seconds:300}") long outboxLeaseSeconds) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.workspaceAccess = workspaceAccess;
         this.billing = billing;
+        this.pricing = pricing;
         this.flowCoordinator = flowCoordinator;
         this.aiPlatform = aiPlatform;
         this.structuredResultMapper = structuredResultMapper;
+        this.sourceFiles = sourceFiles;
+        this.resumeSourceFiles = resumeSourceFiles;
         this.jobs = jobs;
-        this.jdPriceMinor = jdPriceMinor;
+        this.defaultJdPriceMinor = defaultJdPriceMinor;
+        this.defaultResumePriceMinor = defaultResumePriceMinor;
         this.outboxLeaseSeconds = outboxLeaseSeconds;
+    }
+
+    /** JD 生成单价：优先从 pricing_items 查，fallback 到默认值 */
+    private long resolveJdPriceMinor() {
+        Long configured = pricing.findUnitPriceMinor(JD_BILLING_CODE);
+        return configured != null ? configured : defaultJdPriceMinor;
+    }
+
+    /** 简历解析单价：优先从 pricing_items 查，fallback 到默认值 */
+    private long resolveResumePriceMinor() {
+        Long configured = pricing.findUnitPriceMinor(RESUME_PARSING_BILLING_CODE);
+        return configured != null ? configured : defaultResumePriceMinor;
     }
 
     @Transactional
@@ -84,7 +115,10 @@ public class RecruitmentService {
         if (input == null) throw validation("招聘任务不能为空");
         String title = required(input.title(), "招聘任务名称不能为空", 200);
         String requirement = required(input.initialRequirement(), "请描述招聘需求", 20_000);
-        String requestHash = SecurityHashes.sha256(title + "\n" + requirement);
+        String featureType = optional(input.featureType(), 32);
+        String linkedJobIdRaw = input.linkedJobId() == null || input.linkedJobId().isBlank() ? null : input.linkedJobId().trim();
+        UUID linkedJobId = linkedJobIdRaw == null ? null : UUID.fromString(linkedJobIdRaw);
+        String requestHash = SecurityHashes.sha256(title + "\n" + requirement + "\n" + featureType + "\n" + (linkedJobIdRaw == null ? "" : linkedJobIdRaw));
         List<ExistingReference> existing = jdbc.query("""
                 SELECT id,request_hash FROM recruitment_tasks WHERE workspace_id=? AND idempotency_key=?
                 """, (rs, n) -> new ExistingReference(rs.getObject("id", UUID.class), rs.getString("request_hash")),
@@ -99,9 +133,10 @@ public class RecruitmentService {
         jdbc.update("""
                 INSERT INTO recruitment_tasks
                 (id,company_id,workspace_id,title,initial_requirement,status,current_stage,idempotency_key,
-                 request_hash,created_by,created_at,updated_at)
-                VALUES (?,?,?, ?,?,'ACTIVE','COLLECTING_REQUIREMENTS',?,?, ?,?,?)
-                """, taskId, scope.companyId(), workspaceId, title, requirement, key, requestHash, userId,
+                 request_hash,feature_type,linked_job_id,created_by,created_at,updated_at)
+                VALUES (?,?,?, ?,?,'ACTIVE','COLLECTING_REQUIREMENTS',?, ?,?,?, ?,?,?)
+                """, taskId, scope.companyId(), workspaceId, title, requirement, key, requestHash,
+                featureType.isBlank() ? null : featureType, linkedJobId, userId,
                 timestamp(now), timestamp(now));
         jdbc.update("""
                 INSERT INTO conversations
@@ -116,7 +151,7 @@ public class RecruitmentService {
     public List<TaskSummary> listTasks(UUID userId, UUID workspaceId) {
         workspaceAccess.requireBusinessAccess(userId, workspaceId);
         return jdbc.query("""
-                SELECT t.id,t.company_id,t.workspace_id,t.title,t.status,t.current_stage,t.created_by,
+                SELECT t.id,t.company_id,t.workspace_id,t.title,t.status,t.current_stage,t.feature_type,t.linked_job_id,t.created_by,
                        t.created_at,t.updated_at,j.id AS job_id,j.title AS job_title
                 FROM recruitment_tasks t
                 LEFT JOIN LATERAL (
@@ -128,6 +163,8 @@ public class RecruitmentService {
                 """, (rs, n) -> new TaskSummary(rs.getObject("id", UUID.class),
                 rs.getObject("company_id", UUID.class), rs.getObject("workspace_id", UUID.class),
                 rs.getString("title"), rs.getString("status"), rs.getString("current_stage"),
+                rs.getString("feature_type"),
+                rs.getObject("linked_job_id", UUID.class),
                 rs.getObject("job_id", UUID.class), rs.getString("job_title"),
                 rs.getObject("created_by", UUID.class), rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("updated_at").toInstant()), workspaceId);
@@ -136,6 +173,13 @@ public class RecruitmentService {
     public TaskDetail getTask(UUID userId, UUID workspaceId, UUID taskId) {
         workspaceAccess.requireBusinessAccess(userId, workspaceId);
         return detailScoped(workspaceId, taskId);
+    }
+
+    public SourceFileView uploadJdSourceFile(UUID userId, UUID workspaceId, UUID taskId,
+                                             org.springframework.web.multipart.MultipartFile file) {
+        JdSourceFileService.SourceFileView source = sourceFiles.upload(userId, workspaceId, taskId, file);
+        return new SourceFileView(source.id(), source.fileAssetId(), source.filename(), source.mediaType(),
+                source.sizeBytes(), source.createdAt());
     }
 
     @Transactional
@@ -169,6 +213,8 @@ public class RecruitmentService {
                 AND aggregate_id IN (SELECT id::text FROM ai_runs WHERE recruitment_task_id=? AND workspace_id=?)
                 """, taskId, workspaceId);
         jdbc.update("DELETE FROM jd_drafts WHERE recruitment_task_id=? AND workspace_id=?", taskId, workspaceId);
+        jdbc.update("DELETE FROM resume_parse_drafts WHERE recruitment_task_id=? AND workspace_id=?", taskId, workspaceId);
+        jdbc.update("DELETE FROM resume_source_files WHERE recruitment_task_id=? AND workspace_id=?", taskId, workspaceId);
         jdbc.update("DELETE FROM ai_runs WHERE recruitment_task_id=? AND workspace_id=?", taskId, workspaceId);
         jdbc.update("DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE recruitment_task_id=? AND workspace_id=?)",
                 taskId, workspaceId);
@@ -205,7 +251,7 @@ public class RecruitmentService {
         insertMessage(scope, task.conversationId(), "ASSISTANT", reply, "REQUIREMENT_CHAT", null, Instant.now());
         jdbc.update("""
                 UPDATE recruitment_tasks SET current_stage='COLLECTING_REQUIREMENTS',updated_at=?
-                WHERE id=? AND workspace_id=? AND current_stage<>'JD_CONFIRMED'
+                WHERE id=? AND workspace_id=?
                 """, timestamp(Instant.now()), taskId, workspaceId);
         return detailScoped(workspaceId, taskId);
     }
@@ -224,9 +270,12 @@ public class RecruitmentService {
         if (requestId == null || requestId.isBlank()) requestId = UUID.randomUUID().toString();
         return aiPlatform.routeMessage(new RouteAgentCommand(requestId, requestId, workspaceId.toString(),
                 scope.companyId() == null ? null : scope.companyId().toString(), userId.toString(), taskId.toString(),
-                message, List.of(FlowCapability.JD_GENERATION, FlowCapability.RESUME_PARSING,
+                message, List.of(FlowCapability.REQUIREMENT_CHAT, FlowCapability.RECRUITMENT_QA,
+                        FlowCapability.JD_GENERATION, FlowCapability.RESUME_PARSING,
                         FlowCapability.SCREENING_PLAN_GENERATION, FlowCapability.CANDIDATE_SCREENING,
-                        FlowCapability.INTERVIEW_KIT_GENERATION, FlowCapability.TASK_ASSISTANCE)));
+                        FlowCapability.CANDIDATE_SOURCING, FlowCapability.JOB_DISTRIBUTION,
+                        FlowCapability.CANDIDATE_OUTREACH, FlowCapability.INTERVIEW_KIT_GENERATION,
+                        FlowCapability.TASK_ASSISTANCE)));
     }
 
     @Transactional
@@ -253,7 +302,7 @@ public class RecruitmentService {
         updateLegacyDefaultTaskTitle(task, requirement, now);
         long availableAmountMinor = billing.view(userId, workspaceId).availableAmountMinor();
         PolicyDecision policyDecision = flowCoordinator.evaluate(FlowCapability.JD_GENERATION, scope, userId,
-                availableAmountMinor, jdPriceMinor, null, true);
+                availableAmountMinor, resolveJdPriceMinor(), null, true);
         ExecutionContext executionContext = flowCoordinator.createExecutionContext(policyDecision, taskId, key,
                 "jd-run:" + runId, List.of(new ExecutionContext.InputVersion("conversation_summary",
                 taskId.toString(), "frozen", payloadHash)), false);
@@ -264,7 +313,7 @@ public class RecruitmentService {
                  input_payload,policy_decision,execution_context)
                 VALUES (?,?,?,?, 'JD_GENERATION','QUEUED',0,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
                 """, runId, scope.companyId(), workspaceId, taskId, attempt, key, payloadHash,
-                JD_PRICING_VERSION, jdPriceMinor, userId, timestamp(now), json(Map.of(
+                JD_PRICING_VERSION, resolveJdPriceMinor(), userId, timestamp(now), json(Map.of(
                         "requirement", requirement,
                         "scenario", scenario,
                         "title", nullable(value(input, GenerateJdInput::title)),
@@ -276,7 +325,7 @@ public class RecruitmentService {
                         "skills", nullable(value(input, GenerateJdInput::skills)))), json(policyDecision),
                 json(executionContext));
         String billingReference = "jd-run:" + runId;
-        billing.reserve(userId, workspaceId, billingReference, jdPriceMinor);
+        billing.reserve(userId, workspaceId, billingReference, resolveJdPriceMinor());
         jdbc.update("""
                 INSERT INTO outbox_events
                 (id,aggregate_type,aggregate_id,event_type,payload,status,attempts,next_attempt_at,created_at)
@@ -315,13 +364,14 @@ public class RecruitmentService {
         if (!List.of("QUEUED", "RUNNING").contains(run.status())) return false;
         Map<String, String> input = stringMap(run.inputPayload());
         if ("QUEUED".equals(run.status())) {
-            Map<String, Object> aiInput = new LinkedHashMap<>();
-            aiInput.put("requirement", input.get("requirement"));
-            aiInput.put("scenario", input.get("scenario"));
+            Map<String, Object> aiInput = payloadMap(run.inputPayload());
+            aiInput.remove("scenario");
+            aiInput.put("source_documents", sourceFiles.listForGeneration(run.workspaceId(), run.taskId()).stream()
+                    .map(file -> Map.<String, Object>of("filename", file.filename(), "text", file.extractedText())).toList());
             AiTask aiTask = aiPlatform.startTask(new StartAiTaskCommand(run.workspaceId().toString(),
                     run.companyId() == null ? null : run.companyId().toString(), run.createdBy().toString(),
                     run.taskId().toString(), run.idempotencyKey(), AiCapability.JD_GENERATION, aiInput,
-                    executionContext(run.executionContext())));
+                    executionContext(run.executionContext())), delta -> emitJdDelta(run.id(), delta));
             jdbc.update("UPDATE ai_runs SET status='RUNNING',progress=15,provider_task_id=? WHERE id=?",
                     aiTask.aiTaskId(), run.id());
             appendRunEvent(run, "status", Map.of("status", "RUNNING", "progress", 15));
@@ -330,10 +380,30 @@ public class RecruitmentService {
     }
 
     @Transactional
-    public void emitJdDelta(UUID runId, int progress, String delta) {
+    public void emitJdDelta(UUID runId, String delta) {
         RunExecution run = runExecution(runId, true);
-        if (!"RUNNING".equals(run.status())) return;
-        emitDelta(run, progress, delta);
+        if (!List.of("QUEUED", "RUNNING").contains(run.status())) return;
+        int progress = Math.min(95, Math.max(15, run.progress() + 3));
+        jdbc.update("UPDATE ai_runs SET progress=? WHERE id=? AND status IN ('QUEUED','RUNNING')", progress, run.id());
+        appendRunEvent(run, "delta", Map.of("delta", delta, "progress", progress));
+    }
+
+    @Transactional
+    public void finalizeJdRunIfReady(UUID runId) {
+        RunExecution run = runExecution(runId, true);
+        if (!"RUNNING".equals(run.status()) || run.providerTaskId() == null) return;
+        AiTask task = aiPlatform.getTask(run.providerTaskId());
+        if (task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.FAILED
+                || task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.CANCELLED) {
+            failJdRun(run, "AI_PROVIDER_UNAVAILABLE", "AI 生成失败，请重试");
+            return;
+        }
+        if (task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.COMPLETED) finalizeJdRun(runId);
+    }
+
+    public List<UUID> runningJdRunIds() {
+        return jdbc.query("SELECT id FROM ai_runs WHERE capability='JD_GENERATION' AND status='RUNNING' ORDER BY created_at LIMIT 50",
+                (rs, n) -> rs.getObject(1, UUID.class));
     }
 
     @Transactional
@@ -350,9 +420,9 @@ public class RecruitmentService {
         WorkspaceScope scope = new WorkspaceScope(run.workspaceId(), run.companyId(), null, null, null);
         upsertDraft(scope, run.taskId(), run.id(), run.createdBy(), draft);
         Instant completed = Instant.now();
-        billing.settleSystem(run.workspaceId(), "jd-run:" + run.id(), jdPriceMinor);
+        billing.settleSystem(run.workspaceId(), "jd-run:" + run.id(), resolveJdPriceMinor());
         jdbc.update("UPDATE ai_runs SET status='COMPLETED',progress=100,settled_amount_minor=?,completed_at=? WHERE id=?",
-                jdPriceMinor, timestamp(completed), run.id());
+                resolveJdPriceMinor(), timestamp(completed), run.id());
         insertMessage(scope, run.conversationId(), "ASSISTANT",
                 "JD 草稿已生成。请检查职责、任职要求和待确认项，确认后再进入职位库。",
                 "JD_GENERATION", null, completed);
@@ -399,15 +469,15 @@ public class RecruitmentService {
         String warnings = json(input.warnings() == null ? List.of() : input.warnings());
         int updated = jdbc.update("""
                 UPDATE jd_drafts SET revision=revision+1,status=CASE WHEN status='CONFIRMED' THEN 'DRAFT' ELSE status END,title=?,company_name=?,location=?,experience_level=?,
-                    education=?,job_type=?,responsibilities=?,requirements=?,skills=?,talent_profile=?,warnings=?::jsonb,
+                    education=?,job_type=?,salary_range=?,responsibilities=?,requirements=?,skills=?,nice_to_haves=?,benefits=?,talent_profile=?,warnings=?::jsonb,
                     updated_by=?,updated_at=?
                 WHERE id=? AND recruitment_task_id=? AND workspace_id=? AND revision=? AND status IN ('DRAFT','CONFIRMED')
                 """, required(input.title(), "职位名称不能为空", 200),
                 required(input.companyName(), "企业名称不能为空", 200), optional(input.location(), 200),
                 optional(input.experienceLevel(), 80), optional(input.education(), 80),
-                defaulted(input.jobType(), "全职", 50), optional(input.responsibilities(), 20_000),
-                optional(input.requirements(), 20_000), optional(input.skills(), 4_000),
-                optional(input.talentProfile(), 10_000), warnings, userId, timestamp(Instant.now()), input.id(), taskId,
+                defaulted(input.jobType(), "全职", 50), optional(input.salaryRange(), 200), optional(input.responsibilities(), 20_000),
+                optional(input.requirements(), 20_000), optional(input.skills(), 4_000), optional(input.niceToHaves(), 10_000),
+                optional(input.benefits(), 10_000), optional(input.talentProfile(), 10_000), warnings, userId, timestamp(Instant.now()), input.id(), taskId,
                 workspaceId, input.revision());
         if (updated == 0) {
             throw new ApiException("JD_DRAFT_VERSION_CONFLICT", "JD 草稿已更新或已确认，请刷新后重试", HttpStatus.CONFLICT);
@@ -434,25 +504,27 @@ public class RecruitmentService {
         UUID sourceAiRunId = jdbc.queryForObject("SELECT source_ai_run_id FROM jd_drafts WHERE id=?",
                 UUID.class, draft.id());
         JobService.JobInput jobInput = new JobService.JobInput(draft.title(), draft.companyName(), draft.location(),
-                draft.responsibilities(), draft.requirements(), draft.skills(), draft.experienceLevel(),
-                draft.education(), draft.jobType());
+                draft.salaryRange(), draft.responsibilities(), draft.requirements(), draft.skills(), draft.experienceLevel(),
+                draft.education(), draft.jobType(), draft.niceToHaves(), draft.benefits());
         JobService.JobView job = jobs.createFromConfirmedJd(userId, workspaceId, taskId, draft.id(), sourceAiRunId, jobInput,
                 draft.talentProfile(), json(draft.warnings()));
         Instant now = Instant.now();
         jdbc.update("UPDATE jd_drafts SET status='CONFIRMED',updated_by=?,updated_at=? WHERE id=?",
                 userId, timestamp(now), draft.id());
-        jdbc.update("""
-                UPDATE recruitment_tasks SET status='COMPLETED',current_stage='JD_CONFIRMED',updated_at=? WHERE id=?
-                """, timestamp(now), taskId);
+        // A recruitment task is a persistent workspace. Confirming a draft makes
+        // that revision usable, but must not close the task or prevent further
+        // conversation, additions, and adjustments.
+        jdbc.update("UPDATE recruitment_tasks SET status='ACTIVE',current_stage='JD_CONFIRMED',updated_at=? WHERE id=?",
+                timestamp(now), taskId);
         insertMessage(scope, task.conversationId(), "ASSISTANT",
-                "JD 已确认并进入职位库，后续修改将创建新的职位版本。", "JD_GENERATION", null, now);
+                "JD 已确认并保存到职位库草稿。补全待确认项后，请在职位库发布。", "JD_GENERATION", null, now);
         audit(userId, scope, "JD_CONFIRMED", "RECRUITMENT_TASK", taskId);
         return job;
     }
 
     private TaskDetail detailScoped(UUID workspaceId, UUID taskId) {
         List<TaskSummary> summaries = jdbc.query("""
-                SELECT t.id,t.company_id,t.workspace_id,t.title,t.status,t.current_stage,t.created_by,
+                SELECT t.id,t.company_id,t.workspace_id,t.title,t.status,t.current_stage,t.feature_type,t.linked_job_id,t.created_by,
                        t.created_at,t.updated_at,j.id AS job_id,j.title AS job_title
                 FROM recruitment_tasks t
                 LEFT JOIN LATERAL (
@@ -464,6 +536,8 @@ public class RecruitmentService {
                 """, (rs, n) -> new TaskSummary(rs.getObject("id", UUID.class),
                 rs.getObject("company_id", UUID.class), rs.getObject("workspace_id", UUID.class),
                 rs.getString("title"), rs.getString("status"), rs.getString("current_stage"),
+                rs.getString("feature_type"),
+                rs.getObject("linked_job_id", UUID.class),
                 rs.getObject("job_id", UUID.class), rs.getString("job_title"),
                 rs.getObject("created_by", UUID.class), rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("updated_at").toInstant()), taskId, workspaceId);
@@ -491,8 +565,15 @@ public class RecruitmentService {
                 rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toInstant()),
                 taskId, workspaceId);
+        // 简历解析：源文件 + 解析草稿
+        List<ResumeSourceFileView> resumeSourceFileList = resumeSourceFiles.list(workspaceId, taskId).stream()
+                .map(item -> new ResumeSourceFileView(item.id(), item.fileAssetId(), item.filename(),
+                        item.mediaType(), item.sizeBytes(), item.createdAt())).toList();
+        List<ResumeParseDraftView> resumeParseDraftList = resumeParseDraftRows(workspaceId, taskId);
+        ResumeParseDraftView resumeParseDraft = resumeParseDraftList.stream().findFirst().orElse(null);
         return new TaskDetail(summaries.getFirst(), conversationId, messages, drafts, draft,
-                runs.isEmpty() ? null : runs.getFirst());
+                runs.isEmpty() ? null : runs.getFirst(),
+                resumeSourceFileList, resumeParseDraftList, resumeParseDraft);
     }
 
     private TaskRow taskForUpdate(UUID workspaceId, UUID taskId) {
@@ -508,15 +589,301 @@ public class RecruitmentService {
 
     private List<JdDraftView> draftRows(UUID workspaceId, UUID taskId) {
         return jdbc.query("""
-                SELECT id,revision,title,company_name,location,experience_level,education,job_type,
-                       responsibilities,requirements,skills,talent_profile,warnings::text,status,updated_at
+                SELECT id,revision,title,company_name,location,experience_level,education,job_type,salary_range,
+                       responsibilities,requirements,skills,nice_to_haves,benefits,talent_profile,warnings::text,status,updated_at
                 FROM jd_drafts WHERE recruitment_task_id=? AND workspace_id=? ORDER BY created_at
                 """, (rs, n) -> new JdDraftView(rs.getObject("id", UUID.class), rs.getInt("revision"),
                 rs.getString("title"), rs.getString("company_name"), rs.getString("location"),
-                rs.getString("experience_level"), rs.getString("education"), rs.getString("job_type"),
-                rs.getString("responsibilities"), rs.getString("requirements"), rs.getString("skills"),
-                rs.getString("talent_profile"), parseWarnings(rs.getString("warnings")), rs.getString("status"),
+                rs.getString("experience_level"), rs.getString("education"), rs.getString("job_type"), rs.getString("salary_range"),
+                rs.getString("responsibilities"), rs.getString("requirements"), rs.getString("skills"), rs.getString("nice_to_haves"),
+                rs.getString("benefits"), rs.getString("talent_profile"), parseWarnings(rs.getString("warnings")), rs.getString("status"),
                 rs.getTimestamp("updated_at").toInstant()), taskId, workspaceId);
+    }
+
+    /** 简历解析草稿行查询：按版本号倒序返回最新在前 */
+    private List<ResumeParseDraftView> resumeParseDraftRows(UUID workspaceId, UUID taskId) {
+        return jdbc.query("""
+                SELECT id,revision,source_ai_run_id,resume_source_file_id,content,status,created_by,created_at,updated_at
+                FROM resume_parse_drafts WHERE recruitment_task_id=? AND workspace_id=? ORDER BY revision DESC
+                """, (rs, n) -> new ResumeParseDraftView(rs.getObject("id", UUID.class), rs.getInt("revision"),
+                rs.getObject("source_ai_run_id", UUID.class), rs.getObject("resume_source_file_id", UUID.class),
+                rs.getString("content"), rs.getString("status"),
+                rs.getObject("created_by", UUID.class),
+                rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()),
+                taskId, workspaceId);
+    }
+
+    /** 上传简历源文件：返回 TaskDetail（保证前端重新拉取整体状态） */
+    public SourceFileView uploadResumeSourceFile(UUID userId, UUID workspaceId, UUID taskId,
+                                                 org.springframework.web.multipart.MultipartFile file) {
+        ResumeSourceFileService.SourceFileView source = resumeSourceFiles.upload(userId, workspaceId, taskId, file);
+        return new SourceFileView(source.id(), source.fileAssetId(), source.filename(), source.mediaType(),
+                source.sizeBytes(), source.createdAt());
+    }
+
+    /** 保存（插入或更新）简历解析草稿：支持用户手动编辑解析结果。
+     *  若已存在同 revision 草稿则更新内容与时间，不存在则以 revision+1 插入新版本。 */
+    @Transactional
+    public TaskDetail updateResumeParseDraft(UUID userId, UUID workspaceId, UUID taskId, UpdateResumeParseDraftInput input) {
+        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        taskForUpdate(workspaceId, taskId);
+        if (input == null) throw validation("解析草稿内容不能为空");
+        String content = required(input.content(), "请保存解析结果", 500_000);
+        int requestedRevision = Math.max(1, input.revision());
+        Instant now = Instant.now();
+        Integer currentMax = jdbc.queryForObject("""
+                SELECT COALESCE(MAX(revision),0) FROM resume_parse_drafts WHERE recruitment_task_id=? AND workspace_id=?
+                """, Integer.class, taskId, workspaceId);
+        int maxRevision = currentMax == null ? 0 : currentMax;
+        int nextRevision = maxRevision == 0 ? 1 : maxRevision + 1;
+        int targetRevision = requestedRevision <= maxRevision ? requestedRevision : nextRevision;
+        int updated;
+        if (targetRevision <= maxRevision) {
+            updated = jdbc.update("""
+                    UPDATE resume_parse_drafts SET content=?, status=CASE WHEN status='CONFIRMED' THEN 'DRAFT' ELSE status END,
+                     updated_by=?,updated_at=?
+                    WHERE recruitment_task_id=? AND workspace_id=? AND revision=?
+                    """, content, userId, timestamp(now), taskId, workspaceId, targetRevision);
+        } else {
+            updated = jdbc.update("""
+                    INSERT INTO resume_parse_drafts
+                    (id,company_id,workspace_id,recruitment_task_id,revision,content,status,created_by,created_at,updated_at)
+                    VALUES (?,?,?,?,?,?, 'DRAFT',?,?,?)
+                    """, UUID.randomUUID(), scope.companyId(), workspaceId, taskId, nextRevision, content,
+                    userId, timestamp(now), timestamp(now));
+        }
+        if (updated == 0) throw new ApiException("RESUME_PARSE_DRAFT_NOT_FOUND", "简历解析草稿不存在，无法更新", HttpStatus.CONFLICT);
+        jdbc.update("UPDATE recruitment_tasks SET updated_at=? WHERE id=? AND workspace_id=?", timestamp(now), taskId, workspaceId);
+        return detailScoped(workspaceId, taskId);
+    }
+
+    /**
+     * 触发一次 AI 简历解析：把 resume_source_files 中的提取文本 + 可选职位一起送给 AI。
+     * 返回 TaskDetail，前端通过 latestAiRun.progress 轮询或 events 流获取进度。
+     */
+    @Transactional
+    public TaskDetail generateResumeParse(UUID userId, UUID workspaceId, UUID taskId, String idempotencyKey,
+                                          GenerateResumeParseInput input) {
+        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TaskRow task = taskForUpdate(workspaceId, taskId);
+        String key = requiredIdempotencyKey(idempotencyKey);
+        // 构造输入 payload：resumes + job（如果有 linked_job_id）
+        List<ResumeSourceFileService.SourceFileView> files = resumeSourceFiles.list(workspaceId, taskId);
+        List<Map<String, Object>> resumeList = files.stream().map(item -> {
+            LinkedHashMap<String, Object> m = new LinkedHashMap<>();
+            m.put("id", item.id().toString());
+            m.put("filename", item.filename());
+            m.put("media_type", item.mediaType() == null ? "" : item.mediaType());
+            m.put("size_bytes", item.sizeBytes());
+            m.put("text", item.extractedText() == null ? "" : item.extractedText());
+            return (Map<String, Object>) m;
+        }).toList();
+        Map<String, Object> jobMap = new LinkedHashMap<>();
+        UUID linkedJobId = jdbc.queryForObject("SELECT linked_job_id FROM recruitment_tasks WHERE id=? AND workspace_id=?",
+                UUID.class, taskId, workspaceId);
+        if (linkedJobId != null) {
+            try {
+                JobService.JobView job = jobs.get(userId, workspaceId, linkedJobId);
+                jobMap.put("id", job.id().toString());
+                jobMap.put("title", job.title());
+                jobMap.put("company_name", job.companyName() == null ? "" : job.companyName());
+                jobMap.put("location", job.location() == null ? "" : job.location());
+                jobMap.put("experience_level", job.experienceLevel() == null ? "" : job.experienceLevel());
+                jobMap.put("education", job.education() == null ? "" : job.education());
+                jobMap.put("job_type", job.jobType() == null ? "" : job.jobType());
+                jobMap.put("salary_range", job.salaryRange() == null ? "" : job.salaryRange());
+                jobMap.put("skills", job.skills() == null ? "" : job.skills());
+                jobMap.put("responsibilities", job.description() == null ? "" : job.description());
+                jobMap.put("requirements", job.requirements() == null ? "" : job.requirements());
+            } catch (ApiException notFound) {
+                // 职位被删除或无权限时，降级为"无职位解析"
+                log.warn("Resume parsing linked job {} not found for task {}: {}", linkedJobId, taskId, notFound.getMessage());
+            }
+        }
+        String userPrompt = input == null ? "" : optional(input.requirement(), 4_000);
+        Map<String, Object> payload = new LinkedHashMap<>(Map.of(
+                "resumes", resumeList,
+                "job", jobMap
+        ));
+        if (!userPrompt.isBlank()) payload.put("requirement", userPrompt);
+        String payloadHash = hash(payload);
+        List<ExistingReference> existing = jdbc.query("""
+                SELECT id,input_hash AS request_hash FROM ai_runs WHERE workspace_id=? AND idempotency_key=?
+                """, (rs, n) -> new ExistingReference(rs.getObject("id", UUID.class), rs.getString("request_hash")),
+                workspaceId, key);
+        if (!existing.isEmpty()) {
+            if (!existing.getFirst().requestHash().equals(payloadHash)) throw idempotencyConflict();
+            return detailScoped(workspaceId, taskId);
+        }
+        UUID runId = UUID.randomUUID();
+        int attempt = nextAttempt(taskId);
+        Instant now = Instant.now();
+        long availableAmountMinor = billing.view(userId, workspaceId).availableAmountMinor();
+        PolicyDecision policyDecision = flowCoordinator.evaluate(FlowCapability.RESUME_PARSING, scope, userId,
+                availableAmountMinor, resolveResumePriceMinor(), null, true);
+        ExecutionContext executionContext = flowCoordinator.createExecutionContext(policyDecision, taskId, key,
+                "resume-parse:" + runId, List.of(new ExecutionContext.InputVersion("resume_payload",
+                        taskId.toString(), "frozen", payloadHash)), false);
+        jdbc.update("""
+                INSERT INTO ai_runs
+                (id,company_id,workspace_id,recruitment_task_id,capability,status,progress,attempt_number,
+                 idempotency_key,input_hash,pricing_version,estimated_amount_minor,created_by,created_at,
+                 input_payload,policy_decision,execution_context)
+                VALUES (?,?,?,?, 'RESUME_PARSING','QUEUED',0,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
+                """, runId, scope.companyId(), workspaceId, taskId, attempt, key, payloadHash,
+                RESUME_PARSING_PRICING_VERSION, resolveResumePriceMinor(), userId, timestamp(now), json(payload),
+                json(policyDecision), json(executionContext));
+        String billingReference = "resume-parse:" + runId;
+        billing.reserve(userId, workspaceId, billingReference, resolveResumePriceMinor());
+        jdbc.update("""
+                INSERT INTO outbox_events
+                (id,aggregate_type,aggregate_id,event_type,payload,status,attempts,next_attempt_at,created_at)
+                VALUES (?,'AI_RUN',?,'RESUME_PARSE_RUN_REQUESTED',?::jsonb,'PENDING',0,?,?)
+                """, UUID.randomUUID(), runId.toString(), json(Map.of("run_id", runId.toString())),
+                timestamp(now), timestamp(now));
+        appendRunEvent(new RunExecution(runId, scope.companyId(), workspaceId, taskId, userId, task.conversationId(),
+                key, "QUEUED", 0, null, json(payload), json(executionContext)), "status",
+                Map.of("status", "QUEUED", "progress", 0));
+        jdbc.update("UPDATE recruitment_tasks SET current_stage='RESUME_PARSING',updated_at=? WHERE id=?",
+                timestamp(now), taskId);
+        audit(userId, scope, "RESUME_PARSE_QUEUED", "AI_RUN", runId);
+        return detailScoped(workspaceId, taskId);
+    }
+
+    @Transactional
+    public OutboxClaim claimNextResumeParseRun() {
+        Instant now = Instant.now();
+        List<OutboxClaim> rows = jdbc.query("""
+                UPDATE outbox_events SET status='PROCESSING',attempts=attempts+1,next_attempt_at=?
+                WHERE id=(SELECT id FROM outbox_events
+                    WHERE event_type='RESUME_PARSE_RUN_REQUESTED'
+                      AND ((status='PENDING' AND (next_attempt_at IS NULL OR next_attempt_at<=?))
+                        OR (status='PROCESSING' AND next_attempt_at<=?))
+                    ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
+                RETURNING id,aggregate_id,attempts
+                """, (rs, n) -> new OutboxClaim(rs.getObject("id", UUID.class),
+                UUID.fromString(rs.getString("aggregate_id")), rs.getInt("attempts")),
+                timestamp(now.plus(outboxLeaseSeconds, ChronoUnit.SECONDS)), timestamp(now), timestamp(now));
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    @Transactional
+    public boolean prepareResumeParseRun(UUID runId) {
+        RunExecution run = runExecution(runId, true);
+        if (!List.of("QUEUED", "RUNNING").contains(run.status())) return false;
+        if ("QUEUED".equals(run.status())) {
+            Map<String, Object> aiInput = payloadMap(run.inputPayload());
+            AiTask aiTask = aiPlatform.startTask(new StartAiTaskCommand(run.workspaceId().toString(),
+                    run.companyId() == null ? null : run.companyId().toString(), run.createdBy().toString(),
+                    run.taskId().toString(), run.idempotencyKey(), AiCapability.RESUME_PARSING, aiInput,
+                    executionContext(run.executionContext())), delta -> emitResumeParseDelta(run.id(), delta));
+            jdbc.update("UPDATE ai_runs SET status='RUNNING',progress=15,provider_task_id=? WHERE id=?",
+                    aiTask.aiTaskId(), run.id());
+            appendRunEvent(run, "status", Map.of("status", "RUNNING", "progress", 15));
+        }
+        return true;
+    }
+
+    @Transactional
+    public void emitResumeParseDelta(UUID runId, String delta) {
+        RunExecution run = runExecution(runId, true);
+        if (!List.of("QUEUED", "RUNNING").contains(run.status())) return;
+        int progress = Math.min(95, Math.max(15, run.progress() + 3));
+        jdbc.update("UPDATE ai_runs SET progress=? WHERE id=? AND status IN ('QUEUED','RUNNING')", progress, run.id());
+        appendRunEvent(run, "delta", Map.of("delta", delta, "progress", progress));
+    }
+
+    public List<UUID> runningResumeParseRunIds() {
+        return jdbc.query("SELECT id FROM ai_runs WHERE capability='RESUME_PARSING' AND status='RUNNING' ORDER BY created_at LIMIT 50",
+                (rs, n) -> rs.getObject(1, UUID.class));
+    }
+
+    @Transactional
+    public void finalizeResumeParseRunIfReady(UUID runId) {
+        RunExecution run = runExecution(runId, true);
+        if (!"RUNNING".equals(run.status()) || run.providerTaskId() == null) return;
+        AiTask task = aiPlatform.getTask(run.providerTaskId());
+        if (task.status() == AiTaskStatus.FAILED || task.status() == AiTaskStatus.CANCELLED) {
+            failResumeParseRun(run, "AI_PROVIDER_UNAVAILABLE", "AI 简历解析失败，请重试");
+            return;
+        }
+        if (task.status() == AiTaskStatus.COMPLETED) finalizeResumeParseRun(runId);
+    }
+
+    @Transactional
+    public void finalizeResumeParseRun(UUID runId) {
+        RunExecution run = runExecution(runId, true);
+        if (!"RUNNING".equals(run.status())) return;
+        StructuredResult result = aiPlatform.getStructuredResult(run.providerTaskId());
+        Map<String, Object> data = result.data();
+        Object markdownObj = data.get("markdown");
+        String markdown = markdownObj == null ? "" : String.valueOf(markdownObj).trim();
+        if (markdown.isBlank()) markdown = fallbackMarkdownForResumeParse(run.taskId());
+        WorkspaceScope scope = new WorkspaceScope(run.workspaceId(), run.companyId(), null, null, null);
+        Instant completed = Instant.now();
+        // version 插入：有草稿则生成下一版，否则 V1
+        Integer currentMax = jdbc.queryForObject("""
+                SELECT COALESCE(MAX(revision),0) FROM resume_parse_drafts WHERE recruitment_task_id=? AND workspace_id=?
+                """, Integer.class, run.taskId(), run.workspaceId());
+        int nextRevision = (currentMax == null ? 0 : currentMax) + 1;
+        jdbc.update("""
+                INSERT INTO resume_parse_drafts
+                (id,company_id,workspace_id,recruitment_task_id,source_ai_run_id,revision,content,status,created_by,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,'DRAFT',?,?,?)
+                """, UUID.randomUUID(), scope.companyId(), scope.workspaceId(), run.taskId(), run.id(),
+                nextRevision, markdown, run.createdBy(), timestamp(completed), timestamp(completed));
+        billing.settleSystem(run.workspaceId(), "resume-parse:" + run.id(), resolveResumePriceMinor());
+        jdbc.update("UPDATE ai_runs SET status='COMPLETED',progress=100,settled_amount_minor=?,completed_at=? WHERE id=?",
+                resolveResumePriceMinor(), timestamp(completed), run.id());
+        insertMessage(scope, run.conversationId(), "ASSISTANT",
+                "简历解析已完成，结果已写入左侧「解析结果」文本框，你可以直接编辑并保存版本。"
+                        + (run.taskId().version() > 0 ? "" : ""),
+                "RESUME_PARSING", null, completed);
+        jdbc.update("UPDATE recruitment_tasks SET current_stage='AWAITING_RESUME_PARSE_CONFIRM',updated_at=? WHERE id=?",
+                timestamp(completed), run.taskId());
+        appendRunEvent(run, "completed", Map.of("status", "COMPLETED", "progress", 100));
+        audit(run.createdBy(), scope, "RESUME_PARSE_DRAFT_GENERATED", "AI_RUN", run.id());
+    }
+
+    private String fallbackMarkdownForResumeParse(UUID taskId) {
+        return "## AI 返回内容为空\n\n可能是大模型供应商临时不可用或输出为空。请在右侧 AI 招聘助手中继续沟通，"
+                + "或点击「重新解析」按钮重试。\n\n也可以直接在下方文本框手动编辑解析结果，保存后即成为 V1 版本草稿。";
+    }
+
+    @Transactional
+    public void completeResumeParseOutbox(UUID eventId) {
+        jdbc.update("UPDATE outbox_events SET status='SENT',sent_at=? WHERE id=?", timestamp(Instant.now()), eventId);
+    }
+
+    @Transactional
+    public void failResumeParseOutbox(OutboxClaim claim, String error) {
+        if (claim.attempts() < 3) {
+            jdbc.update("UPDATE outbox_events SET status='PENDING',next_attempt_at=? WHERE id=?",
+                    timestamp(Instant.now().plus(claim.attempts(), ChronoUnit.SECONDS)), claim.eventId());
+            return;
+        }
+        RunExecution run = runExecution(claim.runId(), true);
+        failResumeParseRun(run, "WORKER", error);
+        jdbc.update("UPDATE outbox_events SET status='FAILED',sent_at=? WHERE id=?", timestamp(Instant.now()), claim.eventId());
+    }
+
+    private void failResumeParseRun(RunExecution run, String code, String detail) {
+        Instant completed = Instant.now();
+        billing.settleSystem(run.workspaceId(), "resume-parse:" + run.id(), 0);
+        String message = "WORKER".equals(code) ? "简历解析任务执行失败，请重试" : detail;
+        jdbc.update("""
+                UPDATE ai_runs SET status='FAILED',progress=100,error_code=?,error_message=?,completed_at=? WHERE id=?
+                """, code, message, timestamp(completed), run.id());
+        WorkspaceScope scope = new WorkspaceScope(run.workspaceId(), run.companyId(), null, null, null);
+        insertMessage(scope, run.conversationId(), "SYSTEM", "简历解析失败：" + message, "RESUME_PARSING", null, completed);
+        appendRunEvent(run, "failed", Map.of("status", "FAILED", "progress", 100, "error_code", code, "error_message", message));
+    }
+
+    /** 返回简历源文件的临时下载/预览 URL，供前端直接打开。 */
+    public String downloadResumeSourceFileUrl(UUID userId, UUID workspaceId, UUID sourceFileId) {
+        workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        ResumeSourceFileService.AssetDownloadView asset = resumeSourceFiles.requireForDownload(workspaceId, sourceFileId);
+        return resumeSourceFiles.downloadUrl(asset);
     }
 
     private List<Map<String, String>> conversationContext(UUID conversationId, UUID workspaceId) {
@@ -535,8 +902,8 @@ public class RecruitmentService {
         if (drafts.isEmpty()) return Map.of();
         JdDraftView draft = drafts.stream().filter(item -> draftId == null || item.id().equals(draftId)).findFirst().orElse(drafts.getFirst());
         return Map.ofEntries(Map.entry("title", draft.title()), Map.entry("company_name", draft.companyName()),
-                Map.entry("responsibilities", draft.responsibilities()), Map.entry("requirements", draft.requirements()),
-                Map.entry("skills", draft.skills()), Map.entry("talent_profile", draft.talentProfile()),
+                Map.entry("salary_range", draft.salaryRange()), Map.entry("responsibilities", draft.responsibilities()), Map.entry("requirements", draft.requirements()),
+                Map.entry("skills", draft.skills()), Map.entry("nice_to_haves", draft.niceToHaves()), Map.entry("benefits", draft.benefits()), Map.entry("talent_profile", draft.talentProfile()),
                 Map.entry("status", draft.status()));
     }
 
@@ -551,22 +918,22 @@ public class RecruitmentService {
         jdbc.update("""
                 INSERT INTO jd_drafts
                 (id,company_id,workspace_id,recruitment_task_id,source_ai_run_id,revision,title,company_name,
-                 location,experience_level,education,job_type,responsibilities,requirements,skills,talent_profile,
+                 location,experience_level,education,job_type,salary_range,responsibilities,requirements,skills,nice_to_haves,benefits,talent_profile,
                  warnings,status,updated_by,created_at,updated_at)
-                VALUES (?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?::jsonb,'DRAFT',?,?,?)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, 'DRAFT', ?, ?, ?)
                 """, UUID.randomUUID(), scope.companyId(), scope.workspaceId(), taskId, runId, draft.title(),
-                draft.companyName(), draft.location(), draft.experienceLevel(), draft.education(), draft.jobType(),
-                draft.responsibilities(), draft.requirements(), draft.skills(), draft.talentProfile(),
+                draft.companyName(), draft.location(), draft.experienceLevel(), draft.education(), draft.jobType(), draft.salaryRange(),
+                draft.responsibilities(), draft.requirements(), draft.skills(), draft.niceToHaves(), draft.benefits(), draft.talentProfile(),
                 json(draft.warnings()), userId, timestamp(now), timestamp(now));
     }
 
     private void updateDraftInPlace(WorkspaceScope scope, UUID taskId, UUID draftId, UUID userId, JdDraftContent draft) {
         int updated = jdbc.update("""
-                UPDATE jd_drafts SET status=CASE WHEN status='CONFIRMED' THEN 'DRAFT' ELSE status END,title=?,company_name=?,location=?,experience_level=?,education=?,job_type=?,
-                 responsibilities=?,requirements=?,skills=?,talent_profile=?,warnings=?::jsonb,updated_by=?,updated_at=?
+                UPDATE jd_drafts SET status=CASE WHEN status='CONFIRMED' THEN 'DRAFT' ELSE status END,title=?,company_name=?,location=?,experience_level=?,education=?,job_type=?,salary_range=?,
+                 responsibilities=?,requirements=?,skills=?,nice_to_haves=?,benefits=?,talent_profile=?,warnings=?::jsonb,updated_by=?,updated_at=?
                 WHERE id=? AND recruitment_task_id=? AND workspace_id=? AND status IN ('DRAFT','CONFIRMED')
                 """, draft.title(), draft.companyName(), draft.location(), draft.experienceLevel(), draft.education(),
-                draft.jobType(), draft.responsibilities(), draft.requirements(), draft.skills(), draft.talentProfile(),
+                draft.jobType(), draft.salaryRange(), draft.responsibilities(), draft.requirements(), draft.skills(), draft.niceToHaves(), draft.benefits(), draft.talentProfile(),
                 json(draft.warnings()), userId, timestamp(Instant.now()), draftId, taskId, scope.workspaceId());
         if (updated == 0) throw new ApiException("JD_DRAFT_NOT_FOUND", "当前 JD 不存在，无法更新", HttpStatus.CONFLICT);
     }
@@ -575,12 +942,12 @@ public class RecruitmentService {
         Instant now = Instant.now();
         jdbc.update("""
                 INSERT INTO jd_drafts (id,company_id,workspace_id,recruitment_task_id,revision,title,company_name,
-                  location,experience_level,education,job_type,responsibilities,requirements,skills,talent_profile,
+                  location,experience_level,education,job_type,salary_range,responsibilities,requirements,skills,nice_to_haves,benefits,talent_profile,
                   warnings,status,updated_by,created_at,updated_at)
-                VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?::jsonb,'DRAFT',?,?,?)
+                VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, 'DRAFT', ?, ?, ?)
                 """, UUID.randomUUID(), scope.companyId(), scope.workspaceId(), taskId, draft.title(), draft.companyName(),
-                draft.location(), draft.experienceLevel(), draft.education(), draft.jobType(), draft.responsibilities(),
-                draft.requirements(), draft.skills(), draft.talentProfile(), json(draft.warnings()), userId,
+                draft.location(), draft.experienceLevel(), draft.education(), draft.jobType(), draft.salaryRange(), draft.responsibilities(),
+                draft.requirements(), draft.skills(), draft.niceToHaves(), draft.benefits(), draft.talentProfile(), json(draft.warnings()), userId,
                 timestamp(now), timestamp(now));
     }
 
@@ -660,6 +1027,14 @@ public class RecruitmentService {
             Map<String, String> result = new LinkedHashMap<>();
             source.forEach((key, item) -> result.put(key, item == null ? "" : String.valueOf(item)));
             return result;
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("JD run input is invalid", exception);
+        }
+    }
+
+    private Map<String, Object> payloadMap(String value) {
+        try {
+            return new LinkedHashMap<>(objectMapper.readValue(value, new TypeReference<Map<String, Object>>() { }));
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("JD run input is invalid", exception);
         }
@@ -764,7 +1139,7 @@ public class RecruitmentService {
         return new ApiException("IDEMPOTENCY_CONFLICT", "相同幂等键对应的请求内容不一致", HttpStatus.CONFLICT);
     }
 
-    public record CreateTaskInput(String title, String initialRequirement) { }
+    public record CreateTaskInput(String title, String initialRequirement, String featureType, String linkedJobId) { }
 
     public record RenameTaskInput(String title) { }
 
@@ -778,29 +1153,46 @@ public class RecruitmentService {
 
     public record UpdateDraftInput(UUID id, int revision, String title, String companyName, String location,
                                    String experienceLevel, String education, String jobType,
-                                   String responsibilities, String requirements, String skills,
+                                   String salaryRange, String responsibilities, String requirements, String skills, String niceToHaves, String benefits,
                                    String talentProfile, List<String> warnings) { }
 
+    public record UpdateResumeParseDraftInput(int revision, String content) { }
+
+    public record GenerateResumeParseInput(String requirement) { }
+
     public record TaskSummary(UUID id, UUID companyId, UUID workspaceId, String title, String status,
-                              String currentStage, UUID jobId, String jobTitle, UUID createdBy,
+                              String currentStage, String featureType, UUID linkedJobId,
+                              UUID jobId, String jobTitle, UUID createdBy,
                               Instant createdAt, Instant updatedAt) { }
 
     public record MessageView(UUID id, String role, String content, String capability, int sequenceNumber,
                               UUID createdBy, Instant createdAt) { }
 
     public record JdDraftView(UUID id, int revision, String title, String companyName, String location,
-                              String experienceLevel, String education, String jobType, String responsibilities,
-                              String requirements, String skills, String talentProfile, List<String> warnings,
+                              String experienceLevel, String education, String jobType, String salaryRange, String responsibilities,
+                              String requirements, String skills, String niceToHaves, String benefits, String talentProfile, List<String> warnings,
                               String status, Instant updatedAt) { }
 
     public record AiRunView(UUID id, String providerTaskId, String status, int progress, int attemptNumber,
                             String pricingVersion, long estimatedAmountMinor, long settledAmountMinor,
                             String errorCode, String errorMessage, Instant createdAt, Instant completedAt) { }
 
+    public record ResumeSourceFileView(UUID id, UUID fileAssetId, String filename, String mediaType, long sizeBytes,
+                                       Instant createdAt) { }
+
+    public record ResumeParseDraftView(UUID id, int revision, UUID sourceAiRunId, UUID resumeSourceFileId,
+                                       String content, String status, UUID createdBy,
+                                       Instant createdAt, Instant updatedAt) { }
+
     public record TaskDetail(TaskSummary task, UUID conversationId, List<MessageView> messages, List<JdDraftView> jdDrafts,
-                             JdDraftView jdDraft, AiRunView latestAiRun) { }
+                             JdDraftView jdDraft, AiRunView latestAiRun,
+                             List<ResumeSourceFileView> resumeSourceFiles, List<ResumeParseDraftView> resumeParseDrafts,
+                             ResumeParseDraftView resumeParseDraft) { }
 
     public record RunEvent(long eventId, UUID runId, String eventType, String data, Instant createdAt) { }
+
+    public record SourceFileView(UUID id, UUID fileAssetId, String filename, String mediaType, long sizeBytes,
+                                 Instant createdAt) { }
 
     public record OutboxClaim(UUID eventId, UUID runId, int attempts) { }
 

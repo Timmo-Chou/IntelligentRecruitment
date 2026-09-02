@@ -574,8 +574,9 @@ export default function JobsPage() {
                 <p className="mb-2 mt-3 flex items-center gap-2 text-sm font-semibold">
                   <Building2 size={16} /> {detailJob.companyName}
                 </p>
-                <p className="m-0 flex flex-wrap items-center gap-3 text-xs text-[#4b6793]">
-                  <span className="flex items-center gap-1"><MapPin size={14} /> {detailJob.location}</span>
+              <p className="m-0 flex flex-wrap items-center gap-3 text-xs text-[#4b6793]">
+                <span className="flex items-center gap-1"><MapPin size={14} /> {detailJob.location}</span>
+                {detailJob.salaryRange && <span>{detailJob.salaryRange}</span>}
                   {detailJob.experienceLevel && <span>{detailJob.experienceLevel}</span>}
                   {detailJob.education && <span>{detailJob.education}</span>}
                   {detailJob.jobType && <span>{detailJob.jobType}</span>}
@@ -606,6 +607,8 @@ export default function JobsPage() {
                   </div>
                 </DetailSection>
               )}
+              {detailJob.niceToHaves && <DetailSection title="加分项"><p className="m-0 whitespace-pre-wrap">{detailJob.niceToHaves}</p></DetailSection>}
+              {detailJob.benefits && <DetailSection title="福利待遇"><p className="m-0 whitespace-pre-wrap">{detailJob.benefits}</p></DetailSection>}
               <DetailSection title="创建信息">
                 <p>创建时间：{formatDate(detailJob.createdAt)}　更新时间：{formatDate(detailJob.updatedAt)}</p>
               </DetailSection>
@@ -721,12 +724,15 @@ function JobEditModal({
     title: job?.title ?? "",
     companyName: job?.companyName ?? "",
     location: job?.location ?? "",
+    salaryRange: job?.salaryRange ?? "",
     description: job?.description ?? "",
     requirements: job?.requirements ?? "",
     skills: job?.skills ?? "",
     experienceLevel: job?.experienceLevel ?? "",
     education: job?.education ?? "",
     jobType: job?.jobType ?? "全职",
+    niceToHaves: job?.niceToHaves ?? "",
+    benefits: job?.benefits ?? "",
   });
 
   const update = (key: keyof JobInput, value: string) => {
@@ -752,6 +758,7 @@ function JobEditModal({
           <Field label="职位名称" required value={form.title} onChange={(v) => update("title", v)} />
           <Field label="企业名称" required value={form.companyName} onChange={(v) => update("companyName", v)} />
           <Field label="工作地点" value={form.location} onChange={(v) => update("location", v)} />
+          <Field label="薪资范围" value={form.salaryRange} onChange={(v) => update("salaryRange", v)} placeholder="如：25K-35K·14薪" />
           <div className="grid grid-cols-3 gap-3">
             <Field label="经验要求" value={form.experienceLevel} onChange={(v) => update("experienceLevel", v)} placeholder="如：5年以上" />
             <Field label="学历要求" value={form.education} onChange={(v) => update("education", v)} placeholder="如：本科及以上" />
@@ -760,6 +767,8 @@ function JobEditModal({
           <TextareaField label="职位描述" value={form.description} onChange={(v) => update("description", v)} />
           <TextareaField label="任职要求" value={form.requirements} onChange={(v) => update("requirements", v)} placeholder="每行一条要求" />
           <TextareaField label="关键技能" value={form.skills} onChange={(v) => update("skills", v)} placeholder="逗号或空格分隔" />
+          <TextareaField label="加分项" value={form.niceToHaves} onChange={(v) => update("niceToHaves", v)} />
+          <TextareaField label="福利待遇" value={form.benefits} onChange={(v) => update("benefits", v)} />
           <div className="flex justify-end gap-3 pt-2">
             <button className="outline-button" type="button" onClick={onClose} disabled={saving}>取消</button>
             <button className="primary-button" type="submit" disabled={saving || !form.title.trim() || !form.companyName.trim()}>

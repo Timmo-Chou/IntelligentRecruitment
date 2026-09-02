@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.local/ai-platform/route-decision-v2.schema.json",
+  "title": "RouteDecision V2",
+  "description": "A non-authoritative AI routing recommendation. It never authorizes a business action, data access expansion, or customer charge.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision_id", "kind", "confidence", "requires_policy_check", "created_at"],
+  "properties": {
+    "decision_id": { "type": "string", "minLength": 1 },
+    "kind": { "enum": ["route", "clarify", "inform", "unsupported"] },
+    "capability": {
+      "type": ["string", "null"],
+      "enum": [null, "requirement_chat", "recruitment_qa", "jd_generation", "resume_parsing", "screening_plan_generation", "candidate_screening", "candidate_sourcing", "job_distribution", "candidate_outreach", "interview_kit_generation", "task_assistance"]
+    },
+    "secondary_intent": {
+      "type": ["string", "null"],
+      "description": "A registered sub-intent in the recruitment-assistant intent catalog. It selects a route definition; it does not authorize execution.",
+      "maxLength": 100
+    },
+    "operation": {
+      "type": ["string", "null"],
+      "description": "The user's requested business intent, not an execution instruction. The business service still validates state, permissions, pricing, and confirmation.",
+      "enum": [null, "create", "revise", "continue", "inspect", "confirm", "cancel", "retry"]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "requires_policy_check": { "const": true },
+    "missing_inputs": {
+      "type": "array",
+      "items": { "enum": ["job_version", "candidate_scope", "resume_file", "resume_parse_version", "screening_plan", "screening_result", "user_clarification"] },
+      "uniqueItems": true
+    },
+    "clarification": { "type": ["string", "null"], "maxLength": 2000 },
+    "suggested_next_action": { "enum": ["collect_requirement", "select_job_version", "select_candidates", "prepare_screening_plan", "show_quote", "inspect_task", "none"] },
+    "referenced_resource_ids": {
+      "type": "array",
+      "description": "Opaque identifiers already present in the business-provided context; this field cannot expand data access.",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "route" } }, "required": ["kind"] },
+      "then": {
+        "required": ["capability", "secondary_intent", "operation", "suggested_next_action"],
+        "properties": { "capability": { "type": "string" }, "secondary_intent": { "type": "string" }, "operation": { "type": "string" } }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "clarify" } }, "required": ["kind"] },
+      "then": { "required": ["clarification"] }
+    }
+  ]
+}

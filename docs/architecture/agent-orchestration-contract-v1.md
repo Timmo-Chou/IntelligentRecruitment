@@ -31,6 +31,7 @@ Web
 机器可读定义见 `contracts/ai-platform/schemas/`：
 
 - `route-decision.schema.json`
+- `route-decision-v2.schema.json`（临时 AI Platform 的当前路由契约，新增二级意图与 `operation`）
 - `execution-context.schema.json`
 - `skill-manifest.schema.json`
 - `policy-decision.schema.json`
@@ -68,6 +69,73 @@ Web
 3. `RouteDecision.kind=route` 后，业务服务重新从当前 Workspace 查询资源；不得信任模型返回的任意资源 ID。
 4. `confidence` 仅影响是否追问，不能绕过确认或策略校验。
 5. 不支持的意图返回 `unsupported`；信息不全返回 `clarify`，不得猜测候选人范围或岗位版本。
+
+### 4.1 RouteDecision V2：意图操作与文件前置条件
+
+`route-decision.schema.json` 保留为兼容旧调用方的 V1 契约。临时 AI Platform 的
+`/agent-routes` 已使用 `route-decision-v2.schema.json`：它在保留 V1 字段的基础上，
+增加二级意图与动作语义。V2 仍只是路由建议，不能直接触发业务执行。
+
+V2 只补充两个语义，不扩大 AI Platform 的授权边界：
+
+| 字段/枚举 | 定义 | 约束 |
+|---|---|---|
+| `secondary_intent` | 一级能力下的具体业务场景，例如 `create_another_jd`、`create_screening_run`、`publish_to_pincaimao` | 仅 `kind=route` 时必填，必须命中 AI Platform 注册的意图目录。 |
+| `operation` | 用户希望进行的业务操作：`create`、`revise`、`continue`、`inspect`、`confirm`、`cancel`、`retry` | 仅 `kind=route` 时必填；它是意图建议，不是执行指令。业务服务仍须独立决定是否允许创建、修改、执行或收费。 |
+| `missing_inputs.resume_file` | 当前请求需要用户提供原始简历文件，但尚未提供可解析文件 | 与 `resume_parse_version` 区分：前者表示“尚未上传文件”，后者表示“已上传但缺少可用解析版本”。 |
+
+`operation` 的推荐适用范围：
+
+- `jd_generation`：`create` 用于新职位 JD，`revise` 用于当前 JD 修改，`continue` 用于继续收集岗位需求。
+- `screening_plan_generation`：`create` 或 `revise`。
+- `resume_parsing`、`candidate_screening`、`interview_kit_generation`：通常为 `create`。
+- `requirement_chat`：通常为 `continue`；`task_assistance`：通常为 `inspect`。
+- 对外部招聘动作：`candidate_sourcing`、`job_distribution`、`candidate_outreach` 可以被识别，
+  但只能在业务服务生成 `PolicyDecision=allow` 和 `ExecutionContext` 后调用 MCP 工具。
+
+临时 AI Platform 的完整路由注册表实现位于：
+
+`services/recruitment-service/src/main/java/com/intelligentrecruitment/aiplatform/application/RecruitmentAssistantIntentCatalog.java`
+
+该注册表是当前表格的机器可执行版本，包含二级意图、处理类型、Skill ID、聘才猫 MCP
+工具建议名、是否要求用户确认和缺失输入。聘才猫工具仅是白名单元数据；当前实现不保存
+聘才猫凭据，也不会从自由对话直接调用外部服务。
+
+`suggested_next_action` 在 V2 中保持 V1 枚举，以避免扩大本次变更范围。当
+`missing_inputs` 包含 `resume_file` 时，当前统一返回 `collect_requirement`；后续如需
+专门的上传界面，再以独立 V3 增加 `upload_resume`，不得复用或改变既有枚举含义。
+
+示例：
+
+```json
+{
+  "decision_id": "rd_01",
+  "kind": "route",
+  "capability": "jd_generation",
+  "operation": "create",
+  "confidence": 0.96,
+  "requires_policy_check": true,
+  "missing_inputs": [],
+  "clarification": null,
+  "suggested_next_action": "collect_requirement",
+  "created_at": "2026-09-02T00:00:00Z"
+}
+```
+
+```json
+{
+  "decision_id": "rd_02",
+  "kind": "clarify",
+  "capability": null,
+  "operation": null,
+  "confidence": 0.41,
+  "requires_policy_check": true,
+  "missing_inputs": ["resume_file", "user_clarification"],
+  "clarification": "请先上传需要解析的简历，并说明是否需要关联某个职位。",
+  "suggested_next_action": "collect_requirement",
+  "created_at": "2026-09-02T00:00:00Z"
+}
+```
 
 ## 5. ExecutionContext 与数据最小化
 

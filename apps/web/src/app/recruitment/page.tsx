@@ -11,15 +11,17 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { ApiError } from "@/lib/api-client";
 import { ScreeningWorkspace } from "@/components/screening/screening-workspace";
+import { ResumeParsingWorkspace } from "@/components/recruitment/resume-parsing-workspace";
 import {
-  confirmJdDraft, createTask, fetchTask, fetchTasks, generateJd, sendMessage,
+  confirmJdDraft, createTask, fetchTask, fetchTasks, generateJd, sendMessage, uploadJdSourceFile, uploadResumeSourceFile,
   streamJdRunEvents, updateJdDraft,
   type JdDraft, type TaskDetail, type TaskSummary,
 } from "@/lib/recruitment-api";
 import { fetchJobs, type Job } from "@/lib/job-api";
+import { fetchCandidates, type CandidateSummary } from "@/lib/candidate-api";
 import { useWorkspace } from "@/lib/workspace-context";
 
-type WorkspaceSection = "home" | "jd" | "candidates" | "screening" | "interviews";
+type WorkspaceSection = "home" | "jd" | "candidates" | "screening" | "interviews" | "resume-parsing";
 type SelectedFeature = "JD_GENERATION" | "CANDIDATE_SCREENING" | "INTERVIEW_KIT" | "RESUME_PARSING" | null;
 type RecruitmentAgent = "RECRUITMENT_ASSISTANT" | "TALENT_PLANNER";
 type JdGenerationSource = "TEMPLATE" | "JOB_LIBRARY" | "UPLOAD" | null;
@@ -42,6 +44,9 @@ export default function RecruitmentPage() {
   const [selectedFeature, setSelectedFeature] = useState<SelectedFeature>(null);
   const [streamText, setStreamText] = useState("");
   const [section, setSection] = useState<WorkspaceSection>("home");
+  const [selectedScreeningJob, setSelectedScreeningJob] = useState<Job | null>(null);
+  /** 单选人才库候选人：AI简历解析时可直接解析人才库里已有简历（无需二次上传） */
+  const [selectedCandidate, setSelectedCandidate] = useState<CandidateSummary | null>(null);
   const streamTaskId = detail?.task.id;
   const streamRunId = detail?.latestAiRun?.id;
   const streamRunStatus = detail?.latestAiRun?.status;
@@ -145,10 +150,47 @@ export default function RecruitmentPage() {
     return () => { stopped = true; controller.abort(); };
   }, [workspaceId, streamTaskId, streamRunId, streamRunStatus]);
 
-  async function handleCreate() {
-    if (!workspaceId || !newRequirement.trim()) return;
+  async function handleCreate(sourceFiles: File[] = []) {
+    if (!workspaceId) return;
+    // 简历解析模式：人才 / 上传文件 / 文字 至少一项（无职位时也能发送）
+    const featureRequirementMet = selectedFeature === "RESUME_PARSING"
+      ? Boolean(newRequirement.trim() || sourceFiles.length > 0 || selectedScreeningJob || selectedCandidate)
+      : selectedFeature === "CANDIDATE_SCREENING"
+        ? Boolean(newRequirement.trim() || sourceFiles.length > 0 || selectedScreeningJob)
+        : Boolean(newRequirement.trim());
+    if (!featureRequirementMet) return;
     await run(async () => {
-      const created = await createTask(workspaceId, resolveTaskTitle(newTitle, newRequirement, selectedFeature), newRequirement);
+      const extra: { featureType?: string | null; linkedJobId?: string | null; linkedCandidateId?: string | null } = {};
+      if (selectedFeature === "RESUME_PARSING") {
+        extra.featureType = "RESUME_PARSING";
+        extra.linkedJobId = selectedScreeningJob?.id ?? null;
+        extra.linkedCandidateId = selectedCandidate?.id ?? null;
+      } else if (selectedFeature === "CANDIDATE_SCREENING") {
+        extra.featureType = "CANDIDATE_SCREENING";
+        extra.linkedJobId = selectedScreeningJob?.id ?? null;
+      }
+      // 简历解析/筛简历 如果 requirement 为空，给一个简短默认描述，避免后端空 initialRequirement 时 AI 无上下文
+      const effectiveRequirement = newRequirement.trim() || (
+        selectedFeature === "RESUME_PARSING"
+          ? (selectedCandidate
+            ? (selectedScreeningJob
+              ? `请解析人才库「${selectedCandidate.displayNameMasked}」的简历，并结合职位"${selectedScreeningJob.title}"做匹配分析与洞察。`
+              : `请解析人才库「${selectedCandidate.displayNameMasked}」的简历，提取关键信息（基本信息、工作经历、项目经历、教育背景、技能、亮点与风险等）。`)
+            : (selectedScreeningJob
+              ? `请解析我上传的简历，并结合职位"${selectedScreeningJob.title}"做匹配分析与洞察。`
+              : "请解析我上传的简历，提取关键信息（基本信息、工作经历、项目经历、教育背景、技能、亮点与风险等）。"))
+          : selectedFeature === "CANDIDATE_SCREENING"
+            ? (selectedScreeningJob
+              ? `请根据职位"${selectedScreeningJob.title}"的要求，对上传的简历进行筛选和匹配分析。`
+              : "请根据上传的简历与职位，进行匹配筛选。")
+            : newRequirement
+      );
+      const created = await createTask(
+        workspaceId,
+        resolveTaskTitle(newTitle, effectiveRequirement, selectedFeature),
+        effectiveRequirement,
+        extra,
+      );
       setNewTitle("");
       setNewRequirement("");
       setDetail(created);
@@ -156,11 +198,23 @@ export default function RecruitmentPage() {
       window.dispatchEvent(new Event("recruitment-tasks-changed"));
       if (selectedFeature === "JD_GENERATION") {
         setSection("jd");
+        await Promise.all(sourceFiles.map(file => uploadJdSourceFile(workspaceId, created.task.id, file)));
         await startJdGeneration(created);
       } else if (selectedFeature === "CANDIDATE_SCREENING") {
         // AI筛简历：发送后进入简历筛选主页（左右布局）
         setSection("screening");
         await loadTasks(created.task.id);
+      } else if (selectedFeature === "RESUME_PARSING") {
+        // AI简历解析：发送后进入左右布局（左：职位卡+简历文件+解析文本；右：AI助手）
+        for (const file of sourceFiles) {
+          await uploadResumeSourceFile(workspaceId, created.task.id, file);
+        }
+        setSection("resume-parsing");
+        // 重新拉详情以便拿到上传后的源文件列表
+        const refreshed = await fetchTask(workspaceId, created.task.id);
+        setDetail(refreshed);
+        setDraft(refreshed.jdDraft);
+        await refreshTaskList(refreshed.task.id);
       } else {
         setSection("jd");
         await loadTasks(created.task.id);
@@ -207,17 +261,12 @@ export default function RecruitmentPage() {
     setDraft(queued.jdDraft);
     await refreshTaskList(queued.task.id);
 
-    // SSE 用于逐步反馈；轮询是连接中断时的兜底，确保最终 JD 一落库就刷新左侧编辑器。
-    for (let attempt = 0; attempt < 80; attempt += 1) {
-      await new Promise(resolve => window.setTimeout(resolve, 350));
-      const latest = await fetchTask(workspaceId, queued.task.id);
-      setDetail(latest);
-      setDraft(latest.jdDraft);
-      if (["COMPLETED", "FAILED"].includes(latest.latestAiRun?.status ?? "")) {
-        await refreshTaskList(latest.task.id);
-        return;
-      }
-    }
+    // SSE effect 持续接收真实模型分片并在完成时刷新；此处不阻塞界面等待模型。
+  }
+
+  async function handleAddJdDraft() {
+    if (!detail) return;
+    await run(async () => startJdGeneration(detail));
   }
 
   async function handleSave(nextDraft = draft) {
@@ -267,7 +316,7 @@ export default function RecruitmentPage() {
   if (loading && tasks.length === 0) return <StatePage icon={<Loader2 className="animate-spin" />} text="正在加载招聘任务..." />;
 
   if (!requestedTaskId && section === "home" && !detail) {
-    return <AppShell activeItem="智能招聘"><RecruitmentEmptyState workspaceId={workspaceId} requirement={newRequirement} selectedFeature={selectedFeature} busy={busy} error={error} onTitle={setNewTitle} onRequirement={setNewRequirement} onCreate={() => void handleCreate()} onFeature={setSelectedFeature} onSection={setSection}/></AppShell>;
+    return <AppShell activeItem="智能招聘"><RecruitmentEmptyState workspaceId={workspaceId} requirement={newRequirement} selectedFeature={selectedFeature} busy={busy} error={error} onTitle={setNewTitle} onRequirement={setNewRequirement} onCreate={(files) => void handleCreate(files)} onFeature={setSelectedFeature} onSection={setSection} selectedScreeningJob={selectedScreeningJob} onSelectScreeningJob={setSelectedScreeningJob} selectedCandidate={selectedCandidate} onSelectCandidate={setSelectedCandidate}/></AppShell>;
   }
 
   return <AppShell activeItem="智能招聘" pageHeader={
@@ -285,11 +334,11 @@ export default function RecruitmentPage() {
 
     <div className="mt-4 grid min-h-[680px] gap-4 lg:h-[calc(100dvh-190px)] lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_360px]">
       <main className="min-w-0 rounded-xl border border-[#d6e5f5] bg-white p-5 shadow-[0_6px_20px_rgba(30,92,160,0.04)] lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
-        {section === "candidates" ? <WorkflowSection title="上传并解析简历" description="请在此上传 PDF、DOCX 简历，系统将解析候选人信息并在当前工作空间保存。"/> : section === "screening" ? detail ? <ScreeningWorkspace embedded recruitmentTaskId={detail.task.id} initialJobId={detail.task.jobId} /> : <WorkflowSection title="AI 简历筛选" description="请先创建筛选任务后再配置方案与候选人范围。"/> : section === "interviews" ? <WorkflowSection title="AI 面试出题" description="选择候选人，生成可编辑、可确认的结构化面试题包。"/> : !detail ? <CreateTaskPanel title={newTitle} requirement={newRequirement} busy={busy} onTitle={setNewTitle} onRequirement={setNewRequirement} onCreate={() => void handleCreate()} /> : detail.jdDrafts?.length ? <div className="space-y-5">{detail.jdDrafts.map((panel) => <section key={panel.id} className="rounded-xl border border-[#d6e5f5] bg-[#fbfdff] p-4"><JdEditor draft={panel} busy={busy} confirmed={panel.status === "CONFIRMED"} editing={editingPublishedJd && draft?.id === panel.id} jobId={detail.task.jobId} onEdit={() => { setDraft(panel); setEditingPublishedJd(true); }} onSave={(next) => void handleSave(next)} onConfirm={() => void handleConfirm(panel)} /></section>)}</div> : <JdWaitingState task={detail.task} running={busy || ["QUEUED", "RUNNING"].includes(detail.latestAiRun?.status ?? "")} />}
+        {section === "candidates" ? <WorkflowSection title="上传并解析简历" description="请在此上传 PDF、DOCX 简历，系统将解析候选人信息并在当前工作空间保存。"/> : section === "screening" ? detail ? <ScreeningWorkspace embedded recruitmentTaskId={detail.task.id} initialJobId={detail.task.jobId} /> : <WorkflowSection title="AI 简历筛选" description="请先创建筛选任务后再配置方案与候选人范围。"/> : section === "resume-parsing" ? detail ? <ResumeParsingWorkspace embedded detail={detail} onDetailUpdated={(next) => { setDetail(next); setDraft(next.jdDraft); }} /> : <WorkflowSection title="AI 简历解析" description="请先上传简历并创建解析任务，AI 将提取简历关键内容并可与职位匹配分析。"/> : section === "interviews" ? <WorkflowSection title="AI 面试出题" description="选择候选人，生成可编辑、可确认的结构化面试题包。"/> : !detail ? <CreateTaskPanel title={newTitle} requirement={newRequirement} busy={busy} onTitle={setNewTitle} onRequirement={setNewRequirement} onCreate={() => void handleCreate()} /> : detail.task.featureType === "RESUME_PARSING" ? <ResumeParsingWorkspace embedded detail={detail} onDetailUpdated={(next) => { setDetail(next); setDraft(next.jdDraft); }} /> : detail.jdDrafts?.length ? <div className="space-y-5"><div className="flex justify-end"><button type="button" className="outline-button" disabled={busy || ["QUEUED", "RUNNING"].includes(detail.latestAiRun?.status ?? "")} onClick={() => void handleAddJdDraft()}><Plus size={15}/>新增 JD 草稿</button></div>{detail.jdDrafts.map((panel) => <section key={panel.id} className="rounded-xl border border-[#d6e5f5] bg-[#fbfdff] p-4"><JdEditor draft={panel} busy={busy} confirmed={panel.status === "CONFIRMED"} editing={editingPublishedJd && draft?.id === panel.id} jobId={detail.task.jobId} onEdit={() => { setDraft(panel); setEditingPublishedJd(true); }} onSave={(next) => void handleSave(next)} onConfirm={() => void handleConfirm(panel)} /></section>)}</div> : <JdWaitingState task={detail.task} running={busy || ["QUEUED", "RUNNING"].includes(detail.latestAiRun?.status ?? "")} onRetry={() => void handleAddJdDraft()} />}
       </main>
 
       <aside className="flex min-h-0 flex-col rounded-xl border border-[#d6e5f5] bg-white shadow-[0_6px_20px_rgba(30,92,160,0.04)] lg:h-[calc(100dvh-190px)] lg:overflow-hidden">
-        <div className="flex items-center justify-between border-b border-[#e2ebf5] px-4 py-3"><span className="flex items-center gap-2 text-sm font-bold text-[#173568]"><Bot size={17} className="text-[#1478e8]"/>AI 招聘助手</span>{detail?.latestAiRun && <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${detail.latestAiRun.status === "FAILED" ? "bg-[#fff0f0] text-[#cf3030]" : "bg-[#e7f8f1] text-[#07885b]"}`}>{detail.latestAiRun.status === "FAILED" ? "生成失败" : "Mock AI"}</span>}</div>
+        <div className="flex items-center justify-between border-b border-[#e2ebf5] px-4 py-3"><span className="flex items-center gap-2 text-sm font-bold text-[#173568]"><Bot size={17} className="text-[#1478e8]"/>AI 招聘助手</span>{detail?.latestAiRun && <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${detail.latestAiRun.status === "FAILED" ? "bg-[#fff0f0] text-[#cf3030]" : "bg-[#e7f8f1] text-[#07885b]"}`}>{detail.latestAiRun.status === "FAILED" ? "生成失败" : "AI 生成"}</span>}</div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
           {!detail && <div className="rounded-lg bg-[#eef7ff] p-3 text-xs leading-5 text-[#56749f]">创建招聘任务后，我会协助补充需求并生成结构化 JD 草稿。</div>}
           {detail?.messages.map((item) => <article key={item.id} className={`max-w-[92%] rounded-xl px-3 py-2.5 text-xs leading-5 ${item.role === "USER" ? "ml-auto bg-[#176ce5] text-white" : item.role === "SYSTEM" ? "bg-[#f3f5f8] text-[#657996]" : "bg-[#eef8ff] text-[#35577f]"}`}><p className="m-0 whitespace-pre-wrap">{item.content}</p></article>)}
@@ -327,7 +376,7 @@ const recruitmentStarters: RecruitmentStarter[] = [
     icon: ListChecks,
     title: "上传并解析简历",
     description: "批量导入 PDF、DOCX 并自动解析人才信息",
-    section: "candidates", feature: "RESUME_PARSING",
+    feature: "RESUME_PARSING",
   },
 ];
 
@@ -385,7 +434,7 @@ type UploadedFile = {
   file: File;
 };
 
-function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy, error, onTitle, onRequirement, onCreate, onFeature, onSection }: {
+function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy, error, onTitle, onRequirement, onCreate, onFeature, onSection, selectedScreeningJob, onSelectScreeningJob, selectedCandidate, onSelectCandidate }: {
   workspaceId: string;
   requirement: string;
   selectedFeature: SelectedFeature;
@@ -393,23 +442,49 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
   error: string | null;
   onTitle: (value: string) => void;
   onRequirement: (value: string) => void;
-  onCreate: () => void;
+  onCreate: (files?: File[]) => void;
   onFeature: (feature: SelectedFeature) => void;
   onSection: (section: WorkspaceSection) => void;
+  selectedScreeningJob: Job | null;
+  onSelectScreeningJob: (job: Job | null) => void;
+  selectedCandidate: CandidateSummary | null;
+  onSelectCandidate: (candidate: CandidateSummary | null) => void;
 }) {
   // 职位库弹窗相关状态
   const [showJobPicker, setShowJobPicker] = useState(false);
   const [jobSearch, setJobSearch] = useState("");
   const [jobList, setJobList] = useState<Job[]>([]);
   const [jobLoading, setJobLoading] = useState(false);
+  // 人才库弹窗相关状态（单选）
+  const [showCandidatePicker, setShowCandidatePicker] = useState(false);
+  const [candidateSearch, setCandidateSearch] = useState("");
+  const [candidateList, setCandidateList] = useState<CandidateSummary[]>([]);
+  const [candidateLoading, setCandidateLoading] = useState(false);
   // 上传文件相关状态
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const fileInputRef = useState<HTMLInputElement | null>(null);
-  // AI筛简历：已选职位（单选）
-  const [selectedScreeningJob, setSelectedScreeningJob] = useState<Job | null>(null);
   const [agent, setAgent] = useState<RecruitmentAgent>("RECRUITMENT_ASSISTANT");
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [jdGenerationSource, setJdGenerationSource] = useState<JdGenerationSource>(null);
+
+  // 切换 feature 时，如果不再是筛选/解析模式，清空已选职位和人才
+  useEffect(() => {
+    if (selectedFeature !== "CANDIDATE_SCREENING" && selectedFeature !== "RESUME_PARSING") {
+      onSelectScreeningJob(null);
+      onSelectCandidate(null);
+    }
+  }, [selectedFeature, onSelectScreeningJob, onSelectCandidate]);
+
+  // 是否允许发送：
+  //  - RESUME_PARSING：需要 人才/上传文件/文字 至少一项（三者都空时按钮置灰）
+  //  - CANDIDATE_SCREENING：条件/职位/上传文件 三选一
+  //  - 其余：需输入文字 或有文件
+  const canSubmit = () => {
+    if (busy) return false;
+    if (selectedFeature === "RESUME_PARSING") return Boolean(requirement.trim() || uploadedFiles.length > 0 || selectedCandidate);
+    if (selectedFeature === "CANDIDATE_SCREENING") return Boolean(requirement.trim() || uploadedFiles.length > 0 || selectedScreeningJob);
+    return Boolean(requirement.trim() || uploadedFiles.length > 0);
+  };
 
   const inputKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
@@ -420,7 +495,7 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      if (!busy && requirement.trim()) onCreate();
+      if (canSubmit()) onCreate(uploadedFiles.map(item => item.file));
     }
   };
   const chooseStarter = (starter: typeof recruitmentStarters[number]) => {
@@ -456,11 +531,49 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
     }
   };
 
+  /** 打开人才库弹窗并加载候选列表（status=PARSED 优先，无结果返回全部） */
+  const handleOpenCandidatePicker = async () => {
+    setShowCandidatePicker(true);
+    setCandidateSearch("");
+    await loadCandidateList("");
+  };
+
+  /** 加载人才库列表，支持关键词搜索（姓名/技能/文件） */
+  const loadCandidateList = async (keyword: string) => {
+    setCandidateLoading(true);
+    try {
+      // 第一优先：已解析的候选人（多数已提取技能和经历）
+      const parsed = await fetchCandidates(workspaceId, keyword, "PARSED", 50);
+      if (parsed.items.length > 0) {
+        setCandidateList(parsed.items);
+        return;
+      }
+      // 第二优先：无结果则走全部状态（如上传后未解析也能选，解析交给后端 worker）
+      const all = await fetchCandidates(workspaceId, keyword, "", 50);
+      setCandidateList(all.items);
+    } catch {
+      setCandidateList([]);
+    } finally {
+      setCandidateLoading(false);
+    }
+  };
+
+  /** 单选人才：保存到父组件并关闭弹窗 */
+  const handleSelectCandidate = (candidate: CandidateSummary) => {
+    onSelectCandidate(candidate);
+    setShowCandidatePicker(false);
+  };
+
+  /** 移除已选人才 */
+  const handleRemoveSelectedCandidate = () => {
+    onSelectCandidate(null);
+  };
+
   /** 选中职位：根据当前 feature 执行不同动作 */
   const handleSelectJob = (job: Job) => {
-    if (selectedFeature === "CANDIDATE_SCREENING") {
-      // AI筛简历：单选职位，保存到状态
-      setSelectedScreeningJob(job);
+    if (selectedFeature === "CANDIDATE_SCREENING" || selectedFeature === "RESUME_PARSING") {
+      // AI筛简历 / AI简历解析：单选职位，保存到父组件状态
+      onSelectScreeningJob(job);
     } else {
       // JD生成模式：把结构化职位内容直接带入输入框
       const lines: string[] = [];
@@ -507,7 +620,7 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
 
   /** AI筛简历：移除已选职位，重新显示选择按钮 */
   const handleRemoveScreeningJob = () => {
-    setSelectedScreeningJob(null);
+    onSelectScreeningJob(null);
   };
 
   /** 点击根据上传文件生成：触发文件选择 */
@@ -554,15 +667,15 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
     </section>
 
     <section className="relative mx-auto mt-7 flex w-full max-w-4xl items-center justify-between gap-4 px-1">
-      <div className="flex min-w-0 items-center gap-3"><span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-white shadow-[0_8px_20px_rgba(27,103,220,0.18)] ${agent === "RECRUITMENT_ASSISTANT" ? "bg-gradient-to-br from-[#1d78f2] to-[#17bd91]" : "bg-gradient-to-br from-[#8b5cf6] to-[#d946ef]"}`}>{agent === "RECRUITMENT_ASSISTANT" ? <Bot size={24}/> : <Sparkles size={23}/>}</span><div><h2 className="m-0 text-lg font-bold text-[#203b68]">{agent === "RECRUITMENT_ASSISTANT" ? "智能招聘助手" : "人才需求规划官"}</h2><p className="mb-0 mt-1 text-xs text-[#7083a1]">{agent === "RECRUITMENT_ASSISTANT" ? "生成 JD、筛选简历、设计面试问题" : "规划企业和项目的人才需求与人才方案"}</p></div></div>
+      <div className="flex min-w-0 items-center gap-3"><span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-white shadow-[0_8px_20px_rgba(27,103,220,0.18)] ${agent === "RECRUITMENT_ASSISTANT" ? "bg-gradient-to-br from-[#1d78f2] to-[#17bd91]" : "bg-gradient-to-br from-[#8b5cf6] to-[#d946ef]"}`}>{agent === "RECRUITMENT_ASSISTANT" ? <Bot size={24}/> : <Sparkles size={23}/>}</span><div><h2 className="m-0 text-lg font-bold text-[#203b68]">{agent === "RECRUITMENT_ASSISTANT" ? "智能招聘助手" : "人才规划官"}</h2><p className="mb-0 mt-1 text-xs text-[#7083a1]">{agent === "RECRUITMENT_ASSISTANT" ? "生成 JD、筛选简历、设计面试问题" : "规划企业和项目的人才需求与人才方案"}</p></div></div>
       <button type="button" onClick={() => setAgentMenuOpen(open => !open)} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-[#dbe6f0] bg-white px-4 py-2.5 text-sm font-semibold text-[#36557f] shadow-sm hover:bg-[#f7fbff]"><Sparkles size={16} className="text-[#176ce5]"/>切换智能体<ChevronDown size={16} className={`transition ${agentMenuOpen ? "rotate-180" : ""}`}/></button>
-      {agentMenuOpen && <div className="absolute right-0 top-[58px] z-20 w-52 rounded-2xl border border-[#dce7f1] bg-white p-2 shadow-xl"><button type="button" onClick={() => { setAgent("RECRUITMENT_ASSISTANT"); onFeature(null); setAgentMenuOpen(false); }} className={`flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm ${agent === "RECRUITMENT_ASSISTANT" ? "bg-[#eef7ff] font-semibold text-[#176ce5]" : "text-[#36557f] hover:bg-[#f7fbff]"}`}><Bot size={16}/>智能招聘助手</button><button type="button" onClick={() => { setAgent("TALENT_PLANNER"); onFeature(null); setAgentMenuOpen(false); }} className={`mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm ${agent === "TALENT_PLANNER" ? "bg-[#f8f2ff] font-semibold text-[#7c3aed]" : "text-[#36557f] hover:bg-[#f7fbff]"}`}><Sparkles size={16}/>人才需求规划官</button></div>}
+      {agentMenuOpen && <div className="absolute right-0 top-[58px] z-20 w-52 rounded-2xl border border-[#dce7f1] bg-white p-2 shadow-xl"><button type="button" onClick={() => { setAgent("RECRUITMENT_ASSISTANT"); onFeature(null); setAgentMenuOpen(false); }} className={`flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm ${agent === "RECRUITMENT_ASSISTANT" ? "bg-[#eef7ff] font-semibold text-[#176ce5]" : "text-[#36557f] hover:bg-[#f7fbff]"}`}><Bot size={16}/>智能招聘助手</button><button type="button" onClick={() => { setAgent("TALENT_PLANNER"); onFeature(null); setAgentMenuOpen(false); }} className={`mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm ${agent === "TALENT_PLANNER" ? "bg-[#f8f2ff] font-semibold text-[#7c3aed]" : "text-[#36557f] hover:bg-[#f7fbff]"}`}><Sparkles size={16}/>人才规划官</button></div>}
     </section>
 
     <section className="mx-auto mt-[clamp(28px,7vh,76px)] w-full max-w-4xl">
       <div className="rounded-[30px] border border-[#dbe6f0] bg-white px-6 pb-5 pt-5 shadow-[0_18px_55px_rgba(38,72,116,0.13)] focus-within:border-[#8fcfca] focus-within:shadow-[0_20px_60px_rgba(28,130,126,0.15)]">
-        {/* AI筛简历：输入框紧挨着上方的职位选择区（单选） */}
-        {selectedFeature === "CANDIDATE_SCREENING" && (
+        {/* AI筛简历 / AI简历解析：输入框上方的职位/人才 选择区（均为单选，非必选） */}
+        {(selectedFeature === "CANDIDATE_SCREENING" || selectedFeature === "RESUME_PARSING") && (
           <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-[#edf1f5] pb-3">
             {selectedScreeningJob ? (
               <div className="flex items-center gap-2 rounded-lg border border-[#cfe4f5] bg-[#f0faff] px-3 py-2">
@@ -597,6 +710,42 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
                 <FolderOpen size={15} /> 选择职位（职位库）
               </button>
             )}
+            {/* RESUME_PARSING 模式下，可选择人才库已有人才（单选），无需再次上传文件即可解析 */}
+            {selectedFeature === "RESUME_PARSING" && (
+              selectedCandidate ? (
+                <div className="flex items-center gap-2 rounded-lg border border-[#cfe4f5] bg-[#f8fbf3] px-3 py-2">
+                  <UsersRound className="text-[#15b6b3]" size={15} />
+                  <Link
+                    href="/candidates"
+                    className="text-sm font-semibold text-[#176ce5] underline-offset-2 hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {selectedCandidate.displayNameMasked}
+                    <span className="ml-1 text-xs font-normal text-[#657996]">
+                      {selectedCandidate.headline ? ` · ${selectedCandidate.headline}` : ""}
+                      {selectedCandidate.yearsExperience ? ` · ${selectedCandidate.yearsExperience}年` : ""}
+                    </span>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={handleRemoveSelectedCandidate}
+                    className="ml-1 grid h-5 w-5 place-items-center rounded-full text-[#98a9bd] hover:bg-white hover:text-[#cf3030]"
+                    aria-label="移除所选人才"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleOpenCandidatePicker()}
+                  className="flex items-center gap-2 rounded-lg border border-dashed border-[#f5d59a] bg-[#fffaf0] px-4 py-2 text-sm font-semibold text-[#a36f00] hover:bg-[#fff5dd]"
+                >
+                  <UsersRound size={15} /> 选择人才（人才库）
+                </button>
+              )
+            )}
           </div>
         )}
 
@@ -630,19 +779,28 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
           placeholder={
             selectedFeature === "CANDIDATE_SCREENING"
               ? "告诉我你的筛选条件，硬性条件、软性条件。（回车发送，Ctrl+A 换行）"
-              : "告诉我你的招聘需求，或上传 JD / 简历开始智能招聘（回车发送，Ctrl+A 换行）"
+              : selectedFeature === "RESUME_PARSING"
+                ? "请上传你想要解析的简历。（回车发送，Ctrl+A 换行）。"
+                : "告诉我你的招聘需求，或上传 JD / 简历开始智能招聘（回车发送，Ctrl+A 换行）"
           }
           aria-label="招聘需求"
         />
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#edf1f5] pt-4">
           <div className="flex flex-wrap items-center gap-2 text-sm text-[#536d91]">
-            {agent === "RECRUITMENT_ASSISTANT" ? <><button type="button" onClick={()=>onFeature("JD_GENERATION")} className={`rounded-full border px-3 py-2 ${selectedFeature === "JD_GENERATION" ? "border-[#15b6b3] bg-[#e9fbf9] text-[#0a8f8b]" : "border-[#e0e8f0] hover:bg-[#f5faff]"}`}><FileText className="mr-1 inline text-[#15b6b3]" size={16}/>JD生成</button><button type="button" onClick={()=>onFeature("CANDIDATE_SCREENING")} className={`rounded-full border px-3 py-2 ${selectedFeature === "CANDIDATE_SCREENING" ? "border-[#15b6b3] bg-[#e9fbf9] text-[#0a8f8b]" : "border-[#e0e8f0] hover:bg-[#f5faff]"}`}><UsersRound className="mr-1 inline text-[#15b6b3]" size={16}/>AI简历筛选</button><button type="button" onClick={()=>{onFeature("INTERVIEW_KIT");onSection("interviews")}} className="rounded-full border border-[#e0e8f0] px-3 py-2 hover:bg-[#f5faff]"><ListChecks className="mr-1 inline text-[#15b6b3]" size={16}/>AI面试出题</button></> : <><button type="button" onClick={()=>onRequirement("请协助我制定企业人才需求规划，包含业务目标、关键岗位、人数、时间节奏和优先级。")} className="rounded-full border border-[#e4d9fb] bg-[#fbf9ff] px-3 py-2 text-[#7044bf] hover:bg-[#f4efff]"><BriefcaseBusiness className="mr-1 inline" size={16}/>企业人才需求规划</button><button type="button" onClick={()=>onRequirement("请协助我构建企业人才画像，包含核心岗位能力、经验背景、文化匹配和人才来源。")} className="rounded-full border border-[#e4d9fb] bg-[#fbf9ff] px-3 py-2 text-[#7044bf] hover:bg-[#f4efff]"><UsersRound className="mr-1 inline" size={16}/>企业人才画像构建</button><button type="button" onClick={()=>onRequirement("请协助我制定业务人才方案，结合业务目标、项目阶段、组织分工和关键人才配置。")} className="rounded-full border border-[#e4d9fb] bg-[#fbf9ff] px-3 py-2 text-[#7044bf] hover:bg-[#f4efff]"><Sparkles className="mr-1 inline" size={16}/>业务人才方案制定</button></>}
+            {agent === "RECRUITMENT_ASSISTANT" ? <><button type="button" onClick={()=>onFeature("JD_GENERATION")} className={`rounded-full border px-3 py-2 ${selectedFeature === "JD_GENERATION" ? "border-[#15b6b3] bg-[#e9fbf9] text-[#0a8f8b]" : "border-[#e0e8f0] hover:bg-[#f5faff]"}`}><FileText className="mr-1 inline text-[#15b6b3]" size={16}/>JD生成</button><button type="button" onClick={()=>onFeature("RESUME_PARSING")} className={`rounded-full border px-3 py-2 ${selectedFeature === "RESUME_PARSING" ? "border-[#15b6b3] bg-[#e9fbf9] text-[#0a8f8b]" : "border-[#e0e8f0] hover:bg-[#f5faff]"}`}><File className="mr-1 inline text-[#15b6b3]" size={16}/>AI简历解析</button><button type="button" onClick={()=>onFeature("CANDIDATE_SCREENING")} className={`rounded-full border px-3 py-2 ${selectedFeature === "CANDIDATE_SCREENING" ? "border-[#15b6b3] bg-[#e9fbf9] text-[#0a8f8b]" : "border-[#e0e8f0] hover:bg-[#f5faff]"}`}><UsersRound className="mr-1 inline text-[#15b6b3]" size={16}/>AI简历筛选</button><button type="button" onClick={()=>{onFeature("INTERVIEW_KIT");onSection("interviews")}} className="rounded-full border border-[#e0e8f0] px-3 py-2 hover:bg-[#f5faff]"><ListChecks className="mr-1 inline text-[#15b6b3]" size={16}/>AI面试出题</button></> : <><button type="button" onClick={()=>onRequirement("请协助我制定企业人才规划，包含业务目标、关键岗位、人数、时间节奏和优先级。")} className="rounded-full border border-[#e4d9fb] bg-[#fbf9ff] px-3 py-2 text-[#7044bf] hover:bg-[#f4efff]"><BriefcaseBusiness className="mr-1 inline" size={16}/>企业人才规划</button><button type="button" onClick={()=>onRequirement("请协助我构建企业人才画像，包含核心岗位能力、经验背景、文化匹配和人才来源。")} className="rounded-full border border-[#e4d9fb] bg-[#fbf9ff] px-3 py-2 text-[#7044bf] hover:bg-[#f4efff]"><UsersRound className="mr-1 inline" size={16}/>企业人才画像构建</button><button type="button" onClick={()=>onRequirement("请协助我制定业务人才方案，结合业务目标、项目阶段、组织分工和关键人才配置。")} className="rounded-full border border-[#e4d9fb] bg-[#fbf9ff] px-3 py-2 text-[#7044bf] hover:bg-[#f4efff]"><Sparkles className="mr-1 inline" size={16}/>业务人才方案制定</button></>}
           </div>
           <div className="flex items-center gap-3">
-            <span className="min-w-24 text-right text-xs font-semibold text-[#0a9a66]" aria-live="polite">{quoteFor(selectedFeature, requirement)}</span>
-            {/* 添加附件按钮：点击打开文件选择 */}
-            <button type="button" onClick={handleUploadClick} className="grid h-9 w-9 place-items-center rounded-full border-2 border-[#24456f] text-[#24456f] hover:bg-[#f5faff]" aria-label="添加附件"><Plus size={18}/></button>
-            <button type="button" onClick={onCreate} disabled={busy || !requirement.trim()} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#1fbec3] to-[#0aa6a2] text-white shadow-[0_5px_14px_rgba(22,172,168,0.25)] transition hover:scale-105 disabled:cursor-not-allowed disabled:from-[#dce3ea] disabled:to-[#dce3ea] disabled:shadow-none" aria-label="发送并开始执行">{busy ? <Loader2 className="animate-spin" size={16}/> : <Send size={17}/>}</button>
+            <span className="min-w-24 text-right text-xs font-semibold text-[#0a9a66]" aria-live="polite">{quoteFor(selectedFeature, requirement, uploadedFiles.length)}</span>
+            {/* 添加附件按钮：点击打开文件选择，RESUME_PARSING 模式下显示气泡提示 */}
+            <div className="relative">
+              <button type="button" onClick={handleUploadClick} className="grid h-9 w-9 place-items-center rounded-full border-2 border-[#24456f] text-[#24456f] hover:bg-[#f5faff]" aria-label={selectedFeature === "RESUME_PARSING" ? "上传简历" : "添加附件"}><Plus size={18}/></button>
+              {selectedFeature === "RESUME_PARSING" && (
+                <div className="absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-[#102d64] px-2.5 py-1 text-[11px] font-medium text-white shadow-lg before:absolute before:top-full before:left-1/2 before:-translate-x-1/2 before:border-4 before:border-transparent before:border-t-[#102d64]">
+                  上传简历
+                </div>
+              )}
+            </div>
+            <button type="button" onClick={() => onCreate(uploadedFiles.map(item => item.file))} disabled={!canSubmit()} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#1fbec3] to-[#0aa6a2] text-white shadow-[0_5px_14px_rgba(22,172,168,0.25)] transition hover:scale-105 disabled:cursor-not-allowed disabled:from-[#dce3ea] disabled:to-[#dce3ea] disabled:shadow-none" aria-label="发送并开始执行">{busy ? <Loader2 className="animate-spin" size={16}/> : <Send size={17}/>}</button>
           </div>
         </div>
       </div>
@@ -755,14 +913,122 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
         </div>
       </div>
     )}
+
+    {/* 人才库选择弹窗（单选） */}
+    {showCandidatePicker && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="flex items-center justify-between border-b border-[#e2ebf5] px-5 py-4">
+            <div>
+              <h3 className="m-0 text-lg font-bold text-[#173568]">从人才库选择</h3>
+              <p className="mb-0 mt-1 text-xs text-[#657996]">单选一名候选人，AI 将直接解析其人才库简历并生成结构化结果</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCandidatePicker(false)}
+              className="grid h-8 w-8 place-items-center rounded-lg text-[#657996] hover:bg-[#f3f5f8] hover:text-[#173568]"
+              aria-label="关闭"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="border-b border-[#e2ebf5] px-5 py-3">
+            <div className="flex items-center gap-2 rounded-lg border border-[#cbdced] px-3 py-2 focus-within:border-[#4a8be8]">
+              <Search size={15} className="text-[#98a9bd]" />
+              <input
+                value={candidateSearch}
+                onChange={(event) => { setCandidateSearch(event.target.value); void loadCandidateList(event.target.value); }}
+                placeholder="搜索候选人姓名、技能或简历文件名..."
+                className="flex-1 border-0 bg-transparent text-sm outline-none placeholder:text-[#98a9bd]"
+              />
+              {candidateLoading && <Loader2 className="animate-spin text-[#176ce5]" size={15} />}
+            </div>
+          </div>
+
+          <div className="max-h-[420px] min-h-[240px] overflow-y-auto">
+            {candidateLoading && candidateList.length === 0 ? (
+              <div className="flex h-60 items-center justify-center text-sm text-[#657996]">
+                <Loader2 className="mr-2 animate-spin" size={16} />正在加载人才库...
+              </div>
+            ) : candidateList.length === 0 ? (
+              <div className="flex h-60 flex-col items-center justify-center text-center text-sm text-[#657996]">
+                <UsersRound size={26} className="mb-2 text-[#cbdced]" />
+                暂无人才数据，可先在「人才库」上传并解析简历后再选择
+              </div>
+            ) : (
+              <ul className="divide-y divide-[#edf1f5]">
+                {candidateList.map((candidate) => {
+                  const selected = selectedCandidate?.id === candidate.id;
+                  return (
+                    <li key={candidate.id}>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectCandidate(candidate)}
+                        className={`flex w-full items-start gap-3 px-5 py-3 text-left transition ${selected ? "bg-[#eaf9ff]" : "hover:bg-[#f5faff]"}`}
+                      >
+                        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${selected ? "bg-[#d2f1f0] text-[#0a8f8b]" : "bg-[#eef8f0] text-[#0f996a]"}`}>
+                          <UsersRound size={16} />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate text-sm font-bold text-[#203b68]">{candidate.displayNameMasked}</span>
+                            {selected && <span className="rounded-full bg-[#cfe9e8] px-2 py-0.5 text-[10px] font-semibold text-[#087b77]">已选择</span>}
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${candidate.parseStatus === "PARSED" ? "bg-[#e7f8f1] text-[#07885b]" : candidate.parseStatus === "FAILED" ? "bg-[#ffe9e9] text-[#c03232]" : "bg-[#fff6d8] text-[#9a6b00]"}`}>
+                              {candidate.parseStatus === "PARSED" ? "已解析" : candidate.parseStatus === "FAILED" ? "解析失败" : candidate.parseStatus === "PARSING" ? "解析中" : "未解析"}
+                            </span>
+                          </div>
+                          {candidate.headline && <p className="mt-1 truncate text-xs text-[#7083a1]">{candidate.headline}</p>}
+                          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#8493a8]">
+                            {candidate.highestEducation && <span>学历：{candidate.highestEducation}</span>}
+                            {candidate.yearsExperience > 0 && <span>经验：{candidate.yearsExperience} 年</span>}
+                            {candidate.originalFilename && <span className="truncate">来源：{candidate.originalFilename}</span>}
+                          </div>
+                          {candidate.skills?.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {candidate.skills.slice(0, 6).map((skill) => (
+                                <span key={skill} className="rounded-md border border-[#d6e5f5] bg-[#f2f7ff] px-1.5 py-0.5 text-[10px] text-[#496994]">{skill}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between border-t border-[#e2ebf5] bg-[#f9fbfe] px-5 py-3">
+            <span className="text-xs text-[#7083a1]">共 {candidateList.length} 条人才</span>
+            <div className="flex items-center gap-2">
+              {selectedCandidate && (
+                <button
+                  type="button"
+                  onClick={() => { onSelectCandidate(null); setShowCandidatePicker(false); }}
+                  className="rounded-lg border border-[#cbdced] bg-white px-4 py-2 text-sm text-[#36527f] hover:bg-[#f3f5f8]"
+                >清除选择</button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowCandidatePicker(false)}
+                className="rounded-lg border border-[#cbdced] bg-white px-4 py-2 text-sm text-[#36527f] hover:bg-[#f3f5f8]"
+              >取消</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
   </div>;
 }
 
-function quoteFor(feature: SelectedFeature, content: string) {
+function quoteFor(feature: SelectedFeature, content: string, fileCount: number = 0) {
   if (feature === "JD_GENERATION") return "预计 ¥0.80 / 次";
   if (feature === "CANDIDATE_SCREENING") return "¥0.80 / 成功候选人";
   if (feature === "INTERVIEW_KIT") return "预计 ¥0.80 / 题包";
-  if (feature === "RESUME_PARSING") return "预计 ¥0.80 / 份";
+  if (feature === "RESUME_PARSING") return fileCount > 0 ? `预计 ¥0.80 / 份（${fileCount}份）` : "预计 ¥0.80 / 份";
+  if (!content.trim()) return "输入内容后按发送（支持文件上传）";
   let tokens = 0;
   for (const character of content) tokens += /[\u4e00-\u9fff]/.test(character) ? 0.6 : 0.3;
   const yuan = Math.max(0.01, tokens * 0.2 / 1_000_000);
@@ -799,32 +1065,42 @@ function CreateTaskPanel({ title, requirement, busy, onTitle, onRequirement, onC
   </div>;
 }
 
-function JdWaitingState({ task, running }: { task: TaskSummary; running: boolean }) {
+function JdWaitingState({ task, running, onRetry }: { task: TaskSummary; running: boolean; onRetry: () => void }) {
   return <div className="mx-auto max-w-xl py-16 text-center">
     <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#e9f8ff] text-[#1778df]"><MessageSquareText size={27}/></span>
-    <h2 className="mb-0 mt-5 text-xl font-bold text-[#173568]">{task.title}</h2><p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#60799f]">{running ? "AI 正在生成结构化 JD，结果完成后会自动填入此处。" : "可在右侧继续补充招聘需求；从首页选择 JD 生成功能并发送后，系统会直接开始生成。"}</p>
+    <h2 className="mb-0 mt-5 text-xl font-bold text-[#173568]">{task.title}</h2><p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#60799f]">{running ? "AI 正在生成结构化 JD，结果完成后会自动填入此处。" : "可继续补充招聘需求，或重新发起 JD 生成。"}</p>{!running && <button type="button" className="primary-button mt-4" onClick={onRetry}><Plus size={15}/>重新生成 JD</button>}
   </div>;
 }
 
 function JdEditor({ draft, busy, confirmed, editing, jobId, onEdit, onSave, onConfirm }: { draft: JdDraft; busy: boolean; confirmed: boolean; editing: boolean; jobId: string | null; onEdit: () => void; onSave: (draft: JdDraft) => void; onConfirm: () => void }) {
   const editable = !confirmed || editing;
-  const text = `职位名称：${draft.title}\n企业名称：${draft.companyName}\n工作地点：${draft.location}\n经验要求：${draft.experienceLevel}\n学历要求：${draft.education}\n用工类型：${draft.jobType}\n\n岗位职责\n${draft.responsibilities}\n\n任职要求\n${draft.requirements}\n\n关键技能\n${draft.skills}\n\n人才画像\n${draft.talentProfile}`;
+  const text = `职位名称：${draft.title}\n企业名称：${draft.companyName}\n工作地点：${draft.location}\n薪资范围：${draft.salaryRange}\n经验要求：${draft.experienceLevel}\n学历要求：${draft.education}\n用工类型：${draft.jobType}\n\n岗位职责\n${draft.responsibilities}\n\n任职要求\n${draft.requirements}\n\n关键技能\n${draft.skills}\n\n加分项\n${draft.niceToHaves}\n\n福利待遇\n${draft.benefits}\n\n人才画像\n${draft.talentProfile}`;
   const [rawText, setRawText] = useState(text);
   useEffect(() => setRawText(text), [draft.id, draft.revision, text]);
   return <div>
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e1ebf5] pb-4"><h2 className="m-0 text-xl font-bold text-[#102d64]">{draft.title}</h2><span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold ${confirmed ? "bg-[#ddf8ed] text-[#07875b]" : "bg-[#fff6d8] text-[#9a6b00]"}`}>{confirmed ? <CheckCircle2 size={13}/> : <TriangleAlert size={13}/>} {confirmed ? "已发布" : "草稿"}</span></div>
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e1ebf5] pb-4"><h2 className="m-0 text-xl font-bold text-[#102d64]">{draft.title}</h2><span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold ${confirmed ? "bg-[#ddf8ed] text-[#07875b]" : "bg-[#fff6d8] text-[#9a6b00]"}`}>{confirmed ? <CheckCircle2 size={13}/> : <TriangleAlert size={13}/>} {confirmed ? "已确认，待发布" : "草稿"}</span></div>
     {!confirmed && draft.warnings.length > 0 && <div className="mt-4 rounded-lg border border-[#f6d58a] bg-[#fffaf0] px-4 py-3"><p className="m-0 flex items-center gap-2 text-xs font-semibold text-[#8d6200]"><TriangleAlert size={15}/>发布前待确认</p><ul className="mb-0 mt-2 list-disc space-y-1 pl-5 text-xs text-[#8a6a28]">{draft.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
     <textarea readOnly={!editable} value={rawText} onChange={(event) => setRawText(event.target.value)} className="mt-4 min-h-[500px] w-full resize-y rounded-lg border border-[#cbdced] bg-white px-4 py-3 text-sm leading-6 text-[#28476f] outline-none read-only:bg-[#fafdff] focus:border-[#4a8be8]" aria-label={`${draft.title} JD 全文`}/>
-    <div className="mt-4 flex flex-wrap gap-2">{confirmed && !editing && <button type="button" className="outline-button" disabled={busy} onClick={onEdit}><Pencil size={15}/>编辑</button>}{editable && <button type="button" className="outline-button" disabled={busy} onClick={() => onSave(parseJdText(rawText, draft))}><Save size={15}/>保存草稿</button>}<button type="button" className="outline-button" onClick={() => void navigator.clipboard.writeText(rawText)}><Copy size={15}/>复制</button>{!confirmed && <button type="button" className="primary-button" disabled={busy} onClick={onConfirm}><CheckCircle2 size={15}/>确认并发布</button>}{confirmed && jobId && <Link href="/jobs" className="primary-button"><BriefcaseBusiness size={15}/>查看职位库</Link>}</div>
+    <div className="mt-4 flex flex-wrap gap-2">{confirmed && !editing && <button type="button" className="outline-button" disabled={busy} onClick={onEdit}><Pencil size={15}/>编辑</button>}{editable && <button type="button" className="outline-button" disabled={busy} onClick={() => onSave(parseJdText(rawText, draft))}><Save size={15}/>保存草稿</button>}<button type="button" className="outline-button" onClick={() => void navigator.clipboard.writeText(rawText)}><Copy size={15}/>复制</button>{!confirmed && <button type="button" className="primary-button" disabled={busy} onClick={onConfirm}><CheckCircle2 size={15}/>确认并保存职位草稿</button>}{confirmed && jobId && <Link href="/jobs" className="primary-button"><BriefcaseBusiness size={15}/>前往职位库发布</Link>}</div>
   </div>;
 }
 
 function parseJdText(text: string, fallback: JdDraft): JdDraft {
-  const fields: Record<string, keyof JdDraft> = { "职位名称": "title", "企业名称": "companyName", "工作地点": "location", "经验要求": "experienceLevel", "学历要求": "education", "用工类型": "jobType" };
-  const sections: Record<string, keyof JdDraft> = { "岗位职责": "responsibilities", "任职要求": "requirements", "关键技能": "skills", "人才画像": "talentProfile" };
+  const fields: Record<string, keyof JdDraft> = { "职位名称": "title", "企业名称": "companyName", "工作地点": "location", "薪资范围": "salaryRange", "经验要求": "experienceLevel", "学历要求": "education", "用工类型": "jobType" };
+  const sections: Record<string, keyof JdDraft> = { "岗位职责": "responsibilities", "任职要求": "requirements", "关键技能": "skills", "加分项": "niceToHaves", "福利待遇": "benefits", "人才画像": "talentProfile" };
   const result = { ...fallback }; let current: keyof JdDraft | null = null;
   for (const line of text.split("\n")) { const pair = line.match(/^([^：]+)：(.*)$/); if (pair && fields[pair[1]]) { result[fields[pair[1]]] = pair[2].trim() as never; current = null; } else if (sections[line.trim()]) { current = sections[line.trim()]; result[current] = "" as never; } else if (current) result[current] = `${String(result[current] ?? "")}${String(result[current] ?? "").trim() ? "\n" : ""}${line}` as never; }
+  result.warnings = publicationWarnings(result);
   return result;
+}
+
+function publicationWarnings(draft: JdDraft) {
+  const fields: Array<[string, string]> = [
+    ["工作地点", draft.location], ["薪资范围", draft.salaryRange], ["经验要求", draft.experienceLevel],
+    ["学历要求", draft.education], ["岗位职责", draft.responsibilities], ["任职要求", draft.requirements],
+    ["关键技能", draft.skills], ["加分项", draft.niceToHaves], ["福利待遇", draft.benefits],
+  ];
+  return fields.filter(([, value]) => !value.trim() || value.includes("待确认")).map(([label]) => `${label}待确认，请补全后发布`);
 }
 
 function WorkflowSection({ title, description }: { title: string; description: string }) { return <div className="grid min-h-[520px] place-items-center text-center"><div className="max-w-md"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#eaf8f5] text-[#169b83]"><Sparkles size={26}/></span><h2 className="mb-0 mt-5 text-xl font-bold text-[#173568]">{title}</h2><p className="mt-3 text-sm leading-6 text-[#60799f]">{description}</p><p className="mt-5 text-xs text-[#7187a8]">该功能正在此工作台分区中展开；右侧 AI 助手会持续提供操作提示。</p></div></div>; }

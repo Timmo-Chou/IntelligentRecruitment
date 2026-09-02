@@ -49,8 +49,8 @@ function RecruitmentTaskMenu({ visible }: { visible: boolean }) {
   useEffect(() => { setPortalHost(typeof document !== "undefined" ? document.body : null); }, []);
   // 折叠状态：使用localStorage持久化用户偏好
   const [collapsed, setCollapsed] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("task-history-collapsed") === "true";
+    if (typeof window === "undefined" || typeof window.localStorage?.getItem !== "function") return false;
+    return window.localStorage.getItem("task-history-collapsed") === "true";
   });
   useEffect(() => {
     if (!visible || !workspaceId) return;
@@ -63,8 +63,8 @@ function RecruitmentTaskMenu({ visible }: { visible: boolean }) {
   const toggleCollapse = () => {
     const next = !collapsed;
     setCollapsed(next);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("task-history-collapsed", String(next));
+    if (typeof window !== "undefined" && typeof window.localStorage?.setItem === "function") {
+      window.localStorage.setItem("task-history-collapsed", String(next));
     }
   };
   // 打开/关闭下拉菜单时，用fixed定位避免被父容器overflow裁切

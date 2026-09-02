@@ -10,8 +10,12 @@ public enum FlowCapability {
     RESUME_PARSING("resume_parsing"),
     SCREENING_PLAN_GENERATION("screening_plan_generation"),
     CANDIDATE_SCREENING("candidate_screening"),
+    CANDIDATE_SOURCING("candidate_sourcing"),
+    JOB_DISTRIBUTION("job_distribution"),
+    CANDIDATE_OUTREACH("candidate_outreach"),
     INTERVIEW_KIT_GENERATION("interview_kit_generation"),
-    TASK_ASSISTANCE("task_assistance");
+    TASK_ASSISTANCE("task_assistance"),
+    RECRUITMENT_QA("recruitment_qa");
 
     private final String value;
 

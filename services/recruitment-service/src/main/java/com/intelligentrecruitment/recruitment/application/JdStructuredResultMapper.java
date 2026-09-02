@@ -20,7 +20,8 @@ public class JdStructuredResultMapper {
         Map<String, Object> data = result.data();
         return new JdDraftContent(required(data, "title"), required(data, "company_name"), text(data, "location"),
                 text(data, "experience_level"), text(data, "education"), defaulted(data, "job_type", "全职"),
-                required(data, "responsibilities"), required(data, "requirements"), required(data, "skills"),
+                text(data, "salary_range"), required(data, "responsibilities"), required(data, "requirements"),
+                required(data, "skills"), text(data, "nice_to_haves"), text(data, "benefits"),
                 required(data, "talent_profile"), strings(data.get("warnings")));
     }
 

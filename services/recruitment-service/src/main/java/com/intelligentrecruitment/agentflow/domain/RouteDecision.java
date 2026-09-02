@@ -12,6 +12,8 @@ public record RouteDecision(
         @JsonProperty("decision_id") UUID decisionId,
         Kind kind,
         FlowCapability capability,
+        @JsonProperty("secondary_intent") String secondaryIntent,
+        Operation operation,
         double confidence,
         @JsonProperty("requires_policy_check") boolean requiresPolicyCheck,
         @JsonProperty("missing_inputs") List<String> missingInputs,
@@ -19,6 +21,24 @@ public record RouteDecision(
         @JsonProperty("suggested_next_action") SuggestedNextAction suggestedNextAction,
         @JsonProperty("created_at") Instant createdAt
 ) {
+    /**
+     * A bounded verb describing what the user asked to do.  It is intentionally
+     * non-authoritative: business policy still decides whether the operation may
+     * execute, require a quote, or require explicit confirmation.
+     */
+    public enum Operation {
+        CREATE("create"), REVISE("revise"), CONTINUE("continue"), INSPECT("inspect"),
+        CONFIRM("confirm"), CANCEL("cancel"), RETRY("retry");
+
+        private final String value;
+        Operation(String value) { this.value = value; }
+        @JsonValue public String value() { return value; }
+        @JsonCreator public static Operation fromValue(String value) {
+            for (Operation operation : values()) if (operation.value.equals(value)) return operation;
+            throw new IllegalArgumentException("Unknown route operation: " + value);
+        }
+    }
+
     public enum Kind {
         ROUTE("route"), CLARIFY("clarify"), INFORM("inform"), UNSUPPORTED("unsupported");
         private final String value;

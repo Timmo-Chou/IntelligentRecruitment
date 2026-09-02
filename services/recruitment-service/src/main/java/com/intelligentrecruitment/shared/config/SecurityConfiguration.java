@@ -36,6 +36,7 @@ public class SecurityConfiguration {
                         .requestMatchers("/actuator/health/**", "/api/v1/system/**", "/api/v1/internal/foundation/**",
                                 "/api/v1/auth/challenges", "/api/v1/auth/verify", "/api/v1/auth/password-login",
                                 "/api/v1/auth/refresh", "/api/v1/auth/password-reset",
+                                "/api/v1/pricing",        // 用户端公开价格
                                 "/api/v1/platform/**")   // 平台管理端接口由 PlatformAdminFilter 独立鉴权
                         .permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()

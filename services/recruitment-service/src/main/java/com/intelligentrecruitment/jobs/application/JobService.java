@@ -82,12 +82,12 @@ public class JobService {
         JobInput clean = clean(input);
         jdbc.update("""
                 INSERT INTO jobs
-                (id,company_id,workspace_id,title,company_name,location,description,requirements,skills,
-                 experience_level,education,job_type,status,source,talent_profile,warnings,created_by,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'DRAFT','MANUAL','', '[]'::jsonb,?,?,?)
+                (id,company_id,workspace_id,title,company_name,location,salary_range,description,requirements,skills,
+                 experience_level,education,job_type,nice_to_haves,benefits,status,source,talent_profile,warnings,created_by,created_at,updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT','MANUAL','', '[]'::jsonb, ?, ?, ?)
                 """, jobId, scope.companyId(), workspaceId, clean.title(), clean.companyName(), clean.location(),
-                clean.description(), clean.requirements(), clean.skills(), clean.experienceLevel(), clean.education(),
-                clean.jobType(), userId, timestamp(now), timestamp(now));
+                clean.salaryRange(), clean.description(), clean.requirements(), clean.skills(), clean.experienceLevel(), clean.education(),
+                clean.jobType(), clean.niceToHaves(), clean.benefits(), userId, timestamp(now), timestamp(now));
         UUID versionId = saveSnapshot(scope, jobId, 1, clean, "手工创建职位", userId, now, null);
         jdbc.update("UPDATE jobs SET current_version_id=? WHERE id=?", versionId, jobId);
         audit(userId, scope, "JOB_CREATED", jobId);
@@ -98,24 +98,29 @@ public class JobService {
     public JobView createFromConfirmedJd(UUID userId, UUID workspaceId, UUID recruitmentTaskId, UUID jdDraftId, UUID sourceAiRunId,
                                          JobInput input, String talentProfile, String warningsJson) {
         WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        JobInput clean = clean(input);
+        String cleanProfile = optional(talentProfile, 10_000);
+        String safeWarnings = warningsJson == null || warningsJson.isBlank() ? "[]" : warningsJson;
         List<UUID> existing = jdbc.query("""
                 SELECT id FROM jobs WHERE jd_draft_id=? AND workspace_id=? AND status<>'ARCHIVED'
                 """, (rs, n) -> rs.getObject("id", UUID.class), jdDraftId, workspaceId);
-        if (!existing.isEmpty()) return update(userId, workspaceId, existing.getFirst(), input);
-        JobInput clean = clean(input);
+        if (!existing.isEmpty()) {
+            JobView updated = update(userId, workspaceId, existing.getFirst(), clean);
+            jdbc.update("UPDATE jobs SET talent_profile=?,warnings=?::jsonb,updated_at=? WHERE id=? AND workspace_id=?",
+                    cleanProfile, safeWarnings, timestamp(Instant.now()), updated.id(), workspaceId);
+            return getScoped(workspaceId, updated.id());
+        }
         UUID jobId = UUID.randomUUID();
         Instant now = Instant.now();
-        String cleanProfile = optional(talentProfile, 10_000);
-        String safeWarnings = warningsJson == null || warningsJson.isBlank() ? "[]" : warningsJson;
         jdbc.update("""
                 INSERT INTO jobs
-                (id,company_id,workspace_id,title,company_name,location,description,requirements,skills,
-                 experience_level,education,job_type,status,source,recruitment_task_id,jd_draft_id,talent_profile,warnings,
+                (id,company_id,workspace_id,title,company_name,location,salary_range,description,requirements,skills,
+                 experience_level,education,job_type,nice_to_haves,benefits,status,source,recruitment_task_id,jd_draft_id,talent_profile,warnings,
                  created_by,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?, 'ACTIVE','AI_GENERATED',?,?,?,?::jsonb,?,?,?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT','AI_GENERATED', ?, ?, ?, ?::jsonb, ?, ?, ?)
                 """, jobId, scope.companyId(), workspaceId, clean.title(), clean.companyName(), clean.location(),
-                clean.description(), clean.requirements(), clean.skills(), clean.experienceLevel(), clean.education(),
-                clean.jobType(), recruitmentTaskId, jdDraftId, cleanProfile, safeWarnings, userId, timestamp(now), timestamp(now));
+                clean.salaryRange(), clean.description(), clean.requirements(), clean.skills(), clean.experienceLevel(), clean.education(),
+                clean.jobType(), clean.niceToHaves(), clean.benefits(), recruitmentTaskId, jdDraftId, cleanProfile, safeWarnings, userId, timestamp(now), timestamp(now));
         ConfirmedJdSnapshot snapshot = new ConfirmedJdSnapshot(clean, cleanProfile, safeWarnings);
         UUID versionId = saveSnapshot(scope, jobId, 1, snapshot, "确认 AI JD 草稿", userId, now, sourceAiRunId);
         jdbc.update("UPDATE jobs SET current_version_id=? WHERE id=?", versionId, jobId);
@@ -130,11 +135,11 @@ public class JobService {
         JobInput clean = clean(input);
         Instant now = Instant.now();
         int updated = jdbc.update("""
-                UPDATE jobs SET title=?,company_name=?,location=?,description=?,requirements=?,skills=?,
-                  experience_level=?,education=?,job_type=?,lock_version=lock_version+1,updated_at=?
+                UPDATE jobs SET title=?,company_name=?,location=?,salary_range=?,description=?,requirements=?,skills=?,
+                  experience_level=?,education=?,job_type=?,nice_to_haves=?,benefits=?,lock_version=lock_version+1,updated_at=?
                 WHERE id=? AND workspace_id=? AND lock_version=? AND status<>'ARCHIVED'
-                """, clean.title(), clean.companyName(), clean.location(), clean.description(), clean.requirements(),
-                clean.skills(), clean.experienceLevel(), clean.education(), clean.jobType(), timestamp(now), jobId,
+                """, clean.title(), clean.companyName(), clean.location(), clean.salaryRange(), clean.description(), clean.requirements(),
+                clean.skills(), clean.experienceLevel(), clean.education(), clean.jobType(), clean.niceToHaves(), clean.benefits(), timestamp(now), jobId,
                 workspaceId, existing.lockVersion());
         if (updated == 0) {
             throw new ApiException("JOB_VERSION_CONFLICT", "职位已被其他成员修改，请刷新后重试", HttpStatus.CONFLICT);
@@ -158,6 +163,8 @@ public class JobService {
     public JobView updateStatus(UUID userId, UUID workspaceId, UUID jobId, String status) {
         WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         String normalized = normalizedStatus(status);
+        JobView existing = getScoped(workspaceId, jobId);
+        if ("ACTIVE".equals(normalized)) requireReadyForPublication(existing);
         int updated = jdbc.update("""
                 UPDATE jobs SET status=?,lock_version=lock_version+1,updated_at=?
                 WHERE id=? AND workspace_id=? AND status<>'ARCHIVED'
@@ -258,8 +265,8 @@ public class JobService {
 
     private static String jobSelect() {
         return """
-                SELECT id,company_id,workspace_id,title,company_name,location,description,requirements,skills,
-                       experience_level,education,job_type,status,source,current_version_id,lock_version,
+                SELECT id,company_id,workspace_id,title,company_name,location,salary_range,description,requirements,skills,
+                       experience_level,education,job_type,nice_to_haves,benefits,status,source,current_version_id,lock_version,
                        talent_profile,warnings::text,created_by,created_at,updated_at FROM jobs
                 """;
     }
@@ -267,9 +274,9 @@ public class JobService {
     private static JobView job(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new JobView(rs.getObject("id", UUID.class), rs.getObject("company_id", UUID.class),
                 rs.getObject("workspace_id", UUID.class), rs.getString("title"), rs.getString("company_name"),
-                rs.getString("location"), rs.getString("description"), rs.getString("requirements"),
+                rs.getString("location"), rs.getString("salary_range"), rs.getString("description"), rs.getString("requirements"),
                 rs.getString("skills"), rs.getString("experience_level"), rs.getString("education"),
-                rs.getString("job_type"), rs.getString("status"), rs.getString("source"),
+                rs.getString("job_type"), rs.getString("nice_to_haves"), rs.getString("benefits"), rs.getString("status"), rs.getString("source"),
                 rs.getObject("current_version_id", UUID.class), rs.getLong("lock_version"),
                 rs.getString("talent_profile"), rs.getString("warnings"), rs.getObject("created_by", UUID.class),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant());
@@ -278,10 +285,11 @@ public class JobService {
     private static JobInput clean(JobInput input) {
         if (input == null) throw new ApiException("VALIDATION_FAILED", "职位内容不能为空", HttpStatus.BAD_REQUEST);
         return new JobInput(required(input.title(), "职位名称不能为空", 200),
-                required(input.companyName(), "企业名称不能为空", 200), optional(input.location(), 200),
+                required(input.companyName(), "企业名称不能为空", 200), optional(input.location(), 200), optional(input.salaryRange(), 200),
                 optional(input.description(), 20_000), optional(input.requirements(), 20_000),
                 optional(input.skills(), 4_000), optional(input.experienceLevel(), 80),
-                optional(input.education(), 80), defaulted(input.jobType(), "全职", 50));
+                optional(input.education(), 80), defaulted(input.jobType(), "全职", 50),
+                optional(input.niceToHaves(), 10_000), optional(input.benefits(), 10_000));
     }
 
     private static String normalizedStatus(String status) {
@@ -290,6 +298,25 @@ public class JobService {
             throw new ApiException("INVALID_STATUS", "无效的职位状态", HttpStatus.BAD_REQUEST);
         }
         return value;
+    }
+
+    private static void requireReadyForPublication(JobView job) {
+        List<String> missing = new ArrayList<>();
+        if (unconfirmed(job.location())) missing.add("工作地点");
+        if (unconfirmed(job.salaryRange())) missing.add("薪资范围");
+        if (unconfirmed(job.description())) missing.add("岗位职责");
+        if (unconfirmed(job.requirements())) missing.add("任职要求");
+        if (unconfirmed(job.skills())) missing.add("关键技能");
+        if (!missing.isEmpty()) {
+            throw new ApiException("JOB_NOT_READY_TO_PUBLISH", "发布前请补全：" + String.join("、", missing), HttpStatus.CONFLICT);
+        }
+        if (job.warnings() != null && !job.warnings().isBlank() && !"[]".equals(job.warnings().trim())) {
+            throw new ApiException("JOB_NOT_READY_TO_PUBLISH", "发布前请处理职位待确认项", HttpStatus.CONFLICT);
+        }
+    }
+
+    private static boolean unconfirmed(String value) {
+        return value == null || value.isBlank() || value.contains("待确认");
     }
 
     private static List<UUID> safeIds(List<UUID> ids) {
@@ -331,14 +358,14 @@ public class JobService {
         return new ApiException("JOB_NOT_FOUND", "职位不存在", HttpStatus.NOT_FOUND);
     }
 
-    public record JobInput(String title, String companyName, String location, String description,
+    public record JobInput(String title, String companyName, String location, String salaryRange, String description,
                            String requirements, String skills, String experienceLevel,
-                           String education, String jobType) {
+                           String education, String jobType, String niceToHaves, String benefits) {
     }
 
     public record JobView(UUID id, UUID companyId, UUID workspaceId, String title, String companyName,
-                          String location, String description, String requirements, String skills,
-                          String experienceLevel, String education, String jobType, String status, String source,
+                          String location, String salaryRange, String description, String requirements, String skills,
+                          String experienceLevel, String education, String jobType, String niceToHaves, String benefits, String status, String source,
                           UUID currentVersionId, long lockVersion, String talentProfile, String warnings,
                           UUID createdBy, Instant createdAt, Instant updatedAt) {
     }

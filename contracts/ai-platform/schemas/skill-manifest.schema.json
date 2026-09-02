@@ -9,7 +9,7 @@
   "properties": {
     "skill_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,99}$" },
     "version": { "type": "string", "pattern": "^v[0-9]+(\\.[0-9]+){0,2}$" },
-    "capability": { "enum": ["requirement_chat", "jd_generation", "resume_parsing", "screening_plan_generation", "candidate_screening", "interview_kit_generation", "task_assistance"] },
+    "capability": { "enum": ["requirement_chat", "recruitment_qa", "jd_generation", "resume_parsing", "screening_plan_generation", "candidate_screening", "candidate_sourcing", "job_distribution", "candidate_outreach", "interview_kit_generation", "task_assistance"] },
     "status": { "enum": ["draft", "active", "deprecated", "disabled"] },
     "execution_mode": { "enum": ["sync", "stream", "async"] },
     "input_schema_ref": { "type": "string", "format": "uri-reference" },

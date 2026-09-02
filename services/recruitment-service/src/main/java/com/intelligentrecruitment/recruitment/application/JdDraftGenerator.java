@@ -30,8 +30,8 @@ public class JdDraftGenerator {
                 ? List.of("工作地点未明确，请确认后再发布", "薪资范围尚未提供")
                 : List.of("薪资范围尚未提供");
         return new JdDraftContent(title, fallback(input.companyName(), "企业名称待确认"), location,
-                experience, education, fallback(input.jobType(), "全职"), responsibilities, requirements,
-                skills, profile, warnings);
+                experience, education, fallback(input.jobType(), "全职"), "薪资待确认", responsibilities, requirements,
+                skills, "加分项待确认", "福利待遇待确认", profile, warnings);
     }
 
     private static String inferTitle(String requirement) {
@@ -59,7 +59,8 @@ public class JdDraftGenerator {
     }
 
     public record JdDraftContent(String title, String companyName, String location, String experienceLevel,
-                                 String education, String jobType, String responsibilities, String requirements,
-                                 String skills, String talentProfile, List<String> warnings) {
+                                 String education, String jobType, String salaryRange, String responsibilities, String requirements,
+                                 String skills, String niceToHaves, String benefits,
+                                 String talentProfile, List<String> warnings) {
     }
 }

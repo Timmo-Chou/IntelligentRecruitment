@@ -50,8 +50,8 @@ export function fetchScreeningPlans(workspaceId: string, recruitmentTaskId?: str
 export function createScreeningPlan(workspaceId: string, input: { jobId: string; name: string; dimensions: ScreeningDimension[]; recruitmentTaskId?: string }) {
   return apiFetch<ScreeningPlan>(`/workspaces/${workspaceId}/screening-plans`, { method: "POST", body: JSON.stringify(input) });
 }
-export function updateScreeningPlan(workspaceId: string, planId: string, dimensions: ScreeningDimension[]) {
-  return apiFetch<ScreeningPlan>(`/workspaces/${workspaceId}/screening-plans/${planId}`, { method: "PUT", body: JSON.stringify({ dimensions }) });
+export function updateScreeningPlan(workspaceId: string, planId: string, dimensions: ScreeningDimension[], jobId?: string) {
+  return apiFetch<ScreeningPlan>(`/workspaces/${workspaceId}/screening-plans/${planId}`, { method: "PUT", body: JSON.stringify({ dimensions, jobId }) });
 }
 export function fetchScreeningRuns(workspaceId: string, recruitmentTaskId?: string) {
   const query = recruitmentTaskId ? `?recruitmentTaskId=${encodeURIComponent(recruitmentTaskId)}` : "";

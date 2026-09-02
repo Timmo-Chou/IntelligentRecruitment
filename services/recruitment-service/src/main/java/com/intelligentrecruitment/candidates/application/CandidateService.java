@@ -120,7 +120,7 @@ public class CandidateService {
     public CandidateListResult list(UUID userId, UUID workspaceId, String search, String status, int page, int pageSize) {
         workspaceAccess.requireBusinessAccess(userId, workspaceId);
         int safePage = Math.max(1, page);
-        int safeSize = Math.min(100, Math.max(1, pageSize));
+        int safeSize = Math.min(200, Math.max(1, pageSize));
         List<Object> params = new ArrayList<>();
         params.add(workspaceId);
         StringBuilder where = new StringBuilder(" WHERE c.workspace_id=? AND c.status<>'DELETED'");

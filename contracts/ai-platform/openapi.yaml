@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AI Platform Contract for Intelligent Recruitment
-  version: 0.2.0
+  version: 0.3.0-draft
   description: >-
     Development contract used by the recruitment business service and its mock
     adapter. Partner review is required before v1.0.0.
@@ -31,13 +31,13 @@ paths:
                   minItems: 1
                   uniqueItems: true
                   items:
-                    enum: [requirement_chat, jd_generation, resume_parsing, screening_plan_generation, candidate_screening, interview_kit_generation, task_assistance]
+                    enum: [requirement_chat, recruitment_qa, jd_generation, resume_parsing, screening_plan_generation, candidate_screening, candidate_sourcing, job_distribution, candidate_outreach, interview_kit_generation, task_assistance]
       responses:
         "200":
           description: Routing recommendation
           content:
             application/json:
-              schema: { $ref: "./schemas/route-decision.schema.json" }
+              schema: { $ref: "./schemas/route-decision-v2.schema.json" }
         default: { $ref: "#/components/responses/Error" }
   /capability-executions:
     post:

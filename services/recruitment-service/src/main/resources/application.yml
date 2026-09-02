@@ -63,14 +63,15 @@ app:
     # JD 草稿默认必须由临时 AI Platform 的模型生成；Mock 仅允许显式用于测试。
     mode: ${AI_PLATFORM_MODE:deepseek}
     deepseek:
-      # 当前本地 JD 功能已获用户授权使用临时模型；生产环境必须显式改为 false 或单独审批。
+      # 外部模型处理默认关闭；仅在经数据处理审批的环境显式开启。
       base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
       api-key: ${DEEPSEEK_API_KEY:}
       model: ${DEEPSEEK_MODEL:deepseek-v4-flash}
-      allow-external-data: ${DEEPSEEK_ALLOW_EXTERNAL_DATA:true}
+      allow-external-data: ${DEEPSEEK_ALLOW_EXTERNAL_DATA:false}
       jd-prompt-resource: ${DEEPSEEK_JD_PROMPT_RESOURCE:classpath:prompts/jd-generation-v1.txt}
       conversation-prompt-resource: ${DEEPSEEK_CONVERSATION_PROMPT_RESOURCE:classpath:prompts/recruitment-conversation-v1.txt}
       jd-in-place-revision-prompt-resource: ${DEEPSEEK_JD_IN_PLACE_REVISION_PROMPT_RESOURCE:classpath:prompts/jd-in-place-revision-v1.txt}
+      candidate-screening-prompt-resource: ${DEEPSEEK_CANDIDATE_SCREENING_PROMPT_RESOURCE:classpath:prompts/candidate-screening-v1.txt}
   ai-assistant:
     # AI咨询助手配置
     use-llm: ${AI_ASSISTANT_USE_LLM:true}
@@ -94,7 +95,7 @@ app:
     outbox-lease-seconds: ${SCREENING_OUTBOX_LEASE_SECONDS:300}
     worker-enabled: ${SCREENING_WORKER_ENABLED:true}
     worker-poll-delay-ms: ${SCREENING_WORKER_POLL_DELAY_MS:250}
-    worker-item-delay-ms: ${SCREENING_WORKER_ITEM_DELAY_MS:0}
+    screening-max-in-flight-per-run: ${SCREENING_MAX_IN_FLIGHT_PER_RUN:3}
   storage:
     endpoint: ${S3_ENDPOINT:http://localhost:9000}
     access-key: ${S3_ACCESS_KEY:recruitment}

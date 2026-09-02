@@ -7,6 +7,8 @@ export type TaskSummary = {
   title: string;
   status: string;
   currentStage: string;
+  featureType: string | null;
+  linkedJobId: string | null;
   jobId: string | null;
   jobTitle: string | null;
   createdBy: string;
@@ -33,9 +35,12 @@ export type JdDraft = {
   experienceLevel: string;
   education: string;
   jobType: string;
+  salaryRange: string;
   responsibilities: string;
   requirements: string;
   skills: string;
+  niceToHaves: string;
+  benefits: string;
   talentProfile: string;
   warnings: string[];
   status: "DRAFT" | "CONFIRMED";
@@ -57,6 +62,22 @@ export type AiRun = {
   completedAt: string | null;
 };
 
+export type ResumeSourceFile = { id: string; fileAssetId: string; filename: string; mediaType: string; sizeBytes: number; createdAt: string; downloadUrl?: string };
+
+export type ResumeSourceDownload = { url: string; expiresAt: string; expiresMinutes: number };
+
+export type ResumeParseDraft = {
+  id: string;
+  revision: number;
+  sourceAiRunId: string | null;
+  resumeSourceFileId: string | null;
+  content: string;
+  status: "DRAFT" | "CONFIRMED";
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type TaskDetail = {
   task: TaskSummary;
   conversationId: string;
@@ -64,6 +85,9 @@ export type TaskDetail = {
   jdDraft: JdDraft | null;
   jdDrafts: JdDraft[];
   latestAiRun: AiRun | null;
+  resumeSourceFiles: ResumeSourceFile[];
+  resumeParseDrafts: ResumeParseDraft[];
+  resumeParseDraft: ResumeParseDraft | null;
 };
 
 export type GenerateJdInput = {
@@ -78,6 +102,8 @@ export type GenerateJdInput = {
   scenario?: "NORMAL" | "TIMEOUT" | "INVALID_SCHEMA";
 };
 
+export type JdSourceFile = { id: string; fileAssetId: string; filename: string; mediaType: string; sizeBytes: number; createdAt: string };
+
 function idempotencyKey(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
 }
@@ -90,11 +116,11 @@ export function fetchTask(workspaceId: string, taskId: string) {
   return apiFetch<TaskDetail>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}`);
 }
 
-export function createTask(workspaceId: string, title: string, initialRequirement: string) {
+export function createTask(workspaceId: string, title: string, initialRequirement: string, extra?: { featureType?: string | null; linkedJobId?: string | null }) {
   return apiFetch<TaskDetail>(`/workspaces/${workspaceId}/recruitment-tasks`, {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey("task") },
-    body: JSON.stringify({ title, initialRequirement }),
+    body: JSON.stringify({ title, initialRequirement, featureType: extra?.featureType ?? null, linkedJobId: extra?.linkedJobId ?? null }),
   });
 }
 
@@ -122,6 +148,48 @@ export function generateJd(workspaceId: string, taskId: string, input: GenerateJ
     headers: { "Idempotency-Key": idempotencyKey("jd") },
     body: JSON.stringify({ ...input, scenario: input.scenario ?? "NORMAL" }),
   });
+}
+
+export function uploadJdSourceFile(workspaceId: string, taskId: string, file: File) {
+  const body = new FormData();
+  body.append("file", file);
+  return apiFetch<JdSourceFile>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/jd-source-files`, {
+    method: "POST", body,
+  });
+}
+
+export function uploadResumeSourceFile(workspaceId: string, taskId: string, file: File) {
+  const body = new FormData();
+  body.append("file", file);
+  return apiFetch<ResumeSourceFile>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/resume-source-files`, {
+    method: "POST", body,
+  });
+}
+
+export function updateResumeParseDraft(workspaceId: string, taskId: string, input: { revision: number; content: string }) {
+  return apiFetch<TaskDetail>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/resume-parse-draft`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * 触发一次 AI 简历解析 run。requirement 可空（空时走 Mock/LLM 兜底默认解析）。
+ * 结果会异步写入 resume_parse_drafts 最新 revision，前端通过 TaskDetail.latestAiRun.progress 或 events SSE 跟踪进度。
+ */
+export function generateResumeParse(workspaceId: string, taskId: string, requirement?: string | null) {
+  return apiFetch<TaskDetail>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/resume-parse-runs`, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey("resume-parse") },
+    body: requirement == null || requirement.trim() === "" ? undefined : JSON.stringify({ requirement }),
+  });
+}
+
+/**
+ * 获取单个简历源文件的 10 分钟预签名下载/预览 URL。直接 window.open(data.url) 打开预览。
+ */
+export function getResumeSourceFileDownload(workspaceId: string, taskId: string, sourceFileId: string) {
+  return apiFetch<ResumeSourceDownload>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/resume-source-files/${sourceFileId}/download`);
 }
 
 export function updateJdDraft(workspaceId: string, taskId: string, draft: JdDraft) {

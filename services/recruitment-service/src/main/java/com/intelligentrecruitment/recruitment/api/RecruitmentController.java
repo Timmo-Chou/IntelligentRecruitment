@@ -14,13 +14,18 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+import org.springframework.http.MediaType;
+import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.servlet.http.HttpServletResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -78,6 +83,20 @@ public class RecruitmentController {
         return recruitment.routeMessage(CurrentUser.id(authentication), workspaceId, taskId, input);
     }
 
+    @PostMapping(value = "/{taskId}/jd-source-files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    RecruitmentService.SourceFileView uploadJdSourceFile(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
+                                                         @RequestPart("file") MultipartFile file,
+                                                         Authentication authentication) {
+        return recruitment.uploadJdSourceFile(CurrentUser.id(authentication), workspaceId, taskId, file);
+    }
+
+    @PostMapping(value = "/{taskId}/resume-source-files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    RecruitmentService.SourceFileView uploadResumeSourceFile(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
+                                                             @RequestPart("file") MultipartFile file,
+                                                             Authentication authentication) {
+        return recruitment.uploadResumeSourceFile(CurrentUser.id(authentication), workspaceId, taskId, file);
+    }
+
     @PostMapping("/{taskId}/jd-runs")
     RecruitmentService.TaskDetail generate(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
                                            @RequestHeader("Idempotency-Key") String idempotencyKey,
@@ -123,6 +142,43 @@ public class RecruitmentController {
                                               @RequestBody RecruitmentService.UpdateDraftInput input,
                                               Authentication authentication) {
         return recruitment.updateDraft(CurrentUser.id(authentication), workspaceId, taskId, input);
+    }
+
+    @PutMapping("/{taskId}/resume-parse-draft")
+    RecruitmentService.TaskDetail updateResumeParseDraft(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
+                                                         @RequestBody RecruitmentService.UpdateResumeParseDraftInput input,
+                                                         Authentication authentication) {
+        return recruitment.updateResumeParseDraft(CurrentUser.id(authentication), workspaceId, taskId, input);
+    }
+
+    /**
+     * 触发一次 AI 简历解析 run。幂等键相同且 payload hash 一致时直接返回现有任务详情。
+     * 解析完成后结果自动写入 resume_parse_drafts 新 revision。
+     */
+    @PostMapping("/{taskId}/resume-parse-runs")
+    RecruitmentService.TaskDetail generateResumeParse(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
+                                                      @RequestHeader("Idempotency-Key") String idempotencyKey,
+                                                      @RequestBody(required = false) RecruitmentService.GenerateResumeParseInput input,
+                                                      Authentication authentication) {
+        return recruitment.generateResumeParse(CurrentUser.id(authentication), workspaceId, taskId, idempotencyKey, input);
+    }
+
+    /**
+     * 获取单个简历源文件的预签名下载/预览 URL（10 分钟有效）。
+     * 前端直接 window.open(url) 即可在新标签页预览 PDF/DOCX/TXT。
+     */
+    @GetMapping("/{taskId}/resume-source-files/{sourceFileId}/download")
+    Map<String, Object> getResumeSourceFileDownload(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
+                                                    @PathVariable UUID sourceFileId,
+                                                    Authentication authentication) {
+        UUID userId = CurrentUser.id(authentication);
+        String url = recruitment.downloadResumeSourceFileUrl(userId, workspaceId, sourceFileId);
+        long expiresMinutes = 10L;
+        return Map.of(
+                "url", url == null ? "" : url,
+                "expiresAt", Instant.now().plusSeconds(expiresMinutes * 60L).toString(),
+                "expiresMinutes", expiresMinutes
+        );
     }
 
     @PostMapping("/{taskId}/jd-draft/confirm")

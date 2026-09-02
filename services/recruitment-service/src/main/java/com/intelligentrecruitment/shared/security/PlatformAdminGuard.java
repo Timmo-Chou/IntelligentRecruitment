@@ -29,14 +29,17 @@ public class PlatformAdminGuard {
             "admin:manage", "menu:manage", "user:read", "user:write",
             "company:read", "company:write", "verification:review",
             "membership:review", "ticket:read", "ticket:write",
-            "billing:read", "billing:adjust"
+            "billing:read", "billing:adjust",
+            "pricing:read", "pricing:write"
     );
 
     // 平台运营权限
     private static final Set<String> OPERATOR_PERMISSIONS = Set.of(
             "user:read", "user:write", "company:read", "company:write",
             "verification:review", "membership:review",
-            "ticket:read", "ticket:write", "billing:read", "billing:adjust"
+            "ticket:read", "ticket:write",
+            "billing:read", "billing:adjust",
+            "pricing:read"
     );
 
     public PlatformAdminGuard(@Value("${app.platform-admin-key}") String configuredKey, JdbcTemplate jdbc) {

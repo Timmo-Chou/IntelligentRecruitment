@@ -10,12 +10,15 @@ export type Job = {
   title: string;
   companyName: string;
   location: string;
+  salaryRange: string;
   description: string;
   requirements: string;
   skills: string;
   experienceLevel: string;
   education: string;
   jobType: string;
+  niceToHaves: string;
+  benefits: string;
   status: JobStatus;
   source?: string;
   createdBy: string;
@@ -27,12 +30,15 @@ export type JobInput = {
   title: string;
   companyName: string;
   location: string;
+  salaryRange: string;
   description: string;
   requirements: string;
   skills: string;
   experienceLevel: string;
   education: string;
   jobType: string;
+  niceToHaves: string;
+  benefits: string;
 };
 
 export type JobStats = {

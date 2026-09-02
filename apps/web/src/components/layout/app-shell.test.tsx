@@ -12,7 +12,7 @@ vi.mock("next/navigation", () => ({
 describe("AppShell", () => {
   it("renders the enterprise recruitment navigation", () => {
     render(<AppShell><div>content</div></AppShell>);
-    expect(screen.getByText("AI招聘工作台")).toBeInTheDocument();
+    expect(screen.getByText(/智能招聘工作台/)).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "主导航" })).toBeInTheDocument();
     expect(screen.getByText("智能招聘")).toBeInTheDocument();
     expect(screen.queryByText("JD生成")).not.toBeInTheDocument();

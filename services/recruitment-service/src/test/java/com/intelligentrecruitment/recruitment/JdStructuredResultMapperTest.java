@@ -22,11 +22,16 @@ class JdStructuredResultMapperTest {
                 Map.entry("title", "Java 工程师"), Map.entry("company_name", "示例科技"),
                 Map.entry("location", "上海"), Map.entry("experience_level", "3 年以上"),
                 Map.entry("education", "本科"), Map.entry("job_type", "全职"),
+                Map.entry("salary_range", "25K-35K·14薪"),
                 Map.entry("responsibilities", "负责服务端开发"), Map.entry("requirements", "熟悉 Java"),
-                Map.entry("skills", "Java、Spring Boot"), Map.entry("talent_profile", "有服务端经验"),
+                Map.entry("skills", "Java、Spring Boot"), Map.entry("nice_to_haves", "有云原生经验"),
+                Map.entry("benefits", "五险一金"), Map.entry("talent_profile", "有服务端经验"),
                 Map.entry("warnings", List.of("请确认薪资")))));
 
         assertThat(draft.title()).isEqualTo("Java 工程师");
+        assertThat(draft.salaryRange()).isEqualTo("25K-35K·14薪");
+        assertThat(draft.niceToHaves()).isEqualTo("有云原生经验");
+        assertThat(draft.benefits()).isEqualTo("五险一金");
         assertThat(draft.warnings()).containsExactly("请确认薪资");
     }
 

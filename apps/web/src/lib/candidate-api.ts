@@ -15,8 +15,8 @@ export type CandidateDetail = CandidateSummary & {
 export type CandidateListResult = { items: CandidateSummary[]; total: number; page: number; pageSize: number };
 export type RevealedPii = { fullName: string; email: string; phone: string };
 
-export function fetchCandidates(workspaceId: string, search = "", status = "") {
-  const query = new URLSearchParams({ page: "1", pageSize: "100" });
+export function fetchCandidates(workspaceId: string, search = "", status = "", pageSize = 100) {
+  const query = new URLSearchParams({ page: "1", pageSize: String(pageSize) });
   if (search) query.set("search", search);
   if (status) query.set("status", status);
   return apiFetch<CandidateListResult>(`/workspaces/${workspaceId}/candidates?${query}`);

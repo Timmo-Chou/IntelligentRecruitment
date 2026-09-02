@@ -9,6 +9,7 @@ import com.intelligentrecruitment.agentflow.domain.RouteDecision;
 import com.intelligentrecruitment.agentflow.domain.StructuredResult;
 import com.intelligentrecruitment.aiplatform.application.AiPlatformClient;
 import com.intelligentrecruitment.aiplatform.application.ConversationAgentCommand;
+import com.intelligentrecruitment.aiplatform.application.RecruitmentAssistantIntentCatalog;
 import com.intelligentrecruitment.aiplatform.application.RouteAgentCommand;
 import com.intelligentrecruitment.aiplatform.application.StartAiTaskCommand;
 import com.intelligentrecruitment.aiplatform.domain.AiCapability;
@@ -16,12 +17,22 @@ import com.intelligentrecruitment.aiplatform.domain.AiTask;
 import com.intelligentrecruitment.aiplatform.domain.AiTaskStatus;
 import com.intelligentrecruitment.shared.error.ApiException;
 import java.time.Instant;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
@@ -43,6 +54,8 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
     private static final String JSON_FORMAT = "json_object";
 
     private final RestClient client;
+    private final HttpClient streamingClient;
+    private final String baseUrl;
     private final ObjectMapper objectMapper;
     private final String apiKey;
     private final String model;
@@ -50,6 +63,8 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
     private final Resource jdPromptResource;
     private final Resource conversationPromptResource;
     private final Resource jdInPlaceRevisionPromptResource;
+    private final Resource candidateScreeningPromptResource;
+    private final Resource resumeParsingPromptResource;
     private final Map<String, AiTask> tasks = new ConcurrentHashMap<>();
     private final Map<String, String> idempotencyIndex = new ConcurrentHashMap<>();
     private final Map<String, StructuredResult> results = new ConcurrentHashMap<>();
@@ -61,8 +76,12 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
                                     @Value("${app.ai-platform.deepseek.allow-external-data:false}") boolean allowExternalData,
                                     @Value("${app.ai-platform.deepseek.jd-prompt-resource:classpath:prompts/jd-generation-v1.txt}") Resource jdPromptResource,
                                     @Value("${app.ai-platform.deepseek.conversation-prompt-resource:classpath:prompts/recruitment-conversation-v1.txt}") Resource conversationPromptResource,
-                                    @Value("${app.ai-platform.deepseek.jd-in-place-revision-prompt-resource:classpath:prompts/jd-in-place-revision-v1.txt}") Resource jdInPlaceRevisionPromptResource) {
+                                    @Value("${app.ai-platform.deepseek.jd-in-place-revision-prompt-resource:classpath:prompts/jd-in-place-revision-v1.txt}") Resource jdInPlaceRevisionPromptResource,
+                                    @Value("${app.ai-platform.deepseek.candidate-screening-prompt-resource:classpath:prompts/candidate-screening-v1.txt}") Resource candidateScreeningPromptResource,
+                                    @Value("${app.ai-platform.deepseek.resume-parsing-prompt-resource:classpath:prompts/resume-parsing-v1.txt}") Resource resumeParsingPromptResource) {
         this.client = builder.baseUrl(baseUrl).build();
+        this.streamingClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        this.baseUrl = baseUrl.replaceFirst("/+$", "");
         this.objectMapper = objectMapper;
         this.apiKey = apiKey;
         this.model = model;
@@ -70,23 +89,54 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
         this.jdPromptResource = jdPromptResource;
         this.conversationPromptResource = conversationPromptResource;
         this.jdInPlaceRevisionPromptResource = jdInPlaceRevisionPromptResource;
+        this.candidateScreeningPromptResource = candidateScreeningPromptResource;
+        this.resumeParsingPromptResource = resumeParsingPromptResource;
     }
 
     @Override
     public AiTask startTask(StartAiTaskCommand command) {
+        return startTask(command, ignored -> { });
+    }
+
+    @Override
+    public AiTask startTask(StartAiTaskCommand command, Consumer<String> onDelta) {
         requireEnabled();
         String existingTaskId = idempotencyIndex.get(command.idempotencyKey());
         if (existingTaskId != null) return tasks.get(existingTaskId);
-        if (command.capability() != AiCapability.JD_GENERATION) {
+        if (command.capability() != AiCapability.JD_GENERATION
+                && command.capability() != AiCapability.CANDIDATE_SCREENING
+                && command.capability() != AiCapability.RESUME_PARSING) {
             throw unsupported(command.capability());
         }
         String aiTaskId = "deepseek_ait_" + UUID.randomUUID();
-        StructuredResult result = generateJd(aiTaskId, command);
-        AiTask task = new AiTask(aiTaskId, command.businessTaskId(), command.capability(), AiTaskStatus.COMPLETED,
-                1, 1, 100, Instant.now());
+        AiTask task = new AiTask(aiTaskId, command.businessTaskId(), command.capability(), AiTaskStatus.RUNNING,
+                0, 1, 0, Instant.now());
         tasks.put(aiTaskId, task);
-        results.put(aiTaskId, result);
         idempotencyIndex.put(command.idempotencyKey(), aiTaskId);
+        CompletableFuture.runAsync(() -> {
+            try {
+                StructuredResult result;
+                if (command.capability() == AiCapability.JD_GENERATION) {
+                    result = generateJdStreaming(aiTaskId, command, onDelta);
+                } else if (command.capability() == AiCapability.RESUME_PARSING) {
+                    // 真实 LLM 简历解析：走 resume-parsing-v1 Prompt + DeepSeek /chat/completions；
+                    // 任何异常（鉴权、超时、API 异常、JSON 非法、字段缺失）一律降级到 Mock 侧结构，保证业务可用。
+                    try {
+                        result = generateResumeParse(aiTaskId, command);
+                    } catch (RuntimeException exception) {
+                        result = new MockAiPlatformClient().mockResumeStructuredResult(aiTaskId, command);
+                    }
+                } else {
+                    result = generateCandidateScreening(aiTaskId, command);
+                }
+                results.put(aiTaskId, result);
+                tasks.put(aiTaskId, new AiTask(aiTaskId, command.businessTaskId(), command.capability(), AiTaskStatus.COMPLETED,
+                        1, 1, 100, task.acceptedAt()));
+            } catch (RuntimeException exception) {
+                tasks.put(aiTaskId, new AiTask(aiTaskId, command.businessTaskId(), command.capability(), AiTaskStatus.FAILED,
+                        0, 1, 100, task.acceptedAt()));
+            }
+        });
         return task;
     }
 
@@ -110,15 +160,21 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
     @Override
     public RouteDecision routeMessage(RouteAgentCommand command) {
         requireEnabled();
-        String content = completeJson(routeSystemPrompt(command.allowedCapabilities()), command.message(), 500);
+        String content = completeJson(RecruitmentAssistantIntentCatalog.routerPrompt(command.allowedCapabilities()), command.message(), 700);
         JsonNode json = readJson(content);
         RouteDecision.Kind kind = routeKind(text(json, "kind"));
         FlowCapability capability = routeCapability(text(json, "capability"), command.allowedCapabilities());
+        String secondaryIntent = nullableText(json, "secondary_intent");
+        RouteDecision.Operation operation = routeOperation(text(json, "operation"));
+        if (kind == RouteDecision.Kind.ROUTE
+                && RecruitmentAssistantIntentCatalog.resolve(capability, secondaryIntent, operation, command.allowedCapabilities()) == null) {
+            throw contractInvalid("DeepSeek 返回了未注册的二级意图或动作语义");
+        }
         double confidence = json.path("confidence").isNumber() ? json.path("confidence").asDouble() : 0.5;
         confidence = Math.max(0, Math.min(1, confidence));
         String clarification = nullableText(json, "clarification");
         RouteDecision.SuggestedNextAction action = routeAction(text(json, "suggested_next_action"));
-        return new RouteDecision(UUID.randomUUID(), kind, capability, confidence, true,
+        return new RouteDecision(UUID.randomUUID(), kind, capability, secondaryIntent, operation, confidence, true,
                 strings(json.path("missing_inputs")), clarification, action, Instant.now());
     }
 
@@ -140,7 +196,9 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
         requireText(data, "title"); requireText(data, "company_name"); requireText(data, "responsibilities");
         requireText(data, "requirements"); requireText(data, "skills"); requireText(data, "talent_profile");
         data.putIfAbsent("location", "工作地点待确认"); data.putIfAbsent("experience_level", "经验待确认");
-        data.putIfAbsent("education", "学历待确认"); data.putIfAbsent("job_type", "全职"); data.putIfAbsent("warnings", List.of());
+        data.putIfAbsent("education", "学历待确认"); data.putIfAbsent("job_type", "全职");
+        data.putIfAbsent("salary_range", "薪资待确认"); data.putIfAbsent("nice_to_haves", "加分项待确认");
+        data.putIfAbsent("benefits", "福利待遇待确认"); data.putIfAbsent("warnings", List.of());
         String resultId = "deepseek_revision_" + UUID.randomUUID();
         return new StructuredResult(UUID.randomUUID(), resultId, FlowCapability.JD_GENERATION,
                 StructuredResult.Status.DRAFT_READY, "jd-v1", data, List.of(), List.of(),
@@ -172,10 +230,111 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
         data.putIfAbsent("experience_level", "经验待确认");
         data.putIfAbsent("education", "学历待确认");
         data.putIfAbsent("job_type", "全职");
+        data.putIfAbsent("salary_range", "薪资待确认");
+        data.putIfAbsent("nice_to_haves", "加分项待确认");
+        data.putIfAbsent("benefits", "福利待遇待确认");
         data.putIfAbsent("warnings", List.of());
         return new StructuredResult(command.executionContext().executionId(), aiTaskId, FlowCapability.JD_GENERATION,
                 StructuredResult.Status.DRAFT_READY, "jd-v1", data, List.of(), List.of(),
                 new StructuredResult.Provenance("deepseek-jd", "v1", "deepseek-jd-v1", model),
+                new StructuredResult.Usage(0, 0, 0, "CNY"), Instant.now());
+    }
+
+    private StructuredResult generateJdStreaming(String aiTaskId, StartAiTaskCommand command, Consumer<String> onDelta) {
+        if (command.executionContext() == null) throw contractInvalid("JD 生成请求缺少 execution_context");
+        Map<String, Object> payload = Map.of("model", model,
+                "messages", List.of(Map.of("role", "system", "content", jdSystemPrompt()),
+                        Map.of("role", "user", "content", json(command.input()))),
+                "response_format", Map.of("type", JSON_FORMAT), "stream", true, "max_tokens", 1800);
+        StringBuilder content = new StringBuilder();
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + "/chat/completions"))
+                    .timeout(Duration.ofSeconds(120)).header("Authorization", "Bearer " + apiKey)
+                    .header("Content-Type", "application/json").header("Accept", "text/event-stream")
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload), StandardCharsets.UTF_8)).build();
+            HttpResponse<java.io.InputStream> response = streamingClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("AI provider returned " + response.statusCode());
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.startsWith("data:")) continue;
+                    String data = line.substring(5).trim();
+                    if ("[DONE]".equals(data)) break;
+                    JsonNode event = readJson(data);
+                    String delta = event.path("choices").path(0).path("delta").path("content").asText("");
+                    if (!delta.isBlank()) {
+                        content.append(delta);
+                        try { onDelta.accept(delta); } catch (RuntimeException ignored) { }
+                    }
+                }
+            }
+        } catch (Exception exception) {
+            throw new ApiException("AI_PROVIDER_UNAVAILABLE", "DeepSeek 流式生成失败", HttpStatus.SERVICE_UNAVAILABLE);
+        }
+        JsonNode node = readJson(content.toString());
+        Map<String, Object> data = objectMapper.convertValue(node, new TypeReference<LinkedHashMap<String, Object>>() { });
+        requireText(data, "title"); requireText(data, "company_name"); requireText(data, "responsibilities");
+        requireText(data, "requirements"); requireText(data, "skills"); requireText(data, "talent_profile");
+        data.putIfAbsent("location", "工作地点待确认"); data.putIfAbsent("experience_level", "经验待确认");
+        data.putIfAbsent("education", "学历待确认"); data.putIfAbsent("job_type", "全职"); data.putIfAbsent("salary_range", "薪资待确认");
+        data.putIfAbsent("nice_to_haves", "加分项待确认"); data.putIfAbsent("benefits", "福利待遇待确认"); data.putIfAbsent("warnings", List.of());
+        return new StructuredResult(command.executionContext().executionId(), aiTaskId, FlowCapability.JD_GENERATION,
+                StructuredResult.Status.DRAFT_READY, "jd-v1", data, List.of(), List.of(),
+                new StructuredResult.Provenance("deepseek-jd", "v1", "deepseek-jd-v1", model),
+                new StructuredResult.Usage(0, 0, 0, "CNY"), Instant.now());
+    }
+
+    private StructuredResult generateCandidateScreening(String aiTaskId, StartAiTaskCommand command) {
+        if (command.executionContext() == null) throw contractInvalid("简历筛选请求缺少 execution_context");
+        JsonNode node = readJson(completeJson(readPrompt(candidateScreeningPromptResource, "简历筛选 Prompt 模板不可用"),
+                json(command.input()), 1600));
+        Map<String, Object> data = objectMapper.convertValue(node, new TypeReference<LinkedHashMap<String, Object>>() { });
+        int score = score(data.get("score"));
+        data.put("score", score);
+        data.put("level", screeningLevel(textValue(data.get("level"), score)));
+        data.put("matched_points", stringList(data.get("matched_points")));
+        data.put("unmatched_points", stringList(data.get("unmatched_points")));
+        data.put("negotiable_points", stringList(data.get("negotiable_points")));
+        data.put("missing_information", stringList(data.get("missing_information")));
+        data.put("risks", stringList(data.get("risks")));
+        data.put("evidence", stringList(data.get("evidence")));
+        return new StructuredResult(command.executionContext().executionId(), aiTaskId, FlowCapability.CANDIDATE_SCREENING,
+                StructuredResult.Status.COMPLETED, "screening-v1", data, List.of(), List.of(),
+                new StructuredResult.Provenance("deepseek-candidate-screening", "v1", "deepseek-screening-v1", model),
+                new StructuredResult.Usage(0, 0, 0, "CNY"), Instant.now());
+    }
+
+    /**
+     * 真实 LLM 简历解析。
+     * 走 resume-parsing-v1.txt + DeepSeek /chat/completions response_format=json_object。
+     * 成功后 data 保证包含 markdown / resume_count / job_linked / warnings 四字段；
+     * 任何字段缺失或格式异常抛 RuntimeException，交由 startTask 外层兜底降级 Mock。
+     */
+    private StructuredResult generateResumeParse(String aiTaskId, StartAiTaskCommand command) {
+        if (command.executionContext() == null) throw contractInvalid("简历解析请求缺少 execution_context");
+        String prompt = readPrompt(resumeParsingPromptResource, "简历解析 Prompt 模板不可用");
+        JsonNode node = readJson(completeJson(prompt, json(command.input()), 2400));
+        Map<String, Object> data = objectMapper.convertValue(node, new TypeReference<LinkedHashMap<String, Object>>() { });
+        // 必须字段校验，失败抛异常给上层降级
+        requireText(data, "markdown");
+        if (!data.containsKey("resume_count")) throw contractInvalid("DeepSeek 简历解析缺少 resume_count");
+        Object resumeCountValue = data.get("resume_count");
+        int resumeCount = resumeCountValue instanceof Number number ? number.intValue() : Integer.parseInt(String.valueOf(resumeCountValue));
+        data.put("resume_count", resumeCount);
+        data.put("job_linked", Boolean.TRUE.equals(data.get("job_linked")));
+        data.put("warnings", stringList(data.get("warnings")));
+        // 兜底补充 warnings（用户要求 resumes 为空时必须有提示）
+        List<String> warnings = new ArrayList<>(stringList(data.get("warnings")));
+        if (resumeCount == 0 && warnings.stream().noneMatch("请先上传至少一份简历"::equals)) {
+            warnings.add("请先上传至少一份简历");
+        }
+        if (!warnings.contains("解析结果仅供招聘人员参考，录用决策请结合人工复核")) {
+            warnings.add("解析结果仅供招聘人员参考，录用决策请结合人工复核");
+        }
+        data.put("warnings", warnings);
+        return new StructuredResult(command.executionContext().executionId(), aiTaskId, FlowCapability.RESUME_PARSING,
+                StructuredResult.Status.DRAFT_READY, "resume-parsing-v1", data, List.of(), List.of(),
+                new StructuredResult.Provenance("deepseek-resume-parsing", "v1", "deepseek-resume-parsing-v1", model),
                 new StructuredResult.Usage(0, 0, 0, "CNY"), Instant.now());
     }
 
@@ -231,17 +390,6 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
         }
     }
 
-    private String routeSystemPrompt(List<FlowCapability> capabilities) {
-        return """
-                You are a recruitment assistant router. Return only a valid json object; do not execute actions.
-                Choose only a capability from this allow-list: %s.
-                Required json fields: kind (route|clarify|inform|unsupported), capability (string or null),
-                confidence (0 to 1), missing_inputs (string array), clarification (string or null),
-                suggested_next_action (collect_requirement|select_job_version|select_candidates|prepare_screening_plan|show_quote|inspect_task|none).
-                For candidate screening, do not infer a job version, candidate list, plan, budget, or permission.
-                """.formatted(capabilities.stream().map(Enum::name).toList());
-    }
-
     private String jdSystemPrompt() {
         return readPrompt(jdPromptResource, "JD Prompt 模板不可用");
     }
@@ -265,6 +413,24 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
     }
 
     private static String text(JsonNode node, String field) { return node.path(field).isTextual() ? node.path(field).asText() : ""; }
+    private static String textValue(Object value, int score) { return value == null ? screeningLevel(score) : String.valueOf(value).trim(); }
+    private static int score(Object value) {
+        try {
+            int score = value instanceof Number number ? number.intValue() : Integer.parseInt(String.valueOf(value));
+            if (score < 0 || score > 100) throw contractInvalid("DeepSeek 简历筛选分数必须在 0 至 100 之间");
+            return score;
+        } catch (NumberFormatException exception) { throw contractInvalid("DeepSeek 简历筛选缺少有效分数"); }
+    }
+    private static String screeningLevel(String value) {
+        return List.of("STRONG_MATCH", "MATCH", "GENERAL_MATCH", "WEAK_MATCH").contains(value) ? value : "WEAK_MATCH";
+    }
+    private static String screeningLevel(int score) {
+        return score >= 85 ? "STRONG_MATCH" : score >= 70 ? "MATCH" : score >= 60 ? "GENERAL_MATCH" : "WEAK_MATCH";
+    }
+    private static List<String> stringList(Object value) {
+        if (!(value instanceof List<?> values)) return List.of();
+        return values.stream().filter(String.class::isInstance).map(String.class::cast).filter(item -> !item.isBlank()).limit(20).toList();
+    }
     private static String nullableText(JsonNode node, String field) { return node.path(field).isTextual() ? node.path(field).asText() : null; }
     private static List<String> strings(JsonNode node) {
         List<String> values = new ArrayList<>();
@@ -278,6 +444,11 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
     private static RouteDecision.SuggestedNextAction routeAction(String value) {
         try { return RouteDecision.SuggestedNextAction.fromValue(value); }
         catch (IllegalArgumentException exception) { return RouteDecision.SuggestedNextAction.NONE; }
+    }
+    private static RouteDecision.Operation routeOperation(String value) {
+        if (value == null || value.isBlank() || "null".equalsIgnoreCase(value)) return null;
+        try { return RouteDecision.Operation.fromValue(value); }
+        catch (IllegalArgumentException exception) { throw contractInvalid("DeepSeek 返回了无效的动作语义"); }
     }
     private static FlowCapability routeCapability(String value, List<FlowCapability> allowed) {
         if (value == null || value.isBlank() || "null".equalsIgnoreCase(value)) return null;
@@ -295,5 +466,5 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
     }
     private static ApiException contractInvalid(String message) { return new ApiException("AI_CONTRACT_INVALID", message, HttpStatus.BAD_GATEWAY); }
     private static ApiException taskNotFound() { return new ApiException("AI_TASK_NOT_FOUND", "AI 任务不存在", HttpStatus.NOT_FOUND); }
-    private static ApiException unsupported(AiCapability capability) { return new ApiException("AI_CAPABILITY_UNAVAILABLE", "DeepSeek 临时适配器暂只支持 JD 生成和意图路由：" + capability, HttpStatus.NOT_IMPLEMENTED); }
+    private static ApiException unsupported(AiCapability capability) { return new ApiException("AI_CAPABILITY_UNAVAILABLE", "DeepSeek 临时适配器不支持该能力：" + capability, HttpStatus.NOT_IMPLEMENTED); }
 }

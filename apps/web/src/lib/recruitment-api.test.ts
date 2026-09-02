@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch, apiStream } from "@/lib/api-client";
-import { deleteTask, renameTask, streamJdRunEvents } from "@/lib/recruitment-api";
+import { deleteTask, renameTask, streamJdRunEvents, uploadJdSourceFile } from "@/lib/recruitment-api";
 
 vi.mock("@/lib/api-client", () => ({
   apiFetch: vi.fn(),
@@ -50,5 +50,21 @@ describe("task lifecycle requests", () => {
       method: "PUT", body: JSON.stringify({ title: "新名称" }),
     });
     expect(apiFetch).toHaveBeenNthCalledWith(2, "/workspaces/workspace-1/recruitment-tasks/task-1", { method: "DELETE" });
+  });
+});
+
+describe("JD source file requests", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("uploads source files to the scoped JD endpoint as multipart data", async () => {
+    vi.mocked(apiFetch).mockResolvedValue({ id: "source-1" } as never);
+    const file = new File(["岗位需求"], "requirements.txt", { type: "text/plain" });
+
+    await uploadJdSourceFile("workspace-1", "task-1", file);
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/workspaces/workspace-1/recruitment-tasks/task-1/jd-source-files",
+      expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
+    );
   });
 });
