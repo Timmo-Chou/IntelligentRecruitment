@@ -14,6 +14,7 @@ import com.intelligentrecruitment.aiplatform.application.StartAiTaskCommand;
 import com.intelligentrecruitment.aiplatform.domain.AiCapability;
 import com.intelligentrecruitment.billing.application.BillingService;
 import com.intelligentrecruitment.billing.application.PricingService;
+import com.intelligentrecruitment.candidates.application.PiiCipher;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
 import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService;
@@ -52,6 +53,7 @@ public class ScreeningService {
     private final RecruitmentFlowCoordinator flowCoordinator;
     private final AiPlatformClient aiPlatform;
     private final ScreeningMatcher matcher;
+    private final PiiCipher pii;
     /** 当 pricing_items 表没有启用项时的兜底默认值（分） */
     private final long defaultUnitPriceMinor;
     private final String pricingVersion;
@@ -64,7 +66,7 @@ public class ScreeningService {
 
     public ScreeningService(JdbcTemplate jdbc, ObjectMapper objectMapper, WorkspaceAccessService workspaceAccess,
                             BillingService billing, PricingService pricing, RecruitmentFlowCoordinator flowCoordinator,
-                            AiPlatformClient aiPlatform, ScreeningMatcher matcher,
+                            AiPlatformClient aiPlatform, ScreeningMatcher matcher, PiiCipher pii,
                             @Value("${app.phase5.screening-unit-price-minor:80}") long defaultUnitPriceMinor,
                             @Value("${app.phase5.pricing-version:SCREENING_MOCK_V1}") String pricingVersion,
                             @Value("${app.phase5.quote-ttl-seconds:300}") long quoteTtlSeconds,
@@ -78,6 +80,7 @@ public class ScreeningService {
         this.flowCoordinator = flowCoordinator;
         this.aiPlatform = aiPlatform;
         this.matcher = matcher;
+        this.pii = pii;
         this.defaultUnitPriceMinor = defaultUnitPriceMinor;
         this.pricingVersion = pricingVersion;
         this.quoteTtlSeconds = quoteTtlSeconds;
@@ -385,7 +388,7 @@ public class ScreeningService {
                 rs.getObject("candidate_id", UUID.class), rs.getObject("parse_version_id", UUID.class), rs.getString("status"), rs.getString("provider_task_id"),
                 rs.getString("headline"), rs.getInt("years_experience"), rs.getString("highest_education"),
                 strings(rs.getString("skills")), rs.getString("summary"), rs.getString("work_experience"),
-                rs.getString("raw_text")), runId, run.workspaceId());
+                pii.decryptIfEncrypted(rs.getString("raw_text"))), runId, run.workspaceId());
         if (items.isEmpty() && canStartAnother) {
             // All candidates have been submitted. Poll one outstanding AI task.
             items = jdbc.query("""
@@ -399,7 +402,7 @@ public class ScreeningService {
                     rs.getObject("candidate_id", UUID.class), rs.getObject("parse_version_id", UUID.class), rs.getString("status"), rs.getString("provider_task_id"),
                     rs.getString("headline"), rs.getInt("years_experience"), rs.getString("highest_education"),
                     strings(rs.getString("skills")), rs.getString("summary"), rs.getString("work_experience"),
-                    rs.getString("raw_text")), runId, run.workspaceId());
+                    pii.decryptIfEncrypted(rs.getString("raw_text"))), runId, run.workspaceId());
         }
         if (items.isEmpty()) return false;
         ItemExecutionRow item = items.getFirst();
@@ -619,14 +622,14 @@ public class ScreeningService {
                 rs.getTimestamp("completed_at").toInstant(), rs.getObject("recruitment_task_id", UUID.class)), runId, workspaceId);
         if (runs.isEmpty()) throw new ApiException("SCREENING_RUN_NOT_FOUND", "筛选任务不存在", HttpStatus.NOT_FOUND);
         List<ScreeningItemView> items = jdbc.query("""
-                SELECT i.id,i.candidate_id,c.display_name_masked,i.status,i.error_code,i.attempt_number,
+                SELECT i.id,i.candidate_id,c.full_name_ciphertext,i.status,i.error_code,i.attempt_number,
                        r.score,r.level,r.matched_points::text,r.unmatched_points::text,r.negotiable_points::text,
                        r.missing_information::text,r.risks::text,r.evidence::text
                 FROM screening_run_items i JOIN candidates c ON c.id=i.candidate_id
                 LEFT JOIN screening_results r ON r.run_item_id=i.id
                 WHERE i.run_id=? AND i.workspace_id=? ORDER BY r.score DESC NULLS LAST,c.display_name_masked
                 """, (rs, n) -> new ScreeningItemView(rs.getObject("id", UUID.class),
-                rs.getObject("candidate_id", UUID.class), rs.getString("display_name_masked"),
+                rs.getObject("candidate_id", UUID.class), pii.decrypt(rs.getString("full_name_ciphertext")),
                 rs.getString("status"), rs.getString("error_code"), rs.getInt("attempt_number"),
                 rs.getObject("score") == null ? null : rs.getInt("score"), rs.getString("level"),
                 strings(rs.getString("matched_points")), strings(rs.getString("unmatched_points")),
@@ -896,8 +899,8 @@ public class ScreeningService {
                  negotiable_points,missing_information,risks,evidence,result_snapshot,created_at)
                 VALUES (?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?)
                 """, UUID.randomUUID(), run.companyId(), run.workspaceId(), item.id(), result.score(), result.level(),
-                json(result.matched()), json(result.unmatched()), json(result.negotiable()), json(result.missing()),
-                json(result.risks()), json(result.evidence()), json(snapshot), timestamp(now));
+                protectedJson(result.matched()), protectedJson(result.unmatched()), protectedJson(result.negotiable()), protectedJson(result.missing()),
+                protectedJson(result.risks()), protectedJson(result.evidence()), protectedJson(snapshot), timestamp(now));
         jdbc.update("UPDATE screening_run_items SET status='SUCCEEDED',error_code=NULL,updated_at=? WHERE id=?",
                 timestamp(now), item.id());
     }
@@ -950,6 +953,10 @@ public class ScreeningService {
         catch (JsonProcessingException exception) { throw new ApiException("SERIALIZATION_FAILED", "筛选数据保存失败", HttpStatus.INTERNAL_SERVER_ERROR); }
     }
 
+    private String protectedJson(Object value) {
+        return json(Map.of("_encrypted", pii.encrypt(json(value))));
+    }
+
     private ExecutionContext executionContext(String value) {
         try { return objectMapper.readValue(value, ExecutionContext.class); }
         catch (JsonProcessingException exception) {
@@ -964,7 +971,11 @@ public class ScreeningService {
 
     private List<String> strings(String json) {
         if (json == null) return List.of();
-        try { return objectMapper.readValue(json, new TypeReference<>() {}); }
+        try {
+            JsonNode node = objectMapper.readTree(json);
+            String value = node.has("_encrypted") ? pii.decryptIfEncrypted(node.path("_encrypted").asText()) : json;
+            return objectMapper.readValue(value, new TypeReference<>() {});
+        }
         catch (JsonProcessingException exception) { return List.of(); }
     }
 

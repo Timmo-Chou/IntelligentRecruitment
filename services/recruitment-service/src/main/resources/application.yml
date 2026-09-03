@@ -59,6 +59,15 @@ app:
         connect-timeout-ms: ${ALIYUN_SMS_CONNECT_TIMEOUT_MS:2000}
         read-timeout-ms: ${ALIYUN_SMS_READ_TIMEOUT_MS:3000}
   platform-admin-key: ${PLATFORM_ADMIN_KEY:phase2-local-admin}
+  recharge:
+    credit-validity-days: ${RECHARGE_CREDIT_VALIDITY_DAYS:3650}
+    alipay:
+      gateway-url: ${ALIPAY_GATEWAY_URL:https://openapi.alipay.com/gateway.do}
+      app-id: ${ALIPAY_APP_ID:}
+      private-key: ${ALIPAY_PRIVATE_KEY:}
+      public-key: ${ALIPAY_PUBLIC_KEY:}
+      notify-url: ${ALIPAY_NOTIFY_URL:}
+      return-url: ${ALIPAY_RETURN_URL:}
   ai-platform:
     # JD 草稿默认必须由临时 AI Platform 的模型生成；Mock 仅允许显式用于测试。
     mode: ${AI_PLATFORM_MODE:deepseek}
@@ -102,5 +111,8 @@ app:
     secret-key: ${S3_SECRET_KEY:recruitment_local}
     bucket: ${S3_BUCKET:resume-files}
     max-file-size-bytes: ${RESUME_MAX_FILE_SIZE_BYTES:10485760}
+    # 生产环境设为 true，并在 MinIO/S3 侧启用 SSE-S3/KMS；本地开发可保持 false。
+    server-side-encryption: ${S3_SERVER_SIDE_ENCRYPTION:false}
   pii:
     encryption-key: ${PII_ENCRYPTION_KEY:phase4-local-pii-key-change-me}
+    reencrypt-on-startup: ${PII_REENCRYPT_ON_STARTUP:true}

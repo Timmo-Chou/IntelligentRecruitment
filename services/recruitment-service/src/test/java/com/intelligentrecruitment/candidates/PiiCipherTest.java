@@ -18,11 +18,18 @@ class PiiCipherTest {
         assertThat(first).isNotEqualTo(second);
         assertThat(cipher.decrypt(first)).isEqualTo("13800138000");
         assertThat(cipher.decrypt(second)).isEqualTo("13800138000");
+        assertThat(cipher.isEncrypted(first)).isTrue();
     }
 
     @Test
     void keepsEmptyValuesOutOfCiphertext() {
         assertThat(cipher.encrypt(" ")).isNull();
         assertThat(cipher.decrypt(null)).isEmpty();
+    }
+
+    @Test
+    void createsStableNonReversibleSearchTokens() {
+        assertThat(cipher.searchToken("13800138000")).isEqualTo(cipher.searchToken(" 13800138000 "));
+        assertThat(cipher.searchToken("张三")).isNotEqualTo("张三");
     }
 }

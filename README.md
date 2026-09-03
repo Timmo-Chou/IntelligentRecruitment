@@ -1,6 +1,6 @@
 # Intelligent Recruitment
 
-AI 智能招聘 MVP。当前已完成 Phase 0–2 工程、身份、Company/Workspace 租户权限、试用额度和账本基线，并已实现 Phase 3–5 的 JD、简历人才库和筛选业务闭环。Phase 3 的 JD 生成通过事务性 Outbox 进入独立 Worker，前端使用可断线续传的 SSE 接收持久化进度事件；Phase 4/5 当前仍使用本地 Mock AI，真实伙伴平台联调属于 Phase 8。
+AI 智能招聘 MVP。当前已完成工程、身份、Company/Workspace 租户权限、账本，以及 JD、人才库、简历筛选、简历解析和面试题库的业务闭环。JD 与简历解析通过事务性 Outbox 进入 Worker，前端使用可恢复的 SSE/轮询展示进度。AI 运行时支持 `mock` 与临时 DeepSeek 适配器；部分能力仍有 Mock 或规则兜底，详见 [AI 运行现状与 Mock 退役方案](docs/architecture/ai-runtime-and-mock-retirement.md)。
 
 ## 目录
 
@@ -72,8 +72,9 @@ pnpm dev:web
 - `/billing`：Workspace 余额、90天额度批次和不可变账本。
 - `/recruitment`：招聘任务、异步 JD 生成、SSE 进度、草稿编辑确认。
 - `/jobs`：Workspace 职位库和不可变 JD 版本。
-- `/candidates`：简历上传、Mock 解析、人才库与 PII Reveal。
-- `/screening`：筛选方案、费用确认、异步匹配、部分结算和失败重试。
+- `/candidates`：简历上传、基础规则解析、人才库与 PII Reveal。
+- `/screening`：筛选方案、费用确认、异步 AI 匹配、部分结算和失败重试。
+- `/interviews`：已发布面试题包的 JD、人才、胜任力、匹配总结与题目结果查看。
 
 账本服务已包含幂等试用发放、最早到期额度优先冻结、全部/部分结算、失败释放、到期处理和平台人工调整。结算与人工调整只开放受保护的平台/内部接口，浏览器不能自行提交实际结算金额。
 

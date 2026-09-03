@@ -12,11 +12,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
+import javax.crypto.Mac;
 
 @Component
 public class PiiCipher {
 
     private static final int IV_LENGTH = 12;
+    private static final String PREFIX = "enc:v1:";
     private final SecretKeySpec key;
     private final SecureRandom random = new SecureRandom();
 
@@ -40,7 +42,7 @@ public class PiiCipher {
             byte[] payload = new byte[iv.length + encrypted.length];
             System.arraycopy(iv, 0, payload, 0, iv.length);
             System.arraycopy(encrypted, 0, payload, iv.length, encrypted.length);
-            return Base64.getEncoder().encodeToString(payload);
+            return PREFIX + Base64.getEncoder().encodeToString(payload);
         } catch (Exception exception) {
             throw cipherFailure();
         }
@@ -49,7 +51,8 @@ public class PiiCipher {
     public String decrypt(String payload) {
         if (payload == null || payload.isBlank()) return "";
         try {
-            byte[] bytes = Base64.getDecoder().decode(payload);
+            String encoded = payload.startsWith(PREFIX) ? payload.substring(PREFIX.length()) : payload;
+            byte[] bytes = Base64.getDecoder().decode(encoded);
             byte[] iv = java.util.Arrays.copyOfRange(bytes, 0, IV_LENGTH);
             byte[] encrypted = java.util.Arrays.copyOfRange(bytes, IV_LENGTH, bytes.length);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
@@ -58,6 +61,37 @@ public class PiiCipher {
         } catch (Exception exception) {
             throw cipherFailure();
         }
+    }
+
+    /**
+     * 兼容尚未迁移的历史明文：新写入一律加密，读取端可渐进迁移历史数据。
+     */
+    public String decryptIfEncrypted(String value) {
+        if (value == null || value.isBlank()) return value == null ? "" : value;
+        return value.startsWith(PREFIX) ? decrypt(value) : value;
+    }
+
+    public boolean isEncrypted(String value) {
+        return value != null && value.startsWith(PREFIX);
+    }
+
+    /**
+     * 用于精确检索的不可逆令牌。不得将原姓名、手机号或邮箱写回搜索索引。
+     */
+    public String searchToken(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(key);
+            byte[] digest = mac.doFinal(normalizeForSearch(value).getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        } catch (Exception exception) {
+            throw cipherFailure();
+        }
+    }
+
+    private static String normalizeForSearch(String value) {
+        return value.replaceAll("\\s+", "").trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     private static ApiException cipherFailure() {

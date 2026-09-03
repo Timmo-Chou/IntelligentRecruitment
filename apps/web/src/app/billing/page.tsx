@@ -1,6 +1,7 @@
 "use client";
 
 import { Clock3, Coins, ReceiptText } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { apiFetch, ApiError } from "@/lib/api-client";
@@ -11,7 +12,7 @@ type Billing={currency:string;availableAmountMinor:number;reservedAmountMinor:nu
 export default function BillingPage(){const[spaces,setSpaces]=useState<Workspace[]>([]);const[selected,setSelected]=useState("");const[data,setData]=useState<Billing|null>(null);const[error,setError]=useState("");
   useEffect(()=>{apiFetch<Workspace[]>("/workspaces").then(items=>{const allowed=items.filter(i=>i.hasDataAccess);setSpaces(allowed);if(allowed[0])setSelected(allowed[0].id);}).catch(e=>setError(e instanceof ApiError?e.message:"加载失败"));},[]);
   useEffect(()=>{if(selected)apiFetch<Billing>(`/workspaces/${selected}/billing`).then(setData).catch(e=>setError(e instanceof ApiError?e.message:"账本加载失败"));},[selected]);
-  return <AppShell activeItem="额度与账本" pageHeader={<section className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="m-0 text-[25px] font-bold text-[#09245d]">额度与账本</h1><p className="mt-1 text-sm text-[#55709d]">试用金按 Workspace 归属，所有资金变动保留不可变流水。</p></div><select value={selected} onChange={e=>setSelected(e.target.value)} className="h-10 rounded-lg border border-[#bdd3ef] bg-white px-3 text-sm">{spaces.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></section>}>
+  return <AppShell activeItem="额度与账本" pageHeader={<section className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="m-0 text-[25px] font-bold text-[#09245d]">额度与账本</h1><p className="mt-1 text-sm text-[#55709d]">试用金按 Workspace 归属，所有资金变动保留不可变流水。</p></div><div className="flex items-center gap-2"><select value={selected} onChange={e=>setSelected(e.target.value)} className="h-10 rounded-lg border border-[#bdd3ef] bg-white px-3 text-sm">{spaces.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><Link href="/billing/recharge" className="primary-button">充值额度</Link></div></section>}>
     {error&&<p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     <section className="mt-5 grid gap-3 md:grid-cols-3"><Metric icon={<Coins/>} label="可用额度" value={money(data?.availableAmountMinor)}/><Metric icon={<Clock3/>} label="已冻结" value={money(data?.reservedAmountMinor)}/><Metric icon={<ReceiptText/>} label="额度批次" value={`${data?.creditLots.length??0} 笔`}/></section>
     <div className="mt-4 grid gap-4 xl:grid-cols-[360px_minmax(0,1fr)]"><section className="rounded-xl border border-[#d6e5f5] bg-white p-5"><h2 className="m-0 text-base">额度批次</h2>{data?.creditLots.length?data.creditLots.map(l=><div key={l.id} className="mt-3 rounded-lg border border-[#dce8f4] p-3 text-sm"><div className="flex justify-between"><strong>{l.sourceType==="TRIAL"?"试用额度":l.sourceType}</strong><strong className="text-[#07945f]">{money(l.availableAmountMinor)}</strong></div><p className="mb-0 mt-2 text-xs text-[#7187a8]">到期：{format(l.expiresAt)} · 原始 {money(l.originalAmountMinor)}</p></div>):<Empty/>}</section>

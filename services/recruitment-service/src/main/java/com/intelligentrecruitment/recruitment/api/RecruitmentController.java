@@ -164,6 +164,18 @@ public class RecruitmentController {
     }
 
     /**
+     * 触发 AI 面试出题（同步）。读取任务的 linked_job_id + linked_candidate_id，生成面试题包后入库，
+     * 并在右侧 AI 助手以消息形式返回题包摘要，与 JD 生成体验一致。
+     */
+    @PostMapping("/{taskId}/interview-kit-runs")
+    RecruitmentService.TaskDetail generateInterviewKit(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
+                                                        @RequestHeader("Idempotency-Key") String idempotencyKey,
+                                                        @RequestBody(required = false) RecruitmentService.GenerateInterviewKitInput input,
+                                                        Authentication authentication) {
+        return recruitment.generateInterviewKit(CurrentUser.id(authentication), workspaceId, taskId, idempotencyKey, input);
+    }
+
+    /**
      * 获取单个简历源文件的预签名下载/预览 URL（10 分钟有效）。
      * 前端直接 window.open(url) 即可在新标签页预览 PDF/DOCX/TXT。
      */

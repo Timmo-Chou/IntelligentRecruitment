@@ -780,7 +780,7 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
                                   <GenderMark gender={gender} />
                                 </strong>
                                 <small className="mt-1 block text-[11px] text-[#8fa3c0]">
-                                  {age ? `${age}岁` : "年龄待确认"} · {maskedPhoneDisplay(profile.phone, item.id)}
+                                  {age ? `${age}岁` : "年龄待确认"} · {item.phone || maskPhonePlaceholder()}
                                 </small>
                               </span>
                             </div>
@@ -1096,8 +1096,8 @@ function TalentDetailDrawer({
     || (typeof profile.district === "string" ? profile.district : "")
     || "待确认";
   const age = String(profile.age || "").trim() || "--";
-  const phone = revealed?.phone || maskPhonePlaceholder();
-  const email = revealed?.email || "****@****";
+  const phone = candidate.phone || maskPhonePlaceholder();
+  const email = candidate.email || "--";
   const source = String(profile.source || "简历上传");
   const activity = String(profile.activityLevel || activityLabel(candidate));
   const activeDays = activityDays(candidate);
@@ -1154,10 +1154,10 @@ function TalentDetailDrawer({
         </div>
 
         <div className="flex items-start gap-3">
-          <Avatar name={revealed?.fullName || candidate.displayNameMasked} size="lg" />
+          <Avatar name={candidate.displayNameMasked} size="lg" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <strong className="text-base text-[#163665]">{revealed?.fullName || candidate.displayNameMasked}</strong>
+              <strong className="text-base text-[#163665]">{candidate.displayNameMasked}</strong>
               {tags.slice(0, 1).map((tag) => (
                 <span key={tag} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tagClass(tag)}`}>{tag}</span>
               ))}
@@ -1351,15 +1351,14 @@ function TalentDetailDrawer({
 
         {tab === "basic" && (
           <div className="space-y-3 text-xs leading-6 text-[#56749a]">
-            <InfoRow label="姓名" value={revealed?.fullName || candidate.displayNameMasked} />
-            <InfoRow label="联系方式" value={revealed ? `${revealed.phone || "--"} / ${revealed.email || "--"}` : "点击下方查看实名信息"} />
+            <InfoRow label="姓名" value={candidate.displayNameMasked} />
+            <InfoRow label="联系方式" value={`${phone} / ${email}`} />
             <InfoRow label="性别" value={String(profile.gender || "--")} />
             <InfoRow label="年龄" value={age} />
             <InfoRow label="城市" value={city} />
             <InfoRow label="当前公司" value={String(profile.currentCompany || headline.company)} />
             <InfoRow label="当前职位" value={String(profile.currentTitle || headline.title)} />
             <div className="flex flex-wrap gap-2 pt-2">
-              <button type="button" className="outline-button !h-8" onClick={onReveal} disabled={busy}><Eye size={13} />查看实名信息</button>
               {candidate.parseStatus === "PARSE_FAILED" && (
                 <button type="button" className="outline-button !h-8" onClick={onRetry} disabled={busy}><RefreshCw size={13} />重试解析</button>
               )}

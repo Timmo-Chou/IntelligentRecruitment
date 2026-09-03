@@ -67,6 +67,23 @@ public class BillingService {
         return true;
     }
 
+    /** 支付渠道验签确认后调用：以单一订单号确保在线充值不会重复入账。 */
+    @Transactional
+    public void grantRecharge(UUID workspaceId, long amountMinor, String orderNo, UUID operatorUserId, int validityDays) {
+        if (amountMinor <= 0 || validityDays <= 0) throw new ApiException("INVALID_RECHARGE", "充值金额或有效期不合法", HttpStatus.BAD_REQUEST);
+        AccountRow account = lockAccount(workspaceId);
+        Instant now = Instant.now();
+        UUID lotId = UUID.randomUUID();
+        int inserted = jdbc.update("""
+                INSERT INTO credit_lots (id,billing_account_id,source_type,original_amount_minor,available_amount_minor,issued_at,expires_at,status)
+                VALUES (?,?,'ONLINE_RECHARGE',?,?,?,?, 'ACTIVE')
+                """, lotId, account.id(), amountMinor, amountMinor, timestamp(now), timestamp(now.plus(validityDays, ChronoUnit.DAYS)));
+        if (inserted != 1) throw new ApiException("RECHARGE_CREDIT_FAILED", "充值额度写入失败", HttpStatus.CONFLICT);
+        ledger(account.id(), workspaceId, lotId, "RECHARGE", amountMinor, "order:" + orderNo,
+                "recharge:" + orderNo, operatorUserId, "Alipay online recharge", now);
+        jdbc.update("UPDATE billing_accounts SET available_amount_minor=available_amount_minor+?,version=version+1,updated_at=? WHERE id=?", amountMinor, timestamp(now), account.id());
+    }
+
     @Transactional
     public BillingView view(UUID userId, UUID workspaceId) {
         String role = workspaceRole(userId, workspaceId);
@@ -254,7 +271,7 @@ public class BillingService {
                         rs.getLong("reserved_amount_minor")),
                 workspaceId)
                 .stream().findFirst().orElseThrow(
-                        () -> new ApiException("BILLING_ACCOUNT_NOT_FOUND", "账本账户不存在", HttpStatus.NOT_FOUND));
+                        () -> new ApiException("BILLING_ACCOUNT_NOT_FOUND", "账单账户不存在", HttpStatus.NOT_FOUND));
 
         List<AdminCreditLotRow> lots = jdbc.query("""
                 SELECT id, source_type, original_amount_minor, available_amount_minor, expires_at, status

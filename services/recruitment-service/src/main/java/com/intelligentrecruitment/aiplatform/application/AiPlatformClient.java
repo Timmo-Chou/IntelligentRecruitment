@@ -24,4 +24,12 @@ public interface AiPlatformClient {
     StructuredResult reviseJdInPlace(ConversationAgentCommand command);
 
     StructuredResult getStructuredResult(String aiTaskId);
+
+    /**
+     * 同步生成面试题包：基于职位快照 + 候选人简历解析结果，
+     * 返回 匹配度总结 + 3 项核心胜任力 + 4~20 道面试题。
+     * 不允许返回 null；任何 AI 侧异常（鉴权、超时、JSON 非法）都应降级到 Mock 输出保证业务可用。
+     */
+    InterviewQuestionContract.InterviewQuestionKit generateInterviewQuestions(
+            InterviewQuestionContract.GenerateInterviewQuestionsInput input);
 }

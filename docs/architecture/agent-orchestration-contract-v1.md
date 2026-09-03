@@ -186,9 +186,11 @@ MCP 是 Tool Runtime 内的连接协议，不是业务授权机制。任何 Tool
 - 每个 Capability 至少有一个活跃 `SkillManifest`；新增/变更 Skill、Prompt、模型策略或 Tool 白名单必须创建新版本。
 - 对话路由、业务授权、AI 执行和业务结算均可用 `request_id`、`business_task_id`、`execution_id` 和 `ai_task_id` 关联追踪。
 
-## 10. 临时 DeepSeek 验证适配器
+## 10. 当前 DeepSeek 适配器与 Mock 边界
 
-开发环境默认使用 `AI_PLATFORM_MODE=mock`。在数据处理获批准的封闭测试中，可以启用临时 DeepSeek 适配器：
+当前运行时可通过 `AI_PLATFORM_MODE=mock|deepseek` 切换实现。`application.yml` 默认
+`deepseek`，但仓库 `.env.example` 为便于本地开发显式设置 `mock`。在数据处理获批准的
+环境中启用 DeepSeek 时：
 
 ```text
 AI_PLATFORM_MODE=deepseek
@@ -198,6 +200,9 @@ DEEPSEEK_MODEL=deepseek-v4-flash
 ```
 
 - API Key 只能由运行环境注入，不能写入仓库、前端代码、日志或任务输入。
-- 适配器当前仅支持自由文本路由与 JD 生成；简历解析、筛选和面试题仍保持 Mock，避免将候选人 PII 在未完成数据合规评审前发送给外部模型。
-- `DEEPSEEK_ALLOW_EXTERNAL_DATA` 默认为 `false`；未显式开启时适配器拒绝所有外部调用。
-- DeepSeek 输出必须使用 JSON 模式，并仍经 `StructuredResult` 和业务服务校验。正式 AI Platform 接入后，按 Capability 切换 Adapter，不以 DeepSeek 结果冒充正式平台结果。
+- 代码当前已实现 JD、自由文本路由、招聘对话/JD 改写、简历解析、候选人筛选和面试题的 DeepSeek 调用；其中简历解析、筛选、面试题仍保留 Mock 或规则兜底，不能将所有返回都视为模型真实结果。
+- `DEEPSEEK_ALLOW_EXTERNAL_DATA` 默认为 `false`；未显式开启时适配器拒绝外部调用。筛选、解析和面试题会涉及候选人数据，必须先完成数据处理授权。
+- DeepSeek 输出应使用 JSON 模式并经业务侧校验。当前部分能力尚未落实本契约第 7 节要求的完整专属 Schema 和来源审计，属于待收敛项。
+
+运行现状、所有 Mock/规则兜底位置以及全量 DeepSeek 改造清单见
+[AI 运行现状与 Mock 退役方案](ai-runtime-and-mock-retirement.md)。

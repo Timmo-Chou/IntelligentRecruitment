@@ -1,6 +1,7 @@
 package com.intelligentrecruitment.recruitment.application;
 
 import com.intelligentrecruitment.candidates.application.ResumeTextExtractor;
+import com.intelligentrecruitment.candidates.application.PiiCipher;
 import com.intelligentrecruitment.recruitment.infrastructure.JdSourceObjectStorage;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
@@ -31,15 +32,17 @@ public class ResumeSourceFileService {
     private final WorkspaceAccessService workspaceAccess;
     private final JdSourceObjectStorage storage;
     private final ResumeTextExtractor extractor;
+    private final PiiCipher pii;
     private final long maxFileSize;
 
     public ResumeSourceFileService(JdbcTemplate jdbc, WorkspaceAccessService workspaceAccess,
-                                   JdSourceObjectStorage storage, ResumeTextExtractor extractor,
+                                   JdSourceObjectStorage storage, ResumeTextExtractor extractor, PiiCipher pii,
                                    @Value("${app.storage.max-file-size-bytes:10485760}") long maxFileSize) {
         this.jdbc = jdbc;
         this.workspaceAccess = workspaceAccess;
         this.storage = storage;
         this.extractor = extractor;
+        this.pii = pii;
         this.maxFileSize = maxFileSize;
     }
 
@@ -54,14 +57,14 @@ public class ResumeSourceFileService {
         String mediaType = mediaType(filename);
         if (assetId == null) {
             assetId = UUID.randomUUID();
-            String objectKey = workspaceId + "/resume-source/" + assetId + "/" + filename;
+            String objectKey = workspaceId + "/resume-source/" + assetId;
             storage.put(objectKey, bytes, mediaType);
             jdbc.update("""
                     INSERT INTO file_assets
                     (id,company_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
                     VALUES (?,?,?,?,?,?,?,?,'PENDING','ACTIVE',?,?)
-                    """, assetId, scope.companyId(), workspaceId, objectKey, filename, mediaType, bytes.length, hash,
+                    """, assetId, scope.companyId(), workspaceId, objectKey, pii.encrypt(filename), mediaType, bytes.length, hash,
                     userId, timestamp(Instant.now()));
         }
         UUID sourceId = UUID.randomUUID();
@@ -74,7 +77,7 @@ public class ResumeSourceFileService {
                 (id,company_id,workspace_id,recruitment_task_id,file_asset_id,filename,media_type,size_bytes,extracted_text,created_by,created_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT (recruitment_task_id,file_asset_id) DO NOTHING
-                """, sourceId, scope.companyId(), workspaceId, taskId, resolvedAssetId, filename, mediaType, size, extracted,
+                """, sourceId, scope.companyId(), workspaceId, taskId, resolvedAssetId, pii.encrypt(filename), mediaType, size, pii.encrypt(extracted),
                 userId, timestamp(now));
         List<SourceFileView> files = list(workspaceId, taskId);
         return files.stream().filter(item -> item.fileAssetId().equals(resolvedAssetId)).findFirst().orElseThrow();
@@ -87,7 +90,7 @@ public class ResumeSourceFileService {
                 WHERE s.workspace_id=? AND s.recruitment_task_id=?
                 ORDER BY s.created_at
                 """, (rs, n) -> new SourceFileView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
-                rs.getString(3), rs.getString(4), rs.getLong(5), rs.getString(6),
+                pii.decryptIfEncrypted(rs.getString(3)), rs.getString(4), rs.getLong(5), pii.decryptIfEncrypted(rs.getString(6)),
                 rs.getTimestamp(7).toInstant()), workspaceId, taskId);
     }
 
@@ -102,7 +105,7 @@ public class ResumeSourceFileService {
                 SELECT s.id,s.filename,s.media_type,s.size_bytes,f.object_key
                 FROM resume_source_files s JOIN file_assets f ON f.id=s.file_asset_id
                 WHERE s.id=? AND s.workspace_id=?
-                """, (rs, n) -> new AssetDownloadView(rs.getObject(1, UUID.class), rs.getString(2),
+                """, (rs, n) -> new AssetDownloadView(rs.getObject(1, UUID.class), pii.decryptIfEncrypted(rs.getString(2)),
                 rs.getString(3), rs.getLong(4), rs.getString(5)), sourceFileId, workspaceId);
         if (rows.isEmpty()) throw new ApiException("RESUME_SOURCE_FILE_NOT_FOUND", "简历源文件不存在", HttpStatus.NOT_FOUND);
         return rows.getFirst();

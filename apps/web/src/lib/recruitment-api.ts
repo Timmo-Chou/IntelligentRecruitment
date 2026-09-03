@@ -9,6 +9,7 @@ export type TaskSummary = {
   currentStage: string;
   featureType: string | null;
   linkedJobId: string | null;
+  linkedCandidateId: string | null;
   jobId: string | null;
   jobTitle: string | null;
   createdBy: string;
@@ -116,11 +117,17 @@ export function fetchTask(workspaceId: string, taskId: string) {
   return apiFetch<TaskDetail>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}`);
 }
 
-export function createTask(workspaceId: string, title: string, initialRequirement: string, extra?: { featureType?: string | null; linkedJobId?: string | null }) {
+export function createTask(workspaceId: string, title: string, initialRequirement: string, extra?: { featureType?: string | null; linkedJobId?: string | null; linkedCandidateId?: string | null }) {
   return apiFetch<TaskDetail>(`/workspaces/${workspaceId}/recruitment-tasks`, {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey("task") },
-    body: JSON.stringify({ title, initialRequirement, featureType: extra?.featureType ?? null, linkedJobId: extra?.linkedJobId ?? null }),
+    body: JSON.stringify({
+      title,
+      initialRequirement,
+      featureType: extra?.featureType ?? null,
+      linkedJobId: extra?.linkedJobId ?? null,
+      linkedCandidateId: extra?.linkedCandidateId ?? null,
+    }),
   });
 }
 
@@ -182,6 +189,18 @@ export function generateResumeParse(workspaceId: string, taskId: string, require
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey("resume-parse") },
     body: requirement == null || requirement.trim() === "" ? undefined : JSON.stringify({ requirement }),
+  });
+}
+
+/**
+ * 触发 AI 面试出题（同步 HTTP，~3-15 秒）：读取 recruitment_task 上 linked_job_id / linked_candidate_id，
+ * 调 DeepSeek 生成面试题包并持久化，返回 TaskDetail（含最新 ai_run + 助手消息）。
+ */
+export function generateInterviewKit(workspaceId: string, taskId: string, questionCount?: number) {
+  return apiFetch<TaskDetail>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/interview-kit-runs`, {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey("interview-kit") },
+    body: questionCount == null ? undefined : JSON.stringify({ questionCount }),
   });
 }
 

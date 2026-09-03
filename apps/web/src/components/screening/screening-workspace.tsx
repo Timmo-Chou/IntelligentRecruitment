@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertCircle, CheckCircle2, CircleDollarSign, Filter, Loader2, Pencil, RefreshCw, Save, Square, Target, UsersRound, X } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { ApiError } from "@/lib/api-client";
@@ -87,7 +88,7 @@ export function ScreeningWorkspace({ embedded = false, recruitmentTaskId, initia
 
   if (workspaceLoading) return embedded ? <Loading text="正在加载工作空间..."/> : <PageState text="正在加载工作空间..."/>;
   if (!workspaceId) return embedded ? <Loading text="请先进入一个可访问的工作空间"/> : <PageState text="请先进入一个可访问的工作空间"/>;
-  const body = <>{error && <div className="flex items-center gap-2 rounded-lg border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#b42318]"><AlertCircle size={17}/>{error}</div>}
+  const body = <>{error && <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#b42318]"><AlertCircle size={17}/>{error}{error.includes("充值") && <Link href="/billing/recharge" className="ml-auto rounded-md border border-[#f4a2a2] bg-white px-3 py-1 text-xs font-semibold text-[#b42318]">去充值</Link>}</div>}
     {loading ? <Loading text="正在读取筛选数据..."/> : <section className="mt-4 rounded-xl border border-[#d6e5f5] bg-white p-5 shadow-[0_6px_20px_rgba(30,92,160,0.04)]">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e4edf6] pb-4"><div><h2 className="m-0 flex items-center gap-2 text-base text-[#173568]"><Target className="text-[#13977e]" size={18}/>{resultMode ? "筛选结果" : "简历筛选"}</h2><p className="mb-0 mt-1 text-xs text-[#7185a3]">{selectedJob ? `${selectedJob.title} · ${selectedJob.location || "工作地点待确认"} · ${selectedJob.experienceLevel || "经验待确认"}` : "请确认本次筛选对应的职位"}</p></div>
         {resultMode && <div className="flex gap-2">{result?.status === "RUNNING" && <button type="button" className="outline-button" onClick={() => void cancel()} disabled={busy}><Square size={13}/>取消任务</button>}{result?.status !== "RUNNING" && result?.items.some(item => item.status === "FAILED") && <button type="button" className="outline-button" onClick={() => void retry()} disabled={busy}><RefreshCw size={14}/>重试失败项</button>}{result?.status !== "RUNNING" && <button type="button" className="primary-button" onClick={() => setResult(null)}><Pencil size={14}/>调整方案并重新筛选</button>}</div>}</div>

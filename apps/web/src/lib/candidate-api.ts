@@ -7,6 +7,9 @@ export type CandidateSummary = {
   companyId: string | null;
   workspaceId: string;
   displayNameMasked: string;
+  /** 当前 Workspace 授权用户可直接读取的真实联系方式。 */
+  phone: string;
+  email: string;
   status: string;
   parseStatus: string;
   originalFilename: string;

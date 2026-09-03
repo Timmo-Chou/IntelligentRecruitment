@@ -4,6 +4,7 @@ import com.intelligentrecruitment.shared.error.ApiException;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.ServerSideEncryptionS3;
 import io.minio.http.Method;
 import java.io.ByteArrayInputStream;
 import java.util.concurrent.TimeUnit;
@@ -16,16 +17,21 @@ public class JdSourceObjectStorage {
 
     private final MinioClient minio;
     private final String bucket;
+    private final boolean serverSideEncryption;
 
-    public JdSourceObjectStorage(MinioClient minio, @Value("${app.storage.bucket}") String bucket) {
+    public JdSourceObjectStorage(MinioClient minio, @Value("${app.storage.bucket}") String bucket,
+                                 @Value("${app.storage.server-side-encryption:false}") boolean serverSideEncryption) {
         this.minio = minio;
         this.bucket = bucket;
+        this.serverSideEncryption = serverSideEncryption;
     }
 
     public void put(String objectKey, byte[] content, String mediaType) {
         try {
-            minio.putObject(PutObjectArgs.builder().bucket(bucket).object(objectKey)
-                    .stream(new ByteArrayInputStream(content), content.length, -1).contentType(mediaType).build());
+            PutObjectArgs.Builder request = PutObjectArgs.builder().bucket(bucket).object(objectKey)
+                    .stream(new ByteArrayInputStream(content), content.length, -1).contentType(mediaType);
+            if (serverSideEncryption) request.sse(new ServerSideEncryptionS3());
+            minio.putObject(request.build());
         } catch (Exception exception) {
             throw new ApiException("OBJECT_STORAGE_FAILED", "JD 源文件保存失败", HttpStatus.SERVICE_UNAVAILABLE);
         }

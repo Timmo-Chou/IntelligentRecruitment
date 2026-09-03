@@ -1,12 +1,12 @@
 # 第一阶段技术栈设计
 
-状态：待项目确认后采用  
-范围：① Web 客户端、② AI 招聘业务服务  
-不包含：伙伴负责的 AI Platform、模型网关、MCP/Provider 接入实现
+状态：架构基线；部分实现已落地
+范围：① Web 客户端、② AI 招聘业务服务、③ 临时 DeepSeek 适配器
+不包含：正式伙伴 AI Platform、模型网关、MCP/Provider 的生产化运营实现。
 
 ## 1. 选型目标
 
-第一阶段优先满足：快速构建 P0、清晰的前后端边界、可靠处理简历文件和异步任务、可用 Mock 独立开发、未来低成本接入伙伴 AI Platform。
+第一阶段优先满足：快速构建 P0、清晰的前后端边界、可靠处理简历文件和异步任务、可切换的 AI 适配器，以及未来低成本接入正式 AI Platform。
 
 采用“前后端分离的模块化单体 + 异步 Worker”，暂不拆业务微服务。
 
@@ -19,8 +19,9 @@ AI Recruitment Business Service
     ├── RabbitMQ / Spring Worker
     ├── S3-compatible Object Storage
     └── AIPlatformClient
-            ├── Mock adapter（第一阶段）
-            └── Partner HTTP adapter（联调阶段）
+            ├── Mock adapter（本地开发与契约测试）
+            ├── 临时 DeepSeek adapter（受数据处理授权约束）
+            └── Partner HTTP adapter（正式联调阶段）
 ```
 
 ## 2. 客户端
@@ -76,7 +77,7 @@ AI Recruitment Business Service
 - 模块化单体，不以 Agent 名称拆微服务。
 - 招聘业务服务拥有用户、企业、职位、候选人、任务、结果和客户账单。
 - 对 AI Platform 只依赖内部 `AIPlatformClient` 接口。
-- Mock 和真实 HTTP Adapter 可通过配置切换，领域代码无条件分支。
+- Mock 和真实 HTTP Adapter 可通过配置切换；业务代码应只依赖接口，禁止以本地模板伪装成成功的模型结果。
 - 企业招聘业务数据同时包含 `company_id + workspace_id`；个人业务数据使用 `workspace_id` 且 `company_id = NULL`。
 - JD、简历解析、筛选方案、筛选结果和面试题均绑定版本。
 - 金额使用最小货币单位整数或精确 Decimal，账本只追加不覆盖。
@@ -99,6 +100,8 @@ AI Recruitment Business Service
 - AI Platform 通过签名 Webhook 回调；业务服务保留轮询兜底接口。
 - 文件通过短效签名 URL 或双方确认的受控文件接口传递。
 - AI Platform 返回供应商用量；业务服务独立完成用户定价和账本结算。
+
+当前实现中 DeepSeek、Mock 和规则兜底并存，且简历解析、筛选、面试题在故障时尚可能返回本地结果；完整边界和退役计划见 [AI 运行现状与 Mock 退役方案](ai-runtime-and-mock-retirement.md)。
 
 ## 5. 数据与基础设施
 

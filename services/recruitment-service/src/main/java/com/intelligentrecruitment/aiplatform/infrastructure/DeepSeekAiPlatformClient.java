@@ -9,6 +9,11 @@ import com.intelligentrecruitment.agentflow.domain.RouteDecision;
 import com.intelligentrecruitment.agentflow.domain.StructuredResult;
 import com.intelligentrecruitment.aiplatform.application.AiPlatformClient;
 import com.intelligentrecruitment.aiplatform.application.ConversationAgentCommand;
+import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract;
+import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract.Competency;
+import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract.GenerateInterviewQuestionsInput;
+import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract.InterviewQuestionKit;
+import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract.Question;
 import com.intelligentrecruitment.aiplatform.application.RecruitmentAssistantIntentCatalog;
 import com.intelligentrecruitment.aiplatform.application.RouteAgentCommand;
 import com.intelligentrecruitment.aiplatform.application.StartAiTaskCommand;
@@ -65,6 +70,7 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
     private final Resource jdInPlaceRevisionPromptResource;
     private final Resource candidateScreeningPromptResource;
     private final Resource resumeParsingPromptResource;
+    private final Resource interviewQuestionPromptResource;
     private final Map<String, AiTask> tasks = new ConcurrentHashMap<>();
     private final Map<String, String> idempotencyIndex = new ConcurrentHashMap<>();
     private final Map<String, StructuredResult> results = new ConcurrentHashMap<>();
@@ -78,7 +84,8 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
                                     @Value("${app.ai-platform.deepseek.conversation-prompt-resource:classpath:prompts/recruitment-conversation-v1.txt}") Resource conversationPromptResource,
                                     @Value("${app.ai-platform.deepseek.jd-in-place-revision-prompt-resource:classpath:prompts/jd-in-place-revision-v1.txt}") Resource jdInPlaceRevisionPromptResource,
                                     @Value("${app.ai-platform.deepseek.candidate-screening-prompt-resource:classpath:prompts/candidate-screening-v1.txt}") Resource candidateScreeningPromptResource,
-                                    @Value("${app.ai-platform.deepseek.resume-parsing-prompt-resource:classpath:prompts/resume-parsing-v1.txt}") Resource resumeParsingPromptResource) {
+                                    @Value("${app.ai-platform.deepseek.resume-parsing-prompt-resource:classpath:prompts/resume-parsing-v1.txt}") Resource resumeParsingPromptResource,
+                                    @Value("${app.ai-platform.deepseek.interview-question-prompt-resource:classpath:prompts/interview-question-v1.txt}") Resource interviewQuestionPromptResource) {
         this.client = builder.baseUrl(baseUrl).build();
         this.streamingClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
         this.baseUrl = baseUrl.replaceFirst("/+$", "");
@@ -91,6 +98,7 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
         this.jdInPlaceRevisionPromptResource = jdInPlaceRevisionPromptResource;
         this.candidateScreeningPromptResource = candidateScreeningPromptResource;
         this.resumeParsingPromptResource = resumeParsingPromptResource;
+        this.interviewQuestionPromptResource = interviewQuestionPromptResource;
     }
 
     @Override
@@ -212,6 +220,124 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
         if (result == null) throw taskNotFound();
         return result;
     }
+
+    // =====================================================================
+    // AI 面试出题（DeepSeek 真实调用）
+    // 任何异常（requireEnabled 不通过、鉴权失败、超时、JSON 非法、字段缺失）
+    // 一律降级到 MockAiPlatformClient，保证业务不崩。
+    // =====================================================================
+
+    @Override
+    public InterviewQuestionKit generateInterviewQuestions(GenerateInterviewQuestionsInput input) {
+        try {
+            requireEnabled();
+            String systemPrompt = readPrompt(interviewQuestionPromptResource, "面试出题 Prompt 模板不可用");
+            // 构造 user JSON：与 interview-question-v1.txt 约定的输入字段对齐（下划线命名）
+            Map<String, Object> userBody = buildInterviewUserBody(input);
+            String jsonText = completeJson(systemPrompt, json(userBody), 2800);
+            JsonNode root = readJson(jsonText);
+            return parseInterviewKit(root, input);
+        } catch (RuntimeException exception) {
+            // 所有异常降级 Mock（含 DATA_POLICY_BLOCKED / AI_AUTH_FAILED / JSON 解析错 / 字段缺 等）
+            return new MockAiPlatformClient().mockInterviewQuestionKit(input);
+        }
+    }
+
+    /** 按 Prompt 约定的字段名构造 user input（使用下划线 JSON 字段名） */
+    private Map<String, Object> buildInterviewUserBody(GenerateInterviewQuestionsInput input) {
+        GenerateInterviewQuestionsInput.JobSnapshot job = input.job();
+        GenerateInterviewQuestionsInput.CandidateSnapshot candidate = input.candidate();
+        Map<String, Object> jobMap = new LinkedHashMap<>();
+        jobMap.put("title", job == null ? "" : nullSafe(job.title()));
+        jobMap.put("company_name", job == null ? "" : nullSafe(job.companyName()));
+        jobMap.put("location", job == null ? "" : nullSafe(job.location()));
+        jobMap.put("experience_level", job == null ? "" : nullSafe(job.experienceLevel()));
+        jobMap.put("education", job == null ? "" : nullSafe(job.education()));
+        jobMap.put("responsibilities", job == null ? "" : nullSafe(job.responsibilities()));
+        jobMap.put("requirements", job == null ? "" : nullSafe(job.requirements()));
+        jobMap.put("skills", job == null ? "" : nullSafe(job.skills()));
+        Map<String, Object> candMap = new LinkedHashMap<>();
+        candMap.put("name", candidate == null ? "" : nullSafe(candidate.name()));
+        candMap.put("headline", candidate == null ? "" : nullSafe(candidate.headline()));
+        candMap.put("skills", candidate == null || candidate.skills() == null ? List.of() : candidate.skills());
+        candMap.put("summary", candidate == null ? "" : nullSafe(candidate.summary()));
+        candMap.put("resume_text", candidate == null ? "" : nullSafe(candidate.resumeText()));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("job", jobMap);
+        body.put("candidate", candMap);
+        body.put("requested_count", input.requestedCount());
+        body.put("language_hint", "中文");
+        return body;
+    }
+
+    /** 解析 DeepSeek 返回的 JSON → InterviewQuestionKit。字段校验失败抛异常 → 上层降级 Mock */
+    private InterviewQuestionKit parseInterviewKit(JsonNode root, GenerateInterviewQuestionsInput input) {
+        String matchSummary = text(root, "match_summary");
+        if (matchSummary.isBlank()) throw contractInvalid("面试出题返回缺少 match_summary");
+
+        JsonNode compsNode = root.path("core_competencies");
+        if (!compsNode.isArray() || compsNode.size() == 0) throw contractInvalid("面试出题返回缺少 core_competencies");
+        List<Competency> competencies = new ArrayList<>();
+        for (JsonNode n : compsNode) {
+            String name = text(n, "name");
+            String desc = text(n, "description");
+            if (!name.isBlank()) competencies.add(new Competency(name, desc.isBlank() ? "考察候选人在「" + name + "」上的落地深度与真实结果" : desc));
+        }
+        if (competencies.isEmpty()) throw contractInvalid("面试出题 core_competencies 无有效项");
+        if (competencies.size() < 3) {
+            // 补齐到 3 项（兜底）
+            if (competencies.size() < 3) competencies.add(new Competency("岗位专业能力", "验证岗位相关的专业方法和业务理解"));
+            if (competencies.size() < 3) competencies.add(new Competency("项目交付与问题解决", "验证问题拆解、协同推进和结果复盘能力"));
+            if (competencies.size() < 3) competencies.add(new Competency("协作与沟通", "验证跨团队协作、冲突处理与汇报能力"));
+        }
+
+        JsonNode qNode = root.path("questions");
+        if (!qNode.isArray() || qNode.size() == 0) throw contractInvalid("面试出题返回缺少 questions");
+        int expected = Math.max(4, Math.min(input.requestedCount() <= 0 ? 8 : input.requestedCount(), 20));
+        List<Question> questions = new ArrayList<>();
+        List<String> competencyNames = competencies.stream().map(Competency::name).toList();
+        for (JsonNode qn : qNode) {
+            String category = normalizeCategory(text(qn, "category"), questions.size());
+            String content = text(qn, "content");
+            if (content.isBlank()) continue;
+            String rawCore = text(qn, "core_competency");
+            final String coreCompetency;
+            if (!rawCore.isBlank() && competencyNames.stream().anyMatch(c -> c.equalsIgnoreCase(rawCore))) {
+                coreCompetency = rawCore;
+            } else {
+                // 未提供或不匹配 → 轮询分配
+                coreCompetency = competencyNames.get(questions.size() % competencyNames.size());
+            }
+            String rationale = text(qn, "rationale");
+            if (rationale.isBlank()) rationale = coreCompetency + "：验证真实经验与交付结果";
+            String focus = text(qn, "focus_points");
+            if (focus.isBlank()) focus = "背景与本人角色；方法与决策依据；量化结果；风险识别与复盘；团队协作分工";
+            String ref = text(qn, "reference_answer_points");
+            if (ref.isBlank()) ref = "清晰陈述背景；给出有细节的方法；包含量化指标；说明反思与改进点";
+            String scoring = text(qn, "scoring_points");
+            if (scoring.isBlank()) scoring = "5分：证据充分、方法成熟且结果可验证；3分：经历真实、方法基本合理；1分：描述笼统或无法说明本人贡献";
+            String refs = text(qn, "evidence_refs");
+            if (refs.isBlank()) refs = "胜任力=" + coreCompetency;
+            questions.add(new Question(category, content, rationale, focus, ref, scoring, refs, coreCompetency));
+            if (questions.size() >= expected) break;
+        }
+        if (questions.isEmpty()) throw contractInvalid("面试出题 questions 无有效项");
+        return new InterviewQuestionKit(matchSummary, competencies, questions);
+    }
+
+    /** 规范化 category：如果模型输出的不是 4 类之一，按题号轮询分配 */
+    private static String normalizeCategory(String category, int questionIndex) {
+        List<String> allowed = List.of("专业能力", "项目实践", "行为协作", "场景决策");
+        if (category != null) {
+            String t = category.trim();
+            if (allowed.contains(t)) return t;
+            // 子串匹配
+            for (String a : allowed) if (t.contains(a)) return a;
+        }
+        return allowed.get(questionIndex % allowed.size());
+    }
+
+    private static String nullSafe(String value) { return value == null ? "" : value; }
 
     private StructuredResult generateJd(String aiTaskId, StartAiTaskCommand command) {
         if (command.executionContext() == null) {

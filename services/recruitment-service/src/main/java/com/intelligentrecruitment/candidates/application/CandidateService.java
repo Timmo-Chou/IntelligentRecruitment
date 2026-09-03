@@ -71,44 +71,50 @@ public class CandidateService {
                 """, (rs, n) -> rs.getObject(1, UUID.class), workspaceId, hash);
         if (!duplicate.isEmpty()) return detailScoped(workspaceId, duplicate.getFirst());
 
-        UUID assetId = UUID.randomUUID();
+        AssetReference existingAsset = activeAsset(workspaceId, hash);
+        UUID assetId = existingAsset == null ? UUID.randomUUID() : existingAsset.id();
         UUID candidateId = UUID.randomUUID();
         UUID resumeFileId = UUID.randomUUID();
         String filename = safeFilename(file.getOriginalFilename());
-        String objectKey = workspaceId + "/" + assetId + "/" + filename;
+        String objectKey = existingAsset == null ? workspaceId + "/" + assetId : existingAsset.objectKey();
         String mediaType = mediaType(filename);
-        storage.put(objectKey, bytes, mediaType);
+        boolean createdAsset = existingAsset == null;
+        if (createdAsset) storage.put(objectKey, bytes, mediaType);
         try {
             return persistUpload(userId, scope, assetId, candidateId, resumeFileId, objectKey, filename,
-                    mediaType, bytes, hash, normalizeScenario(scenario));
+                    mediaType, bytes, hash, normalizeScenario(scenario), createdAsset);
         } catch (RuntimeException exception) {
-            try { storage.remove(objectKey); } catch (RuntimeException ignored) { }
+            if (createdAsset) {
+                try { storage.remove(objectKey); } catch (RuntimeException ignored) { }
+            }
             throw exception;
         }
     }
 
     protected CandidateDetail persistUpload(UUID userId, WorkspaceScope scope, UUID assetId, UUID candidateId,
                                             UUID resumeFileId, String objectKey, String filename, String mediaType,
-                                            byte[] bytes, String hash, String scenario) {
+                                            byte[] bytes, String hash, String scenario, boolean createAsset) {
         Instant now = Instant.now();
         String rawText = extractor.extract(bytes, filename);
         ParsedResume parsed = parse(filename, rawText);
-        jdbc.update("""
-                INSERT INTO file_assets
-                (id,company_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
-                 scan_status,lifecycle_status,created_by,created_at)
-                VALUES (?,?,?,?,?,?,?,?, 'CLEAN','ACTIVE',?,?)
-                """, assetId, scope.companyId(), scope.workspaceId(), objectKey, filename, mediaType, bytes.length,
-                hash, userId, timestamp(now));
+        if (createAsset) {
+            jdbc.update("""
+                    INSERT INTO file_assets
+                    (id,company_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
+                     scan_status,lifecycle_status,created_by,created_at)
+                    VALUES (?,?,?,?,?,?,?,?, 'CLEAN','ACTIVE',?,?)
+                    """, assetId, scope.companyId(), scope.workspaceId(), objectKey, pii.encrypt(filename), mediaType, bytes.length,
+                    hash, userId, timestamp(now));
+        }
         jdbc.update("""
                 INSERT INTO candidates
                 (id,company_id,workspace_id,display_name_masked,full_name_ciphertext,email_ciphertext,
-                 phone_ciphertext,status,created_by,created_at,updated_at,profile,search_text)
-                VALUES (?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
+                 phone_ciphertext,full_name_search_hash,phone_search_hash,status,created_by,created_at,updated_at,profile,search_text)
+                VALUES (?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
                 """, candidateId, scope.companyId(), scope.workspaceId(), mask(parsed.name()), pii.encrypt(parsed.name()),
-                pii.encrypt(parsed.email()), pii.encrypt(parsed.phone()), userId, timestamp(now), timestamp(now),
-                json(uploadProfile(parsed)),
-                buildSearchText(candidateId, parsed.name(), parsed.phone(), parsed.email(),
+                pii.encrypt(parsed.email()), pii.encrypt(parsed.phone()), pii.searchToken(parsed.name()), pii.searchToken(parsed.phone()),
+                userId, timestamp(now), timestamp(now), json(uploadProfile(parsed)),
+                buildSearchText(candidateId,
                         uploadProfile(parsed), parsed.skills(), parsed.headline()));
         String status = "INVALID_SCHEMA".equals(scenario) ? "PARSE_FAILED" : "PARSED";
         jdbc.update("""
@@ -120,6 +126,19 @@ public class CandidateService {
         if (!"INVALID_SCHEMA".equals(scenario)) saveParseVersion(scope, candidateId, resumeFileId, 1, parsed, now);
         audit(userId, scope, "RESUME_UPLOADED", candidateId);
         return detailScoped(scope.workspaceId(), candidateId);
+    }
+
+    /**
+     * file_assets deduplicates binary files within a workspace. A resume may first
+     * have been uploaded as a task source file, so it may not yet have a candidate
+     * record. Reuse that active asset instead of attempting a second insert.
+     */
+    private AssetReference activeAsset(UUID workspaceId, String sha256) {
+        List<AssetReference> rows = jdbc.query("""
+                SELECT id,object_key FROM file_assets
+                WHERE workspace_id=? AND sha256=? AND lifecycle_status='ACTIVE'
+                """, (rs, n) -> new AssetReference(rs.getObject(1, UUID.class), rs.getString(2)), workspaceId, sha256);
+        return rows.isEmpty() ? null : rows.getFirst();
     }
 
     public CandidateStats stats(UUID userId, UUID workspaceId) {
@@ -266,7 +285,7 @@ public class CandidateService {
                 """;
         Integer total = jdbc.queryForObject("SELECT count(DISTINCT c.id) " + joins + where, Integer.class, params.toArray());
         List<CandidateSummary> items = jdbc.query("""
-                SELECT c.id,c.company_id,c.workspace_id,c.display_name_masked,c.status,
+                SELECT c.id,c.company_id,c.workspace_id,c.full_name_ciphertext,c.phone_ciphertext,c.email_ciphertext,c.status,
                        COALESCE(rf.status, 'PARSED') AS parse_status,COALESCE(f.original_filename, '手动录入') AS original_filename,
                        COALESCE(pv.headline, CONCAT_WS(' | ', c.profile->>'currentTitle', c.profile->>'currentCompany')) AS headline,
                        COALESCE(NULLIF(c.profile->>'yearsExperience','')::int, pv.years_experience, 0) AS years_experience,
@@ -304,9 +323,9 @@ public class CandidateService {
         if (headline.isBlank()) headline = skills.isEmpty() ? "手动录入人才" : String.join("、", skills);
         int years = parseYears(input.yearsExperience());
         Map<String, Object> profile = profileMap(input, skills, years);
-        String searchText = buildSearchText(candidateId, name, phone, email, profile, skills, headline);
+        String searchText = buildSearchText(candidateId, profile, skills, headline);
         String filename = "manual-" + candidateId + ".txt";
-        String objectKey = workspaceId + "/" + assetId + "/" + filename;
+        String objectKey = workspaceId + "/" + assetId;
         byte[] bytes = ("手动录入人才档案\n" + searchText).getBytes(StandardCharsets.UTF_8);
         storage.put(objectKey, bytes, "text/plain");
         try {
@@ -315,15 +334,15 @@ public class CandidateService {
                     (id,company_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
                     VALUES (?,?,?,?,?,?,?,?,'CLEAN','ACTIVE',?,?)
-                    """, assetId, scope.companyId(), scope.workspaceId(), objectKey, filename, "text/plain",
+                    """, assetId, scope.companyId(), scope.workspaceId(), objectKey, pii.encrypt(filename), "text/plain",
                     bytes.length, SecurityHashes.sha256(bytes), userId, timestamp(now));
             jdbc.update("""
                     INSERT INTO candidates
                     (id,company_id,workspace_id,display_name_masked,full_name_ciphertext,email_ciphertext,
-                     phone_ciphertext,status,created_by,created_at,updated_at,profile,search_text)
-                    VALUES (?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
+                     phone_ciphertext,full_name_search_hash,phone_search_hash,status,created_by,created_at,updated_at,profile,search_text)
+                    VALUES (?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
                     """, candidateId, scope.companyId(), scope.workspaceId(), mask(name), pii.encrypt(name),
-                    pii.encrypt(email), pii.encrypt(phone), userId, timestamp(now), timestamp(now),
+                    pii.encrypt(email), pii.encrypt(phone), pii.searchToken(name), pii.searchToken(phone), userId, timestamp(now), timestamp(now),
                     json(profile), searchText);
             jdbc.update("""
                     INSERT INTO resume_files
@@ -336,7 +355,7 @@ public class CandidateService {
                     skills,
                     List.of(joinNonBlank(" / ", nullable(input.currentCompany()), nullable(input.currentTitle()))),
                     List.of(joinNonBlank(" · ", nullable(input.school()), nullable(input.major()), nullable(input.highestEducation()))),
-                    "手动录入人才档案", List.of(), searchText);
+                    "手动录入人才档案", List.of(), "手动录入人才档案");
             saveParseVersion(scope, candidateId, resumeFileId, 1, parsed, now);
             audit(userId, scope, "CANDIDATE_CREATED_MANUAL", candidateId);
             return detailScoped(scope.workspaceId(), candidateId);
@@ -357,10 +376,10 @@ public class CandidateService {
                 continue;
             }
             String like = "%" + token + "%";
+            String piiToken = pii.searchToken(token);
             where.append("""
                      AND (
                        c.id::text ILIKE ?
-                       OR c.display_name_masked ILIKE ?
                        OR c.search_text ILIKE ?
                        OR c.profile::text ILIKE ?
                        OR pv.headline ILIKE ?
@@ -369,9 +388,13 @@ public class CandidateService {
                        OR pv.education_experience::text ILIKE ?
                        OR pv.summary ILIKE ?
                        OR pv.highest_education ILIKE ?
+                       OR c.full_name_search_hash=?
+                       OR c.phone_search_hash=?
                      )
                     """);
-            for (int i = 0; i < 10; i++) params.add(like);
+            for (int i = 0; i < 9; i++) params.add(like);
+            params.add(piiToken);
+            params.add(piiToken);
         }
     }
 
@@ -512,7 +535,7 @@ public class CandidateService {
         FileRow file = rows.getFirst();
         byte[] content = storage.get(file.objectKey());
         audit(userId, scope, "RESUME_DOWNLOADED", candidateId);
-        return new DownloadedResume(file.filename(), file.mediaType(), content);
+        return new DownloadedResume(pii.decryptIfEncrypted(file.filename()), file.mediaType(), content);
     }
 
     @Transactional
@@ -525,7 +548,8 @@ public class CandidateService {
             return detailScoped(workspaceId, candidateId);
         }
         FileRow file = fileRow(workspaceId, candidateId);
-        ParsedResume parsed = parse(file.filename(), extractor.extract(storage.get(file.objectKey()), file.filename()));
+        String filename = pii.decryptIfEncrypted(file.filename());
+        ParsedResume parsed = parse(filename, extractor.extract(storage.get(file.objectKey()), filename));
         Integer version = jdbc.queryForObject("SELECT COALESCE(MAX(version_number),0)+1 FROM resume_parse_versions WHERE candidate_id=?",
                 Integer.class, candidateId);
         saveParseVersion(scope, candidateId, existing.resumeFileId(), version == null ? 1 : version, parsed, Instant.now());
@@ -567,14 +591,14 @@ public class CandidateService {
                 """, parseId, scope.companyId(), scope.workspaceId(), candidateId, resumeFileId, version,
                 parsed.headline(), parsed.yearsExperience(), parsed.education(), json(parsed.skills()),
                 json(parsed.workExperience()), json(parsed.educationExperience()), parsed.summary(),
-                json(parsed.warnings()), parsed.rawText(), timestamp(now));
+                json(parsed.warnings()), pii.encrypt(parsed.rawText()), timestamp(now));
         jdbc.update("UPDATE candidates SET current_parse_version_id=?,updated_at=? WHERE id=? AND workspace_id=?",
                 parseId, timestamp(now), candidateId, scope.workspaceId());
     }
 
     private CandidateDetail detailScoped(UUID workspaceId, UUID candidateId) {
         List<CandidateDetail> rows = jdbc.query("""
-                SELECT c.id,c.company_id,c.workspace_id,c.display_name_masked,c.status,c.current_parse_version_id,
+                SELECT c.id,c.company_id,c.workspace_id,c.full_name_ciphertext,c.phone_ciphertext,c.email_ciphertext,c.status,c.current_parse_version_id,
                        rf.id AS resume_file_id,rf.status AS parse_status,rf.error_code,
                        f.original_filename,f.media_type,f.size_bytes,
                        COALESCE(NULLIF(c.profile->>'yearsExperience','')::int, pv.years_experience, 0) AS years_experience,
@@ -602,9 +626,9 @@ public class CandidateService {
             Integer score = rs.getObject("match_score") == null ? null : rs.getInt("match_score");
             return new CandidateDetail(rs.getObject("id", UUID.class),
                 rs.getObject("company_id", UUID.class), rs.getObject("workspace_id", UUID.class),
-                rs.getString("display_name_masked"), rs.getString("status"),
+                pii.decrypt(rs.getString("full_name_ciphertext")), pii.decrypt(rs.getString("phone_ciphertext")), pii.decrypt(rs.getString("email_ciphertext")), rs.getString("status"),
                 rs.getObject("current_parse_version_id", UUID.class), rs.getObject("resume_file_id", UUID.class),
-                rs.getString("parse_status"), rs.getString("error_code"), rs.getString("original_filename"),
+                rs.getString("parse_status"), rs.getString("error_code"), pii.decryptIfEncrypted(rs.getString("original_filename")),
                 rs.getString("media_type"), rs.getLong("size_bytes"), rs.getInt("version_number"),
                 rs.getString("headline"), rs.getInt("years_experience"), rs.getString("highest_education"),
                 strings(rs.getString("skills")), strings(rs.getString("work_experience")),
@@ -625,7 +649,7 @@ public class CandidateService {
         List<String> cleaned = tags == null ? List.of() : tags.stream()
                 .filter(t -> t != null && !t.isBlank()).map(String::trim).distinct().toList();
         profile.put("tags", cleaned);
-        String searchText = buildSearchText(existing.id(), existing.displayNameMasked(), null, null,
+        String searchText = buildSearchText(existing.id(),
                 profile, existing.skills(), existing.headline());
         jdbc.update("UPDATE candidates SET profile=?::jsonb, search_text=?, updated_at=? WHERE id=? AND workspace_id=?",
                 json(profile), searchText, timestamp(Instant.now()), candidateId, workspaceId);
@@ -713,12 +737,13 @@ public class CandidateService {
                 resourceId.toString(), timestamp(Instant.now()));
     }
 
-    private static CandidateSummary summary(java.sql.ResultSet rs) throws java.sql.SQLException {
+    private CandidateSummary summary(java.sql.ResultSet rs) throws java.sql.SQLException {
         int matchScore = rs.getInt("match_score");
         Integer matchScoreValue = rs.wasNull() ? null : matchScore;
         return new CandidateSummary(rs.getObject("id", UUID.class), rs.getObject("company_id", UUID.class),
-                rs.getObject("workspace_id", UUID.class), rs.getString("display_name_masked"), rs.getString("status"),
-                rs.getString("parse_status"), rs.getString("original_filename"), rs.getString("headline"),
+                rs.getObject("workspace_id", UUID.class), pii.decrypt(rs.getString("full_name_ciphertext")),
+                pii.decrypt(rs.getString("phone_ciphertext")), pii.decrypt(rs.getString("email_ciphertext")), rs.getString("status"),
+                rs.getString("parse_status"), pii.decryptIfEncrypted(rs.getString("original_filename")), rs.getString("headline"),
                 rs.getInt("years_experience"), rs.getString("highest_education"), stringsStatic(rs.getString("skills")),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(),
                 matchScoreValue, rs.getString("matched_job_title"), rs.getString("profile_json"));
@@ -869,13 +894,9 @@ public class CandidateService {
         return profile;
     }
 
-    private static String buildSearchText(UUID id, String name, String phone, String email,
-                                         Map<String, Object> profile, List<String> skills, String headline) {
+    private static String buildSearchText(UUID id, Map<String, Object> profile, List<String> skills, String headline) {
         StringBuilder sb = new StringBuilder();
         sb.append(id).append(' ');
-        sb.append(nullable(name)).append(' ');
-        sb.append(nullable(phone)).append(' ');
-        sb.append(nullable(email)).append(' ');
         sb.append(nullable(headline)).append(' ');
         if (skills != null) sb.append(String.join(" ", skills)).append(' ');
         if (profile != null) {
@@ -891,14 +912,15 @@ public class CandidateService {
                                 String education, List<String> skills, List<String> workExperience,
                                 List<String> educationExperience, String summary, List<String> warnings,
                                 String rawText) { }
+    private record AssetReference(UUID id, String objectKey) { }
     private record FileRow(String objectKey, String filename, String mediaType) { }
 
-    public record CandidateSummary(UUID id, UUID companyId, UUID workspaceId, String displayNameMasked,
+    public record CandidateSummary(UUID id, UUID companyId, UUID workspaceId, String displayNameMasked, String phone, String email,
                                    String status, String parseStatus, String originalFilename, String headline,
                                    int yearsExperience, String highestEducation, List<String> skills,
                                    Instant createdAt, Instant updatedAt, Integer matchScore, String matchedJobTitle,
                                    String profileJson) { }
-    public record CandidateDetail(UUID id, UUID companyId, UUID workspaceId, String displayNameMasked,
+    public record CandidateDetail(UUID id, UUID companyId, UUID workspaceId, String displayNameMasked, String phone, String email,
                                   String status, UUID currentParseVersionId, UUID resumeFileId, String parseStatus,
                                   String errorCode, String originalFilename, String mediaType, long sizeBytes,
                                   int parseVersion, String headline, int yearsExperience, String highestEducation,

@@ -2,6 +2,10 @@ package com.intelligentrecruitment.aiplatform.infrastructure;
 
 import com.intelligentrecruitment.aiplatform.application.AiPlatformClient;
 import com.intelligentrecruitment.aiplatform.application.ConversationAgentCommand;
+import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract;
+import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract.Competency;
+import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract.InterviewQuestionKit;
+import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract.Question;
 import com.intelligentrecruitment.aiplatform.application.RecruitmentAssistantIntentCatalog;
 import com.intelligentrecruitment.aiplatform.application.RouteAgentCommand;
 import com.intelligentrecruitment.aiplatform.application.StartAiTaskCommand;
@@ -12,6 +16,9 @@ import com.intelligentrecruitment.agentflow.domain.RouteDecision;
 import com.intelligentrecruitment.agentflow.domain.StructuredResult;
 import com.intelligentrecruitment.shared.error.ApiException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -411,6 +418,103 @@ public class MockAiPlatformClient implements AiPlatformClient {
         List<String> candidate = List.of(candidateSkills.toLowerCase().split("[、,，/;；\\n\\r]+"));
         return (int) List.of(jobSkills.toLowerCase().split("[、,，/;；\\n\\r]+")).stream()
                 .filter(skill -> !skill.isBlank() && candidate.stream().anyMatch(value -> value.trim().equals(skill.trim()))).count();
+    }
+
+    // =====================================================================
+    // AI 面试出题 — Mock 版本（无需调 DeepSeek）
+    // 逻辑完全对齐原 InterviewService 的模板代码，只是返回结构化 DTO。
+    // 该方法 public，可被 DeepSeekAiPlatformClient 在异常时降级复用。
+    // =====================================================================
+
+    @Override
+    public InterviewQuestionKit generateInterviewQuestions(InterviewQuestionContract.GenerateInterviewQuestionsInput input) {
+        return mockInterviewQuestionKit(input);
+    }
+
+    public InterviewQuestionKit mockInterviewQuestionKit(InterviewQuestionContract.GenerateInterviewQuestionsInput input) {
+        InterviewQuestionContract.GenerateInterviewQuestionsInput.JobSnapshot job = input.job();
+        InterviewQuestionContract.GenerateInterviewQuestionsInput.CandidateSnapshot candidate = input.candidate();
+
+        // ---- 1. 核心胜任力（3 项） ----
+        List<Competency> competencies = buildCompetencies(job.skills(), job.requirements(), job.title());
+
+        // ---- 2. 匹配度总结 ----
+        String matchSummary = buildMatchSummary(candidate, job, competencies);
+
+        // ---- 3. 面试题 ----
+        int count = Math.max(4, Math.min(input.requestedCount() <= 0 ? 8 : input.requestedCount(), 20));
+        List<Question> questions = buildQuestions(job, candidate, competencies, count);
+
+        return new InterviewQuestionKit(matchSummary, competencies, questions);
+    }
+
+    private static List<Competency> buildCompetencies(String jobSkills, String jobRequirements, String jobTitle) {
+        LinkedHashSet<String> tokens = new LinkedHashSet<>();
+        for (String v : splitInterview(jobSkills + "、" + jobRequirements)) tokens.add(v);
+        List<Competency> output = new ArrayList<>();
+        for (String name : tokens) {
+            if (name.length() >= 2 && output.size() < 3) {
+                output.add(new Competency(name, "验证候选人在「" + name + "」上的真实经验、方法与交付结果"));
+            }
+        }
+        if (output.size() < 3) output.add(new Competency("岗位专业能力", "验证与「" + (jobTitle == null || jobTitle.isBlank() ? "目标岗位" : jobTitle) + "」相关的专业方法和业务理解"));
+        if (output.size() < 3) output.add(new Competency("项目交付与问题解决", "验证复杂问题拆解、协同推进和结果复盘能力"));
+        if (output.size() < 3) output.add(new Competency("协作与沟通", "验证跨团队协作、冲突处理与结构化汇报能力"));
+        return output.subList(0, 3);
+    }
+
+    private static String buildMatchSummary(InterviewQuestionContract.GenerateInterviewQuestionsInput.CandidateSnapshot candidate,
+                                            InterviewQuestionContract.GenerateInterviewQuestionsInput.JobSnapshot job,
+                                            List<Competency> competencies) {
+        List<String> candidateSkills = candidate.skills() == null ? List.of() : candidate.skills();
+        List<String> hit = candidateSkills.stream()
+                .filter(skill -> competencies.stream().anyMatch(c -> c.name().toLowerCase().contains(skill.toLowerCase())
+                        || skill.toLowerCase().contains(c.name().toLowerCase()))).toList();
+        String experience = candidate.headline() == null || candidate.headline().isBlank() ? "人才档案中的经历" : candidate.headline();
+        String evidence = hit.isEmpty() ? "尚未在已解析技能中发现直接对应项，建议通过项目案例核验"
+                : "已呈现相关技能：" + String.join("、", hit) + "，建议进一步核验深度与产出";
+        String jobTitle = (job == null || job.title() == null || job.title().isBlank()) ? "目标职位" : job.title();
+        String candidateName = (candidate.name() == null || candidate.name().isBlank()) ? "候选人" : candidate.name();
+        String comps = String.join("、", competencies.stream().map(Competency::name).toList());
+        return "候选人「" + candidateName + "」的定位为「" + experience + "」。与 JD「" + jobTitle + "」相比，" + evidence
+                + "；面试应重点围绕 " + comps + " 收集可验证证据（AI mock 生成）。";
+    }
+
+    private static List<Question> buildQuestions(InterviewQuestionContract.GenerateInterviewQuestionsInput.JobSnapshot job,
+                                                 InterviewQuestionContract.GenerateInterviewQuestionsInput.CandidateSnapshot candidate,
+                                                 List<Competency> competencies, int count) {
+        String[] types = {"专业能力", "项目实践", "行为协作", "场景决策"};
+        String jobTitle = (job == null || job.title() == null || job.title().isBlank()) ? "目标职位" : job.title();
+        String candidateSkillText = candidate == null || candidate.skills() == null ? "" : String.join("、", candidate.skills());
+        List<Question> questions = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            Competency c = competencies.get(i % competencies.size());
+            String type = types[i % types.length];
+            String content = switch (type) {
+                case "专业能力" -> "请结合你在「" + c.name() + "」上的实际经历（如：" + candidateSkillText + "），说明你如何完成一个与「" + jobTitle + "」相关的关键任务，并交代选型、权衡和边界条件。";
+                case "项目实践" -> "请选取一个最能体现「" + c.name() + "」的项目，说明项目背景、你的职责、关键行动、量化结果及复盘（STAR 结构）。";
+                case "行为协作" -> "在推进与「" + c.name() + "」有关的工作时，你遇到过哪些协作分歧或推进阻力？你是如何沟通、推动达成共识并落地结果的？";
+                default -> "假设入职后需要在有限时间内解决「" + c.name() + "」相关的紧急问题，你会如何判断优先级、制定方案、协调资源并验证结果？";
+            };
+            String rationale = c.name() + "：" + c.description() + "（属于「" + type + "」类考察）";
+            String focusPoints = "说明真实背景与本人角色；交代具体方法、决策依据和量化结果；复盘风险、替代方案与改进措施；体现跨角色协同与沟通；给出可验证的结果数据。";
+            String reference = "清晰陈述问题背景与挑战；给出有细节的方法与决策；包含 1~2 个量化指标；说明反思与改进点。";
+            String scoring = "5分：证据充分、方法成熟且结果可验证；3分：经历真实、方法基本合理；1分：描述笼统或无法说明本人贡献。";
+            String candidateName = (candidate == null || candidate.name() == null || candidate.name().isBlank()) ? "候选人" : candidate.name();
+            String refs = "JD：" + jobTitle + "；人才：" + candidateName + "；胜任力=" + c.name();
+            questions.add(new Question(type, content, rationale, focusPoints, reference, scoring, refs, c.name()));
+        }
+        return questions;
+    }
+
+    private static List<String> splitInterview(String value) {
+        if (value == null || value.isBlank()) return List.of();
+        LinkedHashSet<String> values = new LinkedHashSet<>();
+        for (String v : value.replaceAll("[\\[\\]\"]", "").split("[、,，;；/\\n]+")) {
+            String t = v.trim();
+            if (!t.isEmpty() && t.length() <= 30) values.add(t);
+        }
+        return List.copyOf(values);
     }
 
     private static FlowCapability toFlowCapability(com.intelligentrecruitment.aiplatform.domain.AiCapability capability) {

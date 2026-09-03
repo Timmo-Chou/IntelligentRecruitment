@@ -18,7 +18,9 @@ import com.intelligentrecruitment.aiplatform.domain.AiTask;
 import com.intelligentrecruitment.aiplatform.domain.AiTaskStatus;
 import com.intelligentrecruitment.billing.application.BillingService;
 import com.intelligentrecruitment.billing.application.PricingService;
+import com.intelligentrecruitment.candidates.application.PiiCipher;
 import com.intelligentrecruitment.jobs.application.JobService;
+import com.intelligentrecruitment.interview.application.InterviewService;
 import com.intelligentrecruitment.recruitment.application.JdDraftGenerator.JdDraftContent;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
@@ -35,8 +37,10 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -65,6 +69,8 @@ public class RecruitmentService {
     private final JdSourceFileService sourceFiles;
     private final ResumeSourceFileService resumeSourceFiles;
     private final JobService jobs;
+    private final InterviewService interviewService;
+    private final PiiCipher pii;
     /** pricing_items 表没启用对应计费项时的兜底默认值（分） */
     private final long defaultJdPriceMinor;
     private final long defaultResumePriceMinor;
@@ -77,6 +83,8 @@ public class RecruitmentService {
                               JdSourceFileService sourceFiles,
                               ResumeSourceFileService resumeSourceFiles,
                               JobService jobs,
+                              InterviewService interviewService,
+                              PiiCipher pii,
                               @Value("${app.phase3.jd-generation-price-minor:80}") long defaultJdPriceMinor,
                               @Value("${app.phase4.resume-parsing-price-minor:80}") long defaultResumePriceMinor,
                               @Value("${app.phase3.outbox-lease-seconds:300}") long outboxLeaseSeconds) {
@@ -91,6 +99,8 @@ public class RecruitmentService {
         this.sourceFiles = sourceFiles;
         this.resumeSourceFiles = resumeSourceFiles;
         this.jobs = jobs;
+        this.interviewService = interviewService;
+        this.pii = pii;
         this.defaultJdPriceMinor = defaultJdPriceMinor;
         this.defaultResumePriceMinor = defaultResumePriceMinor;
         this.outboxLeaseSeconds = outboxLeaseSeconds;
@@ -118,7 +128,10 @@ public class RecruitmentService {
         String featureType = optional(input.featureType(), 32);
         String linkedJobIdRaw = input.linkedJobId() == null || input.linkedJobId().isBlank() ? null : input.linkedJobId().trim();
         UUID linkedJobId = linkedJobIdRaw == null ? null : UUID.fromString(linkedJobIdRaw);
-        String requestHash = SecurityHashes.sha256(title + "\n" + requirement + "\n" + featureType + "\n" + (linkedJobIdRaw == null ? "" : linkedJobIdRaw));
+        String linkedCandidateIdRaw = input.linkedCandidateId() == null || input.linkedCandidateId().isBlank() ? null : input.linkedCandidateId().trim();
+        UUID linkedCandidateId = linkedCandidateIdRaw == null ? null : UUID.fromString(linkedCandidateIdRaw);
+        String requestHash = SecurityHashes.sha256(title + "\n" + requirement + "\n" + featureType + "\n"
+                + (linkedJobIdRaw == null ? "" : linkedJobIdRaw) + "\n" + (linkedCandidateIdRaw == null ? "" : linkedCandidateIdRaw));
         List<ExistingReference> existing = jdbc.query("""
                 SELECT id,request_hash FROM recruitment_tasks WHERE workspace_id=? AND idempotency_key=?
                 """, (rs, n) -> new ExistingReference(rs.getObject("id", UUID.class), rs.getString("request_hash")),
@@ -133,10 +146,10 @@ public class RecruitmentService {
         jdbc.update("""
                 INSERT INTO recruitment_tasks
                 (id,company_id,workspace_id,title,initial_requirement,status,current_stage,idempotency_key,
-                 request_hash,feature_type,linked_job_id,created_by,created_at,updated_at)
-                VALUES (?,?,?, ?,?,'ACTIVE','COLLECTING_REQUIREMENTS',?, ?,?,?, ?,?,?)
+                 request_hash,feature_type,linked_job_id,linked_candidate_id,created_by,created_at,updated_at)
+                VALUES (?,?,?, ?,?,'ACTIVE','COLLECTING_REQUIREMENTS',?, ?,?,?,?, ?,?,?)
                 """, taskId, scope.companyId(), workspaceId, title, requirement, key, requestHash,
-                featureType.isBlank() ? null : featureType, linkedJobId, userId,
+                featureType.isBlank() ? null : featureType, linkedJobId, linkedCandidateId, userId,
                 timestamp(now), timestamp(now));
         jdbc.update("""
                 INSERT INTO conversations
@@ -151,7 +164,7 @@ public class RecruitmentService {
     public List<TaskSummary> listTasks(UUID userId, UUID workspaceId) {
         workspaceAccess.requireBusinessAccess(userId, workspaceId);
         return jdbc.query("""
-                SELECT t.id,t.company_id,t.workspace_id,t.title,t.status,t.current_stage,t.feature_type,t.linked_job_id,t.created_by,
+                SELECT t.id,t.company_id,t.workspace_id,t.title,t.status,t.current_stage,t.feature_type,t.linked_job_id,t.linked_candidate_id,t.created_by,
                        t.created_at,t.updated_at,j.id AS job_id,j.title AS job_title
                 FROM recruitment_tasks t
                 LEFT JOIN LATERAL (
@@ -165,6 +178,7 @@ public class RecruitmentService {
                 rs.getString("title"), rs.getString("status"), rs.getString("current_stage"),
                 rs.getString("feature_type"),
                 rs.getObject("linked_job_id", UUID.class),
+                rs.getObject("linked_candidate_id", UUID.class),
                 rs.getObject("job_id", UUID.class), rs.getString("job_title"),
                 rs.getObject("created_by", UUID.class), rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("updated_at").toInstant()), workspaceId);
@@ -313,7 +327,7 @@ public class RecruitmentService {
                  input_payload,policy_decision,execution_context)
                 VALUES (?,?,?,?, 'JD_GENERATION','QUEUED',0,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
                 """, runId, scope.companyId(), workspaceId, taskId, attempt, key, payloadHash,
-                JD_PRICING_VERSION, resolveJdPriceMinor(), userId, timestamp(now), json(Map.of(
+                JD_PRICING_VERSION, resolveJdPriceMinor(), userId, timestamp(now), protectedPayload(Map.of(
                         "requirement", requirement,
                         "scenario", scenario,
                         "title", nullable(value(input, GenerateJdInput::title)),
@@ -524,7 +538,7 @@ public class RecruitmentService {
 
     private TaskDetail detailScoped(UUID workspaceId, UUID taskId) {
         List<TaskSummary> summaries = jdbc.query("""
-                SELECT t.id,t.company_id,t.workspace_id,t.title,t.status,t.current_stage,t.feature_type,t.linked_job_id,t.created_by,
+                SELECT t.id,t.company_id,t.workspace_id,t.title,t.status,t.current_stage,t.feature_type,t.linked_job_id,t.linked_candidate_id,t.created_by,
                        t.created_at,t.updated_at,j.id AS job_id,j.title AS job_title
                 FROM recruitment_tasks t
                 LEFT JOIN LATERAL (
@@ -538,6 +552,7 @@ public class RecruitmentService {
                 rs.getString("title"), rs.getString("status"), rs.getString("current_stage"),
                 rs.getString("feature_type"),
                 rs.getObject("linked_job_id", UUID.class),
+                rs.getObject("linked_candidate_id", UUID.class),
                 rs.getObject("job_id", UUID.class), rs.getString("job_title"),
                 rs.getObject("created_by", UUID.class), rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("updated_at").toInstant()), taskId, workspaceId);
@@ -549,7 +564,7 @@ public class RecruitmentService {
                 SELECT id,role,content,capability,sequence_number,created_by,created_at
                 FROM messages WHERE conversation_id=? AND workspace_id=? ORDER BY sequence_number
                 """, (rs, n) -> new MessageView(rs.getObject("id", UUID.class), rs.getString("role"),
-                rs.getString("content"), rs.getString("capability"), rs.getInt("sequence_number"),
+                pii.decryptIfEncrypted(rs.getString("content")), rs.getString("capability"), rs.getInt("sequence_number"),
                 rs.getObject("created_by", UUID.class), rs.getTimestamp("created_at").toInstant()),
                 conversationId, workspaceId);
         List<JdDraftView> drafts = draftRows(workspaceId, taskId);
@@ -607,7 +622,7 @@ public class RecruitmentService {
                 FROM resume_parse_drafts WHERE recruitment_task_id=? AND workspace_id=? ORDER BY revision DESC
                 """, (rs, n) -> new ResumeParseDraftView(rs.getObject("id", UUID.class), rs.getInt("revision"),
                 rs.getObject("source_ai_run_id", UUID.class), rs.getObject("resume_source_file_id", UUID.class),
-                rs.getString("content"), rs.getString("status"),
+                pii.decryptIfEncrypted(rs.getString("content")), rs.getString("status"),
                 rs.getObject("created_by", UUID.class),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()),
                 taskId, workspaceId);
@@ -643,13 +658,13 @@ public class RecruitmentService {
                     UPDATE resume_parse_drafts SET content=?, status=CASE WHEN status='CONFIRMED' THEN 'DRAFT' ELSE status END,
                      updated_by=?,updated_at=?
                     WHERE recruitment_task_id=? AND workspace_id=? AND revision=?
-                    """, content, userId, timestamp(now), taskId, workspaceId, targetRevision);
+                    """, pii.encrypt(content), userId, timestamp(now), taskId, workspaceId, targetRevision);
         } else {
             updated = jdbc.update("""
                     INSERT INTO resume_parse_drafts
                     (id,company_id,workspace_id,recruitment_task_id,revision,content,status,created_by,created_at,updated_at)
                     VALUES (?,?,?,?,?,?, 'DRAFT',?,?,?)
-                    """, UUID.randomUUID(), scope.companyId(), workspaceId, taskId, nextRevision, content,
+                    """, UUID.randomUUID(), scope.companyId(), workspaceId, taskId, nextRevision, pii.encrypt(content),
                     userId, timestamp(now), timestamp(now));
         }
         if (updated == 0) throw new ApiException("RESUME_PARSE_DRAFT_NOT_FOUND", "简历解析草稿不存在，无法更新", HttpStatus.CONFLICT);
@@ -669,7 +684,8 @@ public class RecruitmentService {
         String key = requiredIdempotencyKey(idempotencyKey);
         // 构造输入 payload：resumes + job（如果有 linked_job_id）
         List<ResumeSourceFileService.SourceFileView> files = resumeSourceFiles.list(workspaceId, taskId);
-        List<Map<String, Object>> resumeList = files.stream().map(item -> {
+        // 关键修复：如果不上传文件但选了人才库候选人 → 从 resume_parse_versions.raw_text 注入 1 条虚拟简历
+        List<Map<String, Object>> resumeList = new ArrayList<>(files.stream().map(item -> {
             LinkedHashMap<String, Object> m = new LinkedHashMap<>();
             m.put("id", item.id().toString());
             m.put("filename", item.filename());
@@ -677,7 +693,52 @@ public class RecruitmentService {
             m.put("size_bytes", item.sizeBytes());
             m.put("text", item.extractedText() == null ? "" : item.extractedText());
             return (Map<String, Object>) m;
-        }).toList();
+        }).toList());
+        if (resumeList.isEmpty()) {
+            UUID linkedCandidateId = jdbc.queryForObject("""
+                    SELECT linked_candidate_id FROM recruitment_tasks WHERE id=? AND workspace_id=?
+                    """, UUID.class, taskId, workspaceId);
+            if (linkedCandidateId != null) {
+                List<CandidateVirtualText> cands = jdbc.query("""
+                        SELECT c.id,c.full_name_ciphertext,c.current_parse_version_id,
+                               pv.raw_text,
+                               COALESCE(pv.headline, '') AS headline,
+                               COALESCE(NULLIF(c.profile->>'yearsExperience','')::int, pv.years_experience, 0) AS years_experience,
+                               COALESCE(c.profile->>'highestEducation', pv.highest_education, '') AS highest_education,
+                               COALESCE(c.profile->'skills', pv.skills, '[]'::jsonb)::text AS skills,
+                               f.original_filename
+                        FROM candidates c
+                        LEFT JOIN resume_parse_versions pv ON pv.id=c.current_parse_version_id
+                        LEFT JOIN resume_files rf ON rf.candidate_id=c.id
+                        LEFT JOIN file_assets f ON f.id=rf.file_asset_id
+                        WHERE c.id=? AND c.workspace_id=? AND c.status<>'DELETED'
+                        ORDER BY rf.id NULLS LAST LIMIT 1
+                        """, (rs, n) -> new CandidateVirtualText(
+                                rs.getObject("id", UUID.class),
+                                pii.decrypt(rs.getString("full_name_ciphertext")),
+                                pii.decryptIfEncrypted(rs.getString("raw_text")),
+                                rs.getString("headline"),
+                                rs.getInt("years_experience"),
+                                rs.getString("highest_education"),
+                                rs.getString("skills"),
+                                pii.decryptIfEncrypted(rs.getString("original_filename"))),
+                        linkedCandidateId, workspaceId);
+                if (!cands.isEmpty()) {
+                    CandidateVirtualText c = cands.getFirst();
+                    String text = c.rawText() != null && !c.rawText().isBlank() ? c.rawText()
+                            : buildCandidateSummary(c);
+                    LinkedHashMap<String, Object> virtual = new LinkedHashMap<>();
+                    virtual.put("id", c.id().toString());
+                    virtual.put("filename", (c.originalFilename() == null || c.originalFilename().isBlank())
+                            ? (c.displayNameMasked() + "_人才库简历.txt") : c.originalFilename());
+                    virtual.put("media_type", "text/plain");
+                    virtual.put("size_bytes", (long) text.length());
+                    virtual.put("text", text);
+                    virtual.put("source", "candidate_library");
+                    resumeList.add(virtual);
+                }
+            }
+        }
         Map<String, Object> jobMap = new LinkedHashMap<>();
         UUID linkedJobId = jdbc.queryForObject("SELECT linked_job_id FROM recruitment_tasks WHERE id=? AND workspace_id=?",
                 UUID.class, taskId, workspaceId);
@@ -731,7 +792,7 @@ public class RecruitmentService {
                  input_payload,policy_decision,execution_context)
                 VALUES (?,?,?,?, 'RESUME_PARSING','QUEUED',0,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
                 """, runId, scope.companyId(), workspaceId, taskId, attempt, key, payloadHash,
-                RESUME_PARSING_PRICING_VERSION, resolveResumePriceMinor(), userId, timestamp(now), json(payload),
+                RESUME_PARSING_PRICING_VERSION, resolveResumePriceMinor(), userId, timestamp(now), protectedPayload(payload),
                 json(policyDecision), json(executionContext));
         String billingReference = "resume-parse:" + runId;
         billing.reserve(userId, workspaceId, billingReference, resolveResumePriceMinor());
@@ -747,6 +808,114 @@ public class RecruitmentService {
         jdbc.update("UPDATE recruitment_tasks SET current_stage='RESUME_PARSING',updated_at=? WHERE id=?",
                 timestamp(now), taskId);
         audit(userId, scope, "RESUME_PARSE_QUEUED", "AI_RUN", runId);
+        return detailScoped(workspaceId, taskId);
+    }
+
+    /**
+     * 面试出题：直接同步调用 InterviewService.create 生成面试题包。
+     * 设计说明：面试出题耗时短（~3-15 秒，远低于 JD/简历解析的分钟级），同步 HTTP 往返比异步 outbox 队列更简单，
+     * 同时也能让右侧 AI 助手以 QUEUED/RUNNING/COMPLETED 进度展示（插入 1 条 ai_runs 记录做状态同步）。
+     * 如果任务没有 linked_job_id 或 linked_candidate_id，返回明确错误。
+     */
+    @Transactional
+    public TaskDetail generateInterviewKit(UUID userId, UUID workspaceId, UUID taskId, String idempotencyKey,
+                                           GenerateInterviewKitInput input) {
+        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TaskRow task = taskForUpdate(workspaceId, taskId);
+        String key = requiredIdempotencyKey(idempotencyKey);
+        // 查 linked_job_id + linked_candidate_id（从创建任务时写入）
+        List<UUID[]> linkedIds = jdbc.query("""
+                SELECT linked_job_id, linked_candidate_id FROM recruitment_tasks WHERE id=? AND workspace_id=?
+                """, (rs, n) -> new UUID[]{rs.getObject("linked_job_id", UUID.class),
+                        rs.getObject("linked_candidate_id", UUID.class)}, taskId, workspaceId);
+        if (linkedIds.isEmpty()) throw taskNotFound();
+        UUID linkedJobId = linkedIds.getFirst()[0];
+        UUID linkedCandidateId = linkedIds.getFirst()[1];
+        if (linkedJobId == null) throw badRequest("JOB_REQUIRED", "请先关联职位再发起面试出题");
+        if (linkedCandidateId == null) throw badRequest("CANDIDATE_REQUIRED", "请先选择人才再发起面试出题");
+        // 用 JobService 查最新 currentVersionId（InterviewService.create 需要 jobVersionId）
+        JobService.JobView jobView;
+        try {
+            jobView = jobs.get(userId, workspaceId, linkedJobId);
+        } catch (ApiException cause) {
+            throw new ApiException("INTERVIEW_JOB_INVALID", "关联职位不存在或已删除：" + cause.getMessage(), HttpStatus.BAD_REQUEST);
+        }
+        if (jobView.currentVersionId() == null) throw badRequest("JOB_VERSION_REQUIRED", "关联职位还未生成正式版本，请先确认 JD");
+
+        // --- 构造 payload hash，保证幂等 ---
+        int questionCount = input == null || input.questionCount() == null ? 8 : Math.max(4, Math.min(input.questionCount(), 20));
+        Map<String, Object> payload = Map.of("jobId", linkedJobId.toString(),
+                "jobVersionId", jobView.currentVersionId().toString(),
+                "candidateId", linkedCandidateId.toString(),
+                "questionCount", questionCount);
+        String payloadHash = hash(payload);
+        List<ExistingReference> existing = jdbc.query("""
+                SELECT id,input_hash AS request_hash FROM ai_runs WHERE workspace_id=? AND idempotency_key=?
+                """, (rs, n) -> new ExistingReference(rs.getObject("id", UUID.class), rs.getString("request_hash")),
+                workspaceId, key);
+        if (!existing.isEmpty()) {
+            if (!existing.getFirst().requestHash().equals(payloadHash)) throw idempotencyConflict();
+            return detailScoped(workspaceId, taskId);
+        }
+
+        UUID runId = UUID.randomUUID();
+        Instant now = Instant.now();
+        long availableAmountMinor = billing.view(userId, workspaceId).availableAmountMinor();
+        PolicyDecision policyDecision = flowCoordinator.evaluate(FlowCapability.INTERVIEW_KIT_GENERATION, scope, userId,
+                availableAmountMinor, 0L, null, true);
+        ExecutionContext executionContext = flowCoordinator.createExecutionContext(policyDecision, taskId, key,
+                "interview-kit:" + runId, List.of(new ExecutionContext.InputVersion("interview_kit_input",
+                        taskId.toString(), "frozen", payloadHash)), false);
+        jdbc.update("""
+                INSERT INTO ai_runs
+                (id,company_id,workspace_id,recruitment_task_id,capability,status,progress,attempt_number,
+                 idempotency_key,input_hash,pricing_version,estimated_amount_minor,created_by,created_at,
+                 input_payload,policy_decision,execution_context)
+                VALUES (?,?,?,?, 'INTERVIEW_KIT_GENERATION','RUNNING',10,1,?,?,0,0,?,?,?::jsonb,?::jsonb,?::jsonb)
+                """, runId, scope.companyId(), workspaceId, taskId, key, payloadHash, userId, timestamp(now),
+                protectedPayload(payload), json(policyDecision), json(executionContext));
+        appendRunEvent(new RunExecution(runId, scope.companyId(), workspaceId, taskId, userId, task.conversationId(),
+                key, "RUNNING", 10, null, json(payload), json(executionContext)), "status",
+                Map.of("status", "RUNNING", "progress", 10));
+        jdbc.update("UPDATE recruitment_tasks SET current_stage='INTERVIEW_KIT_GENERATING',updated_at=? WHERE id=?",
+                timestamp(now), taskId);
+
+        InterviewService.KitDetail kit;
+        try {
+            kit = interviewService.create(userId, workspaceId,
+                    new InterviewService.CreateInput(linkedCandidateId, jobView.currentVersionId(), null, questionCount));
+        } catch (RuntimeException exception) {
+            jdbc.update("""
+                    UPDATE ai_runs SET status='FAILED',progress=100,error_code=?,error_message=?,completed_at=?
+                    WHERE id=?
+                    """, "INTERVIEW_KIT_FAILED", optional(exception.getMessage(), 1000),
+                    timestamp(Instant.now()), runId);
+            appendRunEvent(new RunExecution(runId, scope.companyId(), workspaceId, taskId, userId, task.conversationId(),
+                    key, "FAILED", 100, null, json(payload), json(executionContext)), "status",
+                    Map.of("status", "FAILED", "progress", 100, "message", optional(exception.getMessage(), 500)));
+            throw exception;
+        }
+        // 把面试题包摘要写入 1 条 ASSISTANT 消息，让右侧 AI 助手可直接看到结果
+        StringBuilder summaryText = new StringBuilder(512);
+        summaryText.append("✅ 已为你生成面试题包：").append(kit.matchSummary()).append("\n\n核心胜任力：");
+        if (kit.coreCompetencies() != null) {
+            for (int i = 0; i < kit.coreCompetencies().size(); i++) {
+                InterviewService.CoreCompetency c = kit.coreCompetencies().get(i);
+                if (c == null) continue;
+                summaryText.append("\n").append(i + 1).append(". ").append(c.name());
+                if (c.description() != null && !c.description().isBlank()) summaryText.append("：").append(c.description());
+            }
+        }
+        summaryText.append("\n\n共生成 ").append(kit.questions() == null ? 0 : kit.questions().size()).append(" 道面试题（专业能力/项目实践/行为协作/场景决策），可在左侧详情区继续修改或使用。");
+        insertMessage(scope, task.conversationId(), "ASSISTANT", summaryText.toString(), "INTERVIEW_KIT_GENERATION", null, Instant.now());
+
+        jdbc.update("""
+                UPDATE ai_runs SET status='COMPLETED',progress=100,completed_at=? WHERE id=?
+                """, timestamp(Instant.now()), runId);
+        appendRunEvent(new RunExecution(runId, scope.companyId(), workspaceId, taskId, userId, task.conversationId(),
+                key, "COMPLETED", 100, null, json(payload), json(executionContext)), "status",
+                Map.of("status", "COMPLETED", "progress", 100, "kitId", kit.id().toString()));
+        audit(userId, scope, "INTERVIEW_KIT_GENERATED", "AI_RUN", runId);
         return detailScoped(workspaceId, taskId);
     }
 
@@ -831,7 +1000,7 @@ public class RecruitmentService {
                 (id,company_id,workspace_id,recruitment_task_id,source_ai_run_id,revision,content,status,created_by,created_at,updated_at)
                 VALUES (?,?,?,?,?,?,?,'DRAFT',?,?,?)
                 """, UUID.randomUUID(), scope.companyId(), scope.workspaceId(), run.taskId(), run.id(),
-                nextRevision, markdown, run.createdBy(), timestamp(completed), timestamp(completed));
+                nextRevision, pii.encrypt(markdown), run.createdBy(), timestamp(completed), timestamp(completed));
         billing.settleSystem(run.workspaceId(), "resume-parse:" + run.id(), resolveResumePriceMinor());
         jdbc.update("UPDATE ai_runs SET status='COMPLETED',progress=100,settled_amount_minor=?,completed_at=? WHERE id=?",
                 resolveResumePriceMinor(), timestamp(completed), run.id());
@@ -893,7 +1062,7 @@ public class RecruitmentService {
                     WHERE conversation_id=? AND workspace_id=?
                     ORDER BY sequence_number DESC LIMIT 30
                 ) recent ORDER BY sequence_number
-                """, (rs, n) -> Map.of("role", rs.getString("role"), "content", rs.getString("content")),
+                """, (rs, n) -> Map.of("role", rs.getString("role"), "content", pii.decryptIfEncrypted(rs.getString("content"))),
                 conversationId, workspaceId);
     }
 
@@ -962,7 +1131,7 @@ public class RecruitmentService {
                 INSERT INTO messages
                 (id,company_id,workspace_id,conversation_id,role,content,capability,sequence_number,created_by,created_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?)
-                """, UUID.randomUUID(), scope.companyId(), scope.workspaceId(), conversationId, role, content,
+                """, UUID.randomUUID(), scope.companyId(), scope.workspaceId(), conversationId, role, pii.encrypt(content),
                 capability, sequence == null ? 1 : sequence, createdBy, timestamp(now));
         jdbc.update("UPDATE conversations SET updated_at=? WHERE id=?", timestamp(now), conversationId);
     }
@@ -1022,22 +1191,27 @@ public class RecruitmentService {
     }
 
     private Map<String, String> stringMap(String value) {
+        Map<String, Object> source = payloadMap(value);
+        Map<String, String> result = new LinkedHashMap<>();
+        source.forEach((key, item) -> result.put(key, item == null ? "" : String.valueOf(item)));
+        return result;
+    }
+
+    private Map<String, Object> payloadMap(String value) {
         try {
-            Map<String, Object> source = objectMapper.readValue(value, new TypeReference<>() { });
-            Map<String, String> result = new LinkedHashMap<>();
-            source.forEach((key, item) -> result.put(key, item == null ? "" : String.valueOf(item)));
-            return result;
+            Map<String, Object> source = objectMapper.readValue(value, new TypeReference<Map<String, Object>>() { });
+            Object encrypted = source.get("_encrypted");
+            if (encrypted instanceof String ciphertext) {
+                return new LinkedHashMap<>(objectMapper.readValue(pii.decryptIfEncrypted(ciphertext), new TypeReference<Map<String, Object>>() { }));
+            }
+            return new LinkedHashMap<>(source);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("JD run input is invalid", exception);
         }
     }
 
-    private Map<String, Object> payloadMap(String value) {
-        try {
-            return new LinkedHashMap<>(objectMapper.readValue(value, new TypeReference<Map<String, Object>>() { }));
-        } catch (JsonProcessingException exception) {
-            throw new IllegalStateException("JD run input is invalid", exception);
-        }
+    private String protectedPayload(Map<String, Object> payload) {
+        return json(Map.of("_encrypted", pii.encrypt(json(payload))));
     }
 
     private ExecutionContext executionContext(String value) {
@@ -1139,7 +1313,11 @@ public class RecruitmentService {
         return new ApiException("IDEMPOTENCY_CONFLICT", "相同幂等键对应的请求内容不一致", HttpStatus.CONFLICT);
     }
 
-    public record CreateTaskInput(String title, String initialRequirement, String featureType, String linkedJobId) { }
+    private static ApiException badRequest(String code, String message) {
+        return new ApiException(code, message, HttpStatus.BAD_REQUEST);
+    }
+
+    public record CreateTaskInput(String title, String initialRequirement, String featureType, String linkedJobId, String linkedCandidateId) { }
 
     public record RenameTaskInput(String title) { }
 
@@ -1160,8 +1338,10 @@ public class RecruitmentService {
 
     public record GenerateResumeParseInput(String requirement) { }
 
+    public record GenerateInterviewKitInput(Integer questionCount) { }
+
     public record TaskSummary(UUID id, UUID companyId, UUID workspaceId, String title, String status,
-                              String currentStage, String featureType, UUID linkedJobId,
+                              String currentStage, String featureType, UUID linkedJobId, UUID linkedCandidateId,
                               UUID jobId, String jobTitle, UUID createdBy,
                               Instant createdAt, Instant updatedAt) { }
 
@@ -1208,6 +1388,25 @@ public class RecruitmentService {
     }
 
     private record ExistingReference(UUID id, String requestHash) { }
+
+    private record CandidateVirtualText(UUID id, String displayNameMasked, String rawText, String headline,
+                                        int yearsExperience, String highestEducation, String skillsJson,
+                                        String originalFilename) { }
+
+    /** 候选人 raw_text 为空时，拼一段结构化摘要作为虚拟简历文本，避免 LLM 只提示"请先上传简历" */
+    private String buildCandidateSummary(CandidateVirtualText c) {
+        List<String> skills = new ArrayList<>();
+        try { skills = objectMapper.readValue(c.skillsJson() == null ? "[]" : c.skillsJson(), new TypeReference<List<String>>() {}); } catch (JsonProcessingException ignore) {}
+        StringBuilder sb = new StringBuilder();
+        sb.append("【候选人摘要】\n");
+        sb.append("姓名：").append(c.displayNameMasked() == null ? "候选人" : c.displayNameMasked()).append("\n");
+        if (c.headline() != null && !c.headline().isBlank()) sb.append("简介：").append(c.headline()).append("\n");
+        sb.append("工作年限：").append(c.yearsExperience() <= 0 ? "待确认" : c.yearsExperience() + "年").append("\n");
+        sb.append("最高学历：").append(c.highestEducation() == null || c.highestEducation().isBlank() ? "待确认" : c.highestEducation()).append("\n");
+        sb.append("核心技能：").append(skills.isEmpty() ? "待确认" : String.join("、", skills)).append("\n");
+        if (c.originalFilename() != null && !c.originalFilename().isBlank()) sb.append("简历文件名：").append(c.originalFilename()).append("\n");
+        return sb.toString();
+    }
 
     private record TaskRow(UUID id, String title, String initialRequirement, UUID conversationId) { }
 

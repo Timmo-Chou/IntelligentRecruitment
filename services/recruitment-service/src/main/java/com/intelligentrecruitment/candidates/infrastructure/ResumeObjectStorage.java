@@ -5,6 +5,7 @@ import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.ServerSideEncryptionS3;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -16,17 +17,21 @@ public class ResumeObjectStorage {
 
     private final MinioClient minio;
     private final String bucket;
+    private final boolean serverSideEncryption;
 
-    public ResumeObjectStorage(MinioClient minio, @Value("${app.storage.bucket}") String bucket) {
+    public ResumeObjectStorage(MinioClient minio, @Value("${app.storage.bucket}") String bucket,
+                               @Value("${app.storage.server-side-encryption:false}") boolean serverSideEncryption) {
         this.minio = minio;
         this.bucket = bucket;
+        this.serverSideEncryption = serverSideEncryption;
     }
 
     public void put(String objectKey, byte[] content, String mediaType) {
         try {
-            minio.putObject(PutObjectArgs.builder().bucket(bucket).object(objectKey)
-                    .stream(new ByteArrayInputStream(content), content.length, -1)
-                    .contentType(mediaType).build());
+            PutObjectArgs.Builder request = PutObjectArgs.builder().bucket(bucket).object(objectKey)
+                    .stream(new ByteArrayInputStream(content), content.length, -1).contentType(mediaType);
+            if (serverSideEncryption) request.sse(new ServerSideEncryptionS3());
+            minio.putObject(request.build());
         } catch (Exception exception) {
             throw new ApiException("OBJECT_STORAGE_FAILED", "简历文件保存失败", HttpStatus.SERVICE_UNAVAILABLE);
         }

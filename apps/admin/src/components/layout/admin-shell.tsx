@@ -8,6 +8,7 @@ import {
   FileCheck,
   MessageSquare,
   Wallet,
+  Landmark,
   Receipt,
   Settings,
   Shield,
@@ -28,6 +29,7 @@ const navItems = [
   { label: "审核中心", icon: FileCheck, href: "/reviews" },
   { label: "工单管理", icon: MessageSquare, href: "/tickets" },
   { label: "账本管理", icon: Wallet, href: "/billing" },
+  { label: "收款账户", icon: Landmark, href: "/recharge-settings" },
   { label: "定价配置", icon: Receipt, href: "/pricing" },
   { label: "系统设置", icon: Settings, href: "/settings/admins" },
 ] as const;

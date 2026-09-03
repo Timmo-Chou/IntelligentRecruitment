@@ -1,6 +1,7 @@
 package com.intelligentrecruitment.recruitment.application;
 
 import com.intelligentrecruitment.candidates.application.ResumeTextExtractor;
+import com.intelligentrecruitment.candidates.application.PiiCipher;
 import com.intelligentrecruitment.recruitment.infrastructure.JdSourceObjectStorage;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
@@ -27,15 +28,17 @@ public class JdSourceFileService {
     private final WorkspaceAccessService workspaceAccess;
     private final JdSourceObjectStorage storage;
     private final ResumeTextExtractor extractor;
+    private final PiiCipher pii;
     private final long maxFileSize;
 
     public JdSourceFileService(JdbcTemplate jdbc, WorkspaceAccessService workspaceAccess, JdSourceObjectStorage storage,
-                               ResumeTextExtractor extractor,
+                               ResumeTextExtractor extractor, PiiCipher pii,
                                @Value("${app.storage.max-file-size-bytes:10485760}") long maxFileSize) {
         this.jdbc = jdbc;
         this.workspaceAccess = workspaceAccess;
         this.storage = storage;
         this.extractor = extractor;
+        this.pii = pii;
         this.maxFileSize = maxFileSize;
     }
 
@@ -50,14 +53,14 @@ public class JdSourceFileService {
         String mediaType = mediaType(filename);
         if (assetId == null) {
             assetId = UUID.randomUUID();
-            String objectKey = workspaceId + "/jd-source/" + assetId + "/" + filename;
+            String objectKey = workspaceId + "/jd-source/" + assetId;
             storage.put(objectKey, bytes, mediaType);
             jdbc.update("""
                     INSERT INTO file_assets
                     (id,company_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
                     VALUES (?,?,?,?,?,?,?,?,'PENDING','ACTIVE',?,?)
-                    """, assetId, scope.companyId(), workspaceId, objectKey, filename, mediaType, bytes.length, hash,
+                    """, assetId, scope.companyId(), workspaceId, objectKey, pii.encrypt(filename), mediaType, bytes.length, hash,
                     userId, timestamp(Instant.now()));
         }
         UUID sourceId = UUID.randomUUID();
@@ -69,7 +72,7 @@ public class JdSourceFileService {
                 (id,company_id,workspace_id,recruitment_task_id,file_asset_id,extracted_text,created_by,created_at)
                 VALUES (?,?,?,?,?,?,?,?)
                 ON CONFLICT (recruitment_task_id,file_asset_id) DO NOTHING
-                """, sourceId, scope.companyId(), workspaceId, taskId, resolvedAssetId, extracted, userId, timestamp(now));
+                """, sourceId, scope.companyId(), workspaceId, taskId, resolvedAssetId, pii.encrypt(extracted), userId, timestamp(now));
         List<SourceFileView> files = list(workspaceId, taskId);
         return files.stream().filter(item -> item.fileAssetId().equals(resolvedAssetId)).findFirst().orElseThrow();
     }
@@ -85,7 +88,7 @@ public class JdSourceFileService {
                 WHERE s.workspace_id=? AND s.recruitment_task_id=? AND f.lifecycle_status='ACTIVE'
                 ORDER BY s.created_at
                 """, (rs, n) -> new SourceFileView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
-                rs.getString(3), rs.getString(4), rs.getLong(5), rs.getString(6), rs.getTimestamp(7).toInstant()), workspaceId, taskId);
+                pii.decryptIfEncrypted(rs.getString(3)), rs.getString(4), rs.getLong(5), pii.decryptIfEncrypted(rs.getString(6)), rs.getTimestamp(7).toInstant()), workspaceId, taskId);
     }
 
     private UUID existingAsset(UUID workspaceId, String hash) {
