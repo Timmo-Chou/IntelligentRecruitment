@@ -9,6 +9,7 @@ import com.intelligentrecruitment.shared.security.SecurityHashes;
 import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService;
 import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.WorkspaceScope;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -72,6 +73,9 @@ public class CandidateService {
         if (!duplicate.isEmpty()) return detailScoped(workspaceId, duplicate.getFirst());
 
         AssetReference existingAsset = activeAsset(workspaceId, hash);
+        // 活跃资产可能来自简历源文件；优先复用，避免破坏同一文件资产的去重关系。
+        // 仅在没有活跃资产时，释放已删除候选人遗留的哈希唯一键。
+        if (existingAsset == null) releaseHashSlot(workspaceId, hash);
         UUID assetId = existingAsset == null ? UUID.randomUUID() : existingAsset.id();
         UUID candidateId = UUID.randomUUID();
         UUID resumeFileId = UUID.randomUUID();
@@ -83,6 +87,11 @@ public class CandidateService {
         try {
             return persistUpload(userId, scope, assetId, candidateId, resumeFileId, objectKey, filename,
                     mediaType, bytes, hash, normalizeScenario(scenario), createdAsset);
+        } catch (DuplicateKeyException duplicateKey) {
+            if (!createdAsset) throw duplicateKey;
+            releaseHashSlot(workspaceId, hash);
+            return persistUpload(userId, scope, assetId, candidateId, resumeFileId, objectKey, filename,
+                    mediaType, bytes, hash, normalizeScenario(scenario), true);
         } catch (RuntimeException exception) {
             if (createdAsset) {
                 try { storage.remove(objectKey); } catch (RuntimeException ignored) { }
@@ -573,8 +582,17 @@ public class CandidateService {
             jdbc.update("UPDATE file_assets SET lifecycle_status='DELETING' WHERE object_key=? AND workspace_id=?",
                     file.objectKey(), workspaceId);
             try { storage.remove(file.objectKey()); } catch (RuntimeException ignored) { }
-            jdbc.update("UPDATE file_assets SET lifecycle_status='DELETED' WHERE object_key=? AND workspace_id=?",
+            List<AssetHashRow> assets = jdbc.query("""
+                    SELECT id, sha256 FROM file_assets WHERE object_key=? AND workspace_id=?
+                    """, (rs, rowNum) -> new AssetHashRow(rs.getObject(1, UUID.class), rs.getString(2)),
                     file.objectKey(), workspaceId);
+            for (AssetHashRow asset : assets) {
+                jdbc.update("""
+                        UPDATE file_assets
+                        SET lifecycle_status='DELETED', sha256=?
+                        WHERE id=? AND workspace_id=?
+                        """, archivedSha256(asset.id(), asset.sha256()), asset.id(), workspaceId);
+            }
         }
         audit(userId, scope, "CANDIDATE_DELETED", candidateId);
     }
@@ -763,6 +781,38 @@ public class CandidateService {
         return value;
     }
 
+    /**
+     * Deleted or orphaned file_assets keep their row for audit, but the workspace+sha256 unique index
+     * must be released so the same resume can be imported again.
+     */
+    private void releaseHashSlot(UUID workspaceId, String hash) {
+        List<AssetHashRow> lockedAssets = jdbc.query("""
+                SELECT f.id, f.sha256 FROM file_assets f
+                WHERE f.workspace_id=? AND f.sha256=?
+                FOR UPDATE
+                """, (rs, rowNum) -> new AssetHashRow(rs.getObject(1, UUID.class), rs.getString(2)),
+                workspaceId, hash);
+        for (AssetHashRow asset : lockedAssets) {
+            if (hasActiveCandidateForAsset(workspaceId, asset.id())) continue;
+            jdbc.update("""
+                    UPDATE file_assets SET sha256=? WHERE id=? AND workspace_id=?
+                    """, archivedSha256(asset.id(), asset.sha256()), asset.id(), workspaceId);
+        }
+    }
+
+    private boolean hasActiveCandidateForAsset(UUID workspaceId, UUID assetId) {
+        Integer count = jdbc.queryForObject("""
+                SELECT count(*) FROM resume_files rf
+                JOIN candidates c ON c.id = rf.candidate_id
+                WHERE rf.file_asset_id=? AND rf.workspace_id=? AND c.status<>'DELETED'
+                """, Integer.class, assetId, workspaceId);
+        return count != null && count > 0;
+    }
+
+    private static String archivedSha256(UUID assetId, String originalHash) {
+        return SecurityHashes.sha256(assetId + ":" + originalHash);
+    }
+
     private static String safeFilename(String filename) {
         String value = filename == null ? "resume" : filename.replace("\\", "/");
         value = value.substring(value.lastIndexOf('/') + 1).replaceAll("[\\r\\n]", "").trim();
@@ -914,6 +964,7 @@ public class CandidateService {
                                 String rawText) { }
     private record AssetReference(UUID id, String objectKey) { }
     private record FileRow(String objectKey, String filename, String mediaType) { }
+    private record AssetHashRow(UUID id, String sha256) { }
 
     public record CandidateSummary(UUID id, UUID companyId, UUID workspaceId, String displayNameMasked, String phone, String email,
                                    String status, String parseStatus, String originalFilename, String headline,

@@ -958,14 +958,19 @@ function ImportTalentModal({
     setError(null);
     setReport([]);
     try {
-      const results = await Promise.allSettled(allowed.map((file) => uploadResume(workspaceId, file, "NORMAL")));
-      const next = results.map((result, index) => ({
-        name: allowed[index]?.name || "未知文件",
-        ok: result.status === "fulfilled",
-        message: result.status === "fulfilled"
-          ? (result.value.parseStatus === "PARSED" ? "解析完成" : "已上传，解析失败")
-          : messageOf(result.reason),
-      }));
+      const next: { name: string; ok: boolean; message: string }[] = [];
+      for (const file of allowed) {
+        try {
+          const value = await uploadResume(workspaceId, file, "NORMAL");
+          next.push({
+            name: file.name,
+            ok: true,
+            message: value.parseStatus === "PARSED" ? "解析完成" : "已上传，解析失败",
+          });
+        } catch (cause) {
+          next.push({ name: file.name, ok: false, message: messageOf(cause) });
+        }
+      }
       setReport(next);
       await onImported();
       if (next.every((item) => item.ok)) {

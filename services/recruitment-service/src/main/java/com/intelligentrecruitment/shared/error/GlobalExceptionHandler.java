@@ -3,6 +3,7 @@ package com.intelligentrecruitment.shared.error;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -24,6 +25,13 @@ public class GlobalExceptionHandler {
     ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException exception, HttpServletRequest request) {
         return ResponseEntity.badRequest()
                 .body(new ApiError("VALIDATION_FAILED", "请求参数不符合要求", requestId(request)));
+    }
+
+    @ExceptionHandler(DuplicateKeyException.class)
+    ResponseEntity<ApiError> handleDuplicateKey(DuplicateKeyException exception, HttpServletRequest request) {
+        log.warn("Duplicate key conflict, requestId={}", requestId(request), exception);
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiError("DUPLICATE_RESOURCE", "该简历已存在或正在处理，请刷新后重试", requestId(request)));
     }
 
     @ExceptionHandler(Exception.class)
