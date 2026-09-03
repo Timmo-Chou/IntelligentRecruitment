@@ -1,10 +1,10 @@
 "use client";
 
 // 审核详情页面：查看完整注册信息 + 审批/拒绝操作
-import { ArrowLeft, Shield, Building2, FileText, Hash, User, Calendar, Clock, AlertCircle, Phone } from "lucide-react";
+import { ArrowLeft, Shield, Building2, FileText, Hash, User, Calendar, Clock, AlertCircle, Phone, Eye, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { adminApiFetch } from "@/lib/admin-api-client";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +27,8 @@ type ReviewDetail = {
   // 企业认证字段
   companyName?: string;
   displayName?: string;
-  businessLicense?: string;
+  businessLicense?: string;        // 原始展示：文件名或旧编号
+  businessLicensePreviewUrl?: string | null; // 营业执照预签名预览 URL（新数据），null 表示不可预览
   creditCodeMasked?: string;
   requestType?: string;
   firstWorkspaceName?: string;
@@ -51,6 +52,8 @@ type CompanyDetail = {
   id: string; applicantUserId: string; legalName: string;
   displayName: string; requestType: string; status: string;
   creditCodeMasked: string; licenseReference: string;
+  licenseOriginalFilename: string;  // 还原的原始文件名
+  licensePreviewUrl: string | null; // 预览 URL，旧数据可能为 null
   firstWorkspaceName: string; applicantDisplayName: string | null;
   createdAt: string;
 };
@@ -88,7 +91,8 @@ function mapToReviewDetail(raw: unknown, type: string): ReviewDetail {
       createdAt: d.createdAt,
       companyName: d.legalName,
       displayName: d.displayName,
-      businessLicense: d.licenseReference,
+      businessLicense: d.licenseOriginalFilename || d.licenseReference,
+      businessLicensePreviewUrl: d.licensePreviewUrl ?? null,
       creditCodeMasked: d.creditCodeMasked,
       requestType: d.requestType,
       firstWorkspaceName: d.firstWorkspaceName,
@@ -118,6 +122,15 @@ export default function ReviewDetailPage() {
   const [showRejectInput, setShowRejectInput] = useState(false);
   // 存储个人认证的 userId（审批接口需要），其他类型为 null
   const [personalUserId, setPersonalUserId] = useState<string | null>(null);
+  // 营业执照预览弹窗
+  const [showLicensePreview, setShowLicensePreview] = useState(false);
+  // ESC 关闭预览
+  useEffect(() => {
+    if (!showLicensePreview) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setShowLicensePreview(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showLicensePreview]);
 
   // 根据类型确定后端 API 路径
   function getDetailEndpoint(): string {
@@ -320,8 +333,22 @@ export default function ReviewDetailPage() {
               <div className="flex items-start gap-2">
                 <FileText className="mt-0.5 h-4 w-4 text-slate-400" />
                 <div>
-                  <span className="text-slate-400">营业执照编号</span>
-                  <p className="mt-0.5 font-medium text-slate-700">{review.businessLicense}</p>
+                  <span className="text-slate-400">营业执照</span>
+                  {review.businessLicensePreviewUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowLicensePreview(true)}
+                      className="mt-0.5 inline-flex items-center gap-1 font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                    >
+                      <Eye className="h-4 w-4" />
+                      {review.businessLicense}
+                      <span className="text-xs text-slate-500">（点击预览）</span>
+                    </button>
+                  ) : (
+                    <p className="mt-0.5 font-medium text-slate-700">{review.businessLicense}
+                      <span className="ml-2 text-xs text-slate-400">（旧数据暂不可预览）</span>
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -437,6 +464,77 @@ export default function ReviewDetailPage() {
           )}
         </section>
       )}
+
+      {/* 营业执照预览弹窗 */}
+      {showLicensePreview && review.businessLicensePreviewUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          onClick={() => setShowLicensePreview(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="营业执照预览"
+        >
+          <div
+            className="relative flex h-[90vh] w-full max-w-5xl flex-col rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+              <div className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-blue-600" />
+                <h2 className="text-base font-semibold text-slate-800">
+                  营业执照预览 — {review.businessLicense}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLicensePreview(false)}
+                className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                aria-label="关闭预览"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto bg-slate-50 p-4">
+              {isImageFile(review.businessLicensePreviewUrl, review.businessLicense) ? (
+                <img
+                  src={review.businessLicensePreviewUrl}
+                  alt={review.businessLicense ?? "营业执照"}
+                  className="mx-auto max-h-full max-w-full rounded-lg border border-slate-200 bg-white shadow"
+                />
+              ) : isPdfFile(review.businessLicensePreviewUrl, review.businessLicense) ? (
+                <iframe
+                  src={review.businessLicensePreviewUrl}
+                  title={review.businessLicense ?? "营业执照 PDF"}
+                  className="h-full min-h-[65vh] w-full rounded-lg border border-slate-200 bg-white"
+                />
+              ) : (
+                // 未知类型，尝试 img，失败则显示下载链接
+                <div className="space-y-3 text-center">
+                  <p className="text-sm text-slate-500">浏览器无法直接预览该文件类型，请点击下方链接查看：</p>
+                  <a
+                    href={review.businessLicensePreviewUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                  >
+                    在新窗口打开
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+// ---------- 工具函数 ----------
+function isImageFile(url: string, filename?: string): boolean {
+  const probe = (filename || "").toLowerCase() + " " + url.toLowerCase();
+  return /\.(jpg|jpeg|png|webp|gif|bmp)(\?|$)/.test(probe);
+}
+function isPdfFile(url: string, filename?: string): boolean {
+  const probe = (filename || "").toLowerCase() + " " + url.toLowerCase();
+  return probe.includes(".pdf") || /application\/pdf/.test(probe);
 }

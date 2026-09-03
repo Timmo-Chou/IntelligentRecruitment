@@ -24,42 +24,48 @@ public class PlatformReviewQueryController {
     }
 
     /**
-     * 查询待审核的个人认证列表。
+     * 查询个人认证列表。
+     * @param status PENDING=待审核；HISTORY=已审核；空=全部
      */
     @GetMapping("/reviews/personal")
     ReviewQueryService.PagedResult<ReviewQueryService.PersonalReviewRow> listPersonalReviews(
             @RequestHeader("X-Platform-Admin-Key") String key,
+            @RequestParam(defaultValue = "PENDING") String status,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         PlatformAdminInfo admin = guard.authenticate(key);
         guard.requirePermission(admin, "verification:review");
-        return reviewQueryService.listPersonalReviews(page, size);
+        return reviewQueryService.listPersonalReviews(status, page, size);
     }
 
     /**
-     * 查询待审核的企业认证列表。
+     * 查询企业认证列表。
+     * @param status PENDING=待审核；HISTORY=已审核；空=全部
      */
     @GetMapping("/reviews/company-verifications")
     ReviewQueryService.PagedResult<ReviewQueryService.CompanyVerificationRow> listCompanyVerifications(
             @RequestHeader("X-Platform-Admin-Key") String key,
+            @RequestParam(defaultValue = "PENDING") String status,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         PlatformAdminInfo admin = guard.authenticate(key);
         guard.requirePermission(admin, "verification:review");
-        return reviewQueryService.listCompanyVerifications(page, size);
+        return reviewQueryService.listCompanyVerifications(status, page, size);
     }
 
     /**
-     * 查询待审核的企业加入申请列表。
+     * 查询企业加入申请列表。
+     * @param status PENDING=待审核；HISTORY=已审核；空=全部
      */
     @GetMapping("/reviews/membership-applications")
     ReviewQueryService.PagedResult<ReviewQueryService.MembershipApplicationRow> listMembershipApplications(
             @RequestHeader("X-Platform-Admin-Key") String key,
+            @RequestParam(defaultValue = "PENDING") String status,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         PlatformAdminInfo admin = guard.authenticate(key);
         guard.requirePermission(admin, "membership:review");
-        return reviewQueryService.listMembershipApplications(page, size);
+        return reviewQueryService.listMembershipApplications(status, page, size);
     }
 
     /**

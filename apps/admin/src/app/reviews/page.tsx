@@ -46,6 +46,13 @@ type PageResponse<T> = {
   size: number;
 };
 
+type StatusTab = "PENDING" | "HISTORY";
+
+const statusTabs: { key: StatusTab; label: string; param: string }[] = [
+  { key: "PENDING", label: "待审核", param: "PENDING" },
+  { key: "HISTORY", label: "已审核", param: "HISTORY" },
+];
+
 const tabs = [
   { key: "PERSONAL", label: "个人认证", endpoint: "/platform/reviews/personal" },
   { key: "COMPANY", label: "企业认证", endpoint: "/platform/reviews/company-verifications" },
@@ -57,15 +64,18 @@ export default function ReviewsPage() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["key"]>("PERSONAL");
   const [page, setPage] = useState(1);
+  const [statusTab, setStatusTab] = useState<StatusTab>("PENDING");
 
   const currentTab = tabs.find((t) => t.key === activeTab)!;
+  const currentStatusTab = statusTabs.find((t) => t.key === statusTab)!;
 
   const { data, isLoading } = useQuery({
-    queryKey: ["reviews", activeTab, page],
+    queryKey: ["reviews", activeTab, statusTab, page],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("page", String(page));
       params.set("size", "20");
+      params.set("status", currentStatusTab.param);
       const url = `${currentTab.endpoint}?${params.toString()}`;
 
       if (activeTab === "PERSONAL") {
@@ -79,6 +89,7 @@ export default function ReviewsPage() {
   });
 
   const items = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   // 审核操作
   const reviewMutation = useMutation({
@@ -171,20 +182,38 @@ export default function ReviewsPage() {
       </div>
 
       {/* Tab 切换 */}
-      <div className="mb-4 flex border-b border-slate-200">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => { setActiveTab(tab.key); setPage(1); }}
-            className={`px-5 py-3 text-sm font-semibold transition ${
-              activeTab === tab.key
-                ? "border-b-2 border-blue-600 text-blue-600"
-                : "text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="mb-4 flex flex-col gap-3 border-b border-slate-200">
+        <div className="flex">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => { setActiveTab(tab.key); setStatusTab("PENDING"); setPage(1); }}
+              className={`px-5 py-3 text-sm font-semibold transition ${
+                activeTab === tab.key
+                  ? "border-b-2 border-blue-600 text-blue-600"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        {/* 二级 TAB：待审核 / 已审核 */}
+        <div className="mb-0 flex gap-1 pb-0">
+          {statusTabs.map((st) => (
+            <button
+              key={st.key}
+              onClick={() => { setStatusTab(st.key); setPage(1); }}
+              className={`rounded-t-lg px-4 py-2 text-xs font-semibold transition ${
+                statusTab === st.key
+                  ? "bg-slate-50 text-blue-600 ring-1 ring-slate-200 ring-b-0"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {st.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* 审核列表 */}
@@ -192,9 +221,16 @@ export default function ReviewsPage() {
         {isLoading ? (
           <div className="p-8 text-center text-sm text-slate-400">加载中…</div>
         ) : items.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-400">暂无待审核项</div>
+          <div className="p-8 text-center text-sm text-slate-400">
+            {statusTab === "PENDING" ? "暂无待审核项" : "暂无已审核记录"}
+            <span className="ml-1">（共 {total} 条）</span>
+          </div>
         ) : (
-          <table className="w-full">
+          <div>
+            <div className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500">
+              共 {total} 条记录
+            </div>
+            <table className="w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
                 <th className="px-4 py-3">对象</th>
@@ -213,38 +249,42 @@ export default function ReviewsPage() {
                   <td className="px-4 py-3 text-sm text-slate-500">{item.createdAt}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="confirm"
-                        onClick={() =>
-                          reviewMutation.mutate({
-                            id: item.id,
-                            userId: (item as PersonalReviewItem).userId,
-                            action: "APPROVE",
-                          })
-                        }
-                        disabled={reviewMutation.isPending}
-                      >
-                        通过
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        onClick={() => {
-                          const reason = prompt("请输入拒绝原因：");
-                          if (reason) {
-                            reviewMutation.mutate({
-                              id: item.id,
-                              userId: (item as PersonalReviewItem).userId,
-                              action: "REJECT",
-                              reason,
-                            });
-                          }
-                        }}
-                        disabled={reviewMutation.isPending}
-                      >
-                        拒绝
-                      </Button>
+                      {statusTab === "PENDING" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="confirm"
+                            onClick={() =>
+                              reviewMutation.mutate({
+                                id: item.id,
+                                userId: (item as PersonalReviewItem).userId,
+                                action: "APPROVE",
+                              })
+                            }
+                            disabled={reviewMutation.isPending}
+                          >
+                            通过
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            onClick={() => {
+                              const reason = prompt("请输入拒绝原因：");
+                              if (reason) {
+                                reviewMutation.mutate({
+                                  id: item.id,
+                                  userId: (item as PersonalReviewItem).userId,
+                                  action: "REJECT",
+                                  reason,
+                                });
+                              }
+                            }}
+                            disabled={reviewMutation.isPending}
+                          >
+                            拒绝
+                          </Button>
+                        </>
+                      )}
                       <Button
                         size="sm"
                         variant="ghost"
@@ -263,6 +303,7 @@ export default function ReviewsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

@@ -1,12 +1,15 @@
 package com.intelligentrecruitment.tenancy.api;
 
 import com.intelligentrecruitment.shared.security.CurrentUser;
+import com.intelligentrecruitment.tenancy.application.LicenseFileService;
 import com.intelligentrecruitment.tenancy.application.TenancyService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
@@ -15,9 +18,11 @@ import java.util.UUID;
 @RequestMapping("/api/v1")
 public class TenancyController {
     private final TenancyService tenancy;
+    private final LicenseFileService licenseFileService;
 
-    public TenancyController(TenancyService tenancy) {
+    public TenancyController(TenancyService tenancy, LicenseFileService licenseFileService) {
         this.tenancy = tenancy;
+        this.licenseFileService = licenseFileService;
     }
 
     @PostMapping("/workspaces/personal")
@@ -113,6 +118,18 @@ public class TenancyController {
     @PostMapping("/membership-invitations/accept")
     void acceptInvitation(@Valid @RequestBody AcceptInvitationRequest request, Authentication authentication) {
         tenancy.acceptInvitation(CurrentUser.id(authentication), request.token());
+    }
+
+    /**
+     * 上传营业执照文件（企业认证前）。
+     * 返回文件引用（reference 作为后续提交企业认证时的 licenseReference 字段值）、
+     * 原始文件名、MIME 类型和字节大小。
+     */
+    @PostMapping(value = "/company-verifications/license-files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    LicenseFileService.LicenseFileView uploadLicenseFile(
+            @RequestParam("file") MultipartFile file,
+            Authentication authentication) {
+        return licenseFileService.upload(CurrentUser.id(authentication), file);
     }
 
     public record WorkspaceName(@NotBlank String name) {}

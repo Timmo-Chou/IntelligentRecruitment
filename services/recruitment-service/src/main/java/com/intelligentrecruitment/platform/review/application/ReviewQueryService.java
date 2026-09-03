@@ -1,6 +1,7 @@
 package com.intelligentrecruitment.platform.review.application;
 
 import com.intelligentrecruitment.shared.error.ApiException;
+import com.intelligentrecruitment.tenancy.application.LicenseFileService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -17,20 +18,24 @@ import java.util.UUID;
 public class ReviewQueryService {
 
     private final JdbcTemplate jdbc;
+    private final LicenseFileService licenseFileService;
 
-    public ReviewQueryService(JdbcTemplate jdbc) {
+    public ReviewQueryService(JdbcTemplate jdbc, LicenseFileService licenseFileService) {
         this.jdbc = jdbc;
+        this.licenseFileService = licenseFileService;
     }
 
     /**
      * 查询待审核的个人身份认证列表（分页）。
+     * @param status PENDING=仅待审核；HISTORY=仅已审核（已通过或已拒绝）
      */
-    public PagedResult<PersonalReviewRow> listPersonalReviews(int page, int size) {
+    public PagedResult<PersonalReviewRow> listPersonalReviews(String status, int page, int size) {
         int offset = (page - 1) * size;
+        String statusFilter = buildStatusFilter(status, "pi.verification_status");
 
         Long total = jdbc.queryForObject("""
-                SELECT COUNT(*) FROM personal_identities WHERE verification_status = 'PENDING'
-                """, Long.class);
+                SELECT COUNT(*) FROM personal_identities pi WHERE 1=1
+                """ + statusFilter, Long.class);
 
         List<PersonalReviewRow> rows = jdbc.query("""
                 SELECT pi.id, pi.user_id, pi.identity_hash, pi.real_name_masked, pi.verification_status,
@@ -39,8 +44,9 @@ public class ReviewQueryService {
                        u.phone_last_four AS phone_last_four
                 FROM personal_identities pi
                 LEFT JOIN users u ON u.id = pi.user_id
-                WHERE pi.verification_status = 'PENDING'
-                ORDER BY pi.created_at ASC
+                WHERE 1=1
+                """ + statusFilter + """
+                ORDER BY pi.created_at DESC
                 LIMIT ? OFFSET ?
                 """, (rs, n) -> new PersonalReviewRow(
                 rs.getObject("id", UUID.class),
@@ -60,14 +66,16 @@ public class ReviewQueryService {
     }
 
     /**
-     * 查询待审核的企业认证请求列表（分页）。
+     * 查询企业认证列表（分页）。
+     * @param status PENDING=仅待审核；HISTORY=仅已审核
      */
-    public PagedResult<CompanyVerificationRow> listCompanyVerifications(int page, int size) {
+    public PagedResult<CompanyVerificationRow> listCompanyVerifications(String status, int page, int size) {
         int offset = (page - 1) * size;
+        String statusFilter = buildStatusFilter(status, "cvr.status");
 
         Long total = jdbc.queryForObject("""
-                SELECT COUNT(*) FROM company_verification_requests WHERE status = 'PENDING'
-                """, Long.class);
+                SELECT COUNT(*) FROM company_verification_requests cvr WHERE 1=1
+                """ + statusFilter, Long.class);
 
         List<CompanyVerificationRow> rows = jdbc.query("""
                 SELECT cvr.id, cvr.applicant_user_id, cvr.company_id, cvr.request_type, cvr.legal_name, cvr.display_name,
@@ -76,40 +84,48 @@ public class ReviewQueryService {
                        u.display_name AS applicant_display_name
                 FROM company_verification_requests cvr
                 LEFT JOIN users u ON u.id = cvr.applicant_user_id
-                WHERE cvr.status = 'PENDING'
-                ORDER BY cvr.created_at ASC
+                WHERE 1=1
+                """ + statusFilter + """
+                ORDER BY cvr.created_at DESC
                 LIMIT ? OFFSET ?
-                """, (rs, n) -> new CompanyVerificationRow(
-                rs.getObject("id", UUID.class),
-                rs.getObject("applicant_user_id", UUID.class),
-                rs.getObject("company_id", UUID.class),
-                rs.getString("request_type"),
-                rs.getString("legal_name"),
-                rs.getString("display_name"),
-                rs.getString("credit_code_hash"),
-                rs.getString("credit_code_masked"),
-                rs.getString("license_reference"),
-                rs.getString("first_workspace_name"),
-                rs.getString("status"),
-                rs.getString("reviewed_by"),
-                rs.getTimestamp("reviewed_at") != null ? rs.getTimestamp("reviewed_at").toInstant() : null,
-                rs.getString("rejection_reason"),
-                rs.getTimestamp("created_at") != null ? rs.getTimestamp("created_at").toInstant() : null,
-                rs.getString("applicant_display_name")
-        ), size, offset);
+                """, (rs, n) -> {
+            String licenseRef = rs.getString("license_reference");
+            return new CompanyVerificationRow(
+                    rs.getObject("id", UUID.class),
+                    rs.getObject("applicant_user_id", UUID.class),
+                    rs.getObject("company_id", UUID.class),
+                    rs.getString("request_type"),
+                    rs.getString("legal_name"),
+                    rs.getString("display_name"),
+                    rs.getString("credit_code_hash"),
+                    rs.getString("credit_code_masked"),
+                    licenseRef,
+                    licenseFileService.extractFilename(licenseRef),
+                    null, // 列表不生成预览 URL，仅详情页生成
+                    rs.getString("first_workspace_name"),
+                    rs.getString("status"),
+                    rs.getString("reviewed_by"),
+                    rs.getTimestamp("reviewed_at") != null ? rs.getTimestamp("reviewed_at").toInstant() : null,
+                    rs.getString("rejection_reason"),
+                    rs.getTimestamp("created_at") != null ? rs.getTimestamp("created_at").toInstant() : null,
+                    rs.getString("applicant_display_name")
+            );
+        }, size, offset);
 
         return new PagedResult<>(rows, total != null ? total : 0, page, size);
     }
 
     /**
-     * 查询待审核的企业加入申请列表（分页）。
+     * 查询企业加入申请列表（分页）。
+     * @param status PENDING=仅待审核；HISTORY=仅已审核
      */
-    public PagedResult<MembershipApplicationRow> listMembershipApplications(int page, int size) {
+    public PagedResult<MembershipApplicationRow> listMembershipApplications(String status, int page, int size) {
         int offset = (page - 1) * size;
+        String statusFilter = buildStatusFilter(status, "ma.status");
 
         Long total = jdbc.queryForObject("""
-                SELECT COUNT(*) FROM membership_applications WHERE status = 'PENDING'
-                """, Long.class);
+                SELECT COUNT(*) FROM membership_applications ma WHERE 1=1
+                """ + statusFilter, Long.class);
 
         List<MembershipApplicationRow> rows = jdbc.query("""
                 SELECT ma.id, ma.company_id, ma.applicant_user_id, ma.evidence, ma.status,
@@ -119,8 +135,9 @@ public class ReviewQueryService {
                 FROM membership_applications ma
                 LEFT JOIN users u ON u.id = ma.applicant_user_id
                 LEFT JOIN companies c ON c.id = ma.company_id
-                WHERE ma.status = 'PENDING'
-                ORDER BY ma.created_at ASC
+                WHERE 1=1
+                """ + statusFilter + """
+                ORDER BY ma.created_at DESC
                 LIMIT ? OFFSET ?
                 """, (rs, n) -> new MembershipApplicationRow(
                 rs.getObject("id", UUID.class),
@@ -137,6 +154,22 @@ public class ReviewQueryService {
         ), size, offset);
 
         return new PagedResult<>(rows, total != null ? total : 0, page, size);
+    }
+
+    /**
+     * 根据 status 参数构造 SQL 状态过滤条件（AND ...）。
+     * - PENDING：仅状态为 PENDING
+     * - HISTORY：已处理过的状态（VERIFIED / APPROVED / REJECTED）
+     * - 其他/null：不加过滤
+     */
+    private String buildStatusFilter(String status, String column) {
+        if ("PENDING".equalsIgnoreCase(status)) {
+            return " AND " + column + " = 'PENDING'";
+        }
+        if ("HISTORY".equalsIgnoreCase(status)) {
+            return " AND " + column + " IN ('VERIFIED','APPROVED','REJECTED')";
+        }
+        return "";
     }
 
     /**
@@ -182,24 +215,29 @@ public class ReviewQueryService {
                 FROM company_verification_requests cvr
                 LEFT JOIN users u ON u.id = cvr.applicant_user_id
                 WHERE cvr.id = ?
-                """, (rs, n) -> new CompanyVerificationRow(
-                rs.getObject("id", UUID.class),
-                rs.getObject("applicant_user_id", UUID.class),
-                rs.getObject("company_id", UUID.class),
-                rs.getString("request_type"),
-                rs.getString("legal_name"),
-                rs.getString("display_name"),
-                rs.getString("credit_code_hash"),
-                rs.getString("credit_code_masked"),
-                rs.getString("license_reference"),
-                rs.getString("first_workspace_name"),
-                rs.getString("status"),
-                rs.getString("reviewed_by"),
-                rs.getTimestamp("reviewed_at") != null ? rs.getTimestamp("reviewed_at").toInstant() : null,
-                rs.getString("rejection_reason"),
-                rs.getTimestamp("created_at") != null ? rs.getTimestamp("created_at").toInstant() : null,
-                rs.getString("applicant_display_name")
-        ), requestId);
+                """, (rs, n) -> {
+            String licenseRef = rs.getString("license_reference");
+            return new CompanyVerificationRow(
+                    rs.getObject("id", UUID.class),
+                    rs.getObject("applicant_user_id", UUID.class),
+                    rs.getObject("company_id", UUID.class),
+                    rs.getString("request_type"),
+                    rs.getString("legal_name"),
+                    rs.getString("display_name"),
+                    rs.getString("credit_code_hash"),
+                    rs.getString("credit_code_masked"),
+                    licenseRef,
+                    licenseFileService.extractFilename(licenseRef),
+                    licenseFileService.previewUrl(licenseRef),
+                    rs.getString("first_workspace_name"),
+                    rs.getString("status"),
+                    rs.getString("reviewed_by"),
+                    rs.getTimestamp("reviewed_at") != null ? rs.getTimestamp("reviewed_at").toInstant() : null,
+                    rs.getString("rejection_reason"),
+                    rs.getTimestamp("created_at") != null ? rs.getTimestamp("created_at").toInstant() : null,
+                    rs.getString("applicant_display_name")
+            );
+        }, requestId);
         if (rows.isEmpty()) {
             throw new ApiException("REVIEW_NOT_FOUND", "企业认证记录不存在", HttpStatus.NOT_FOUND);
         }
@@ -270,6 +308,8 @@ public class ReviewQueryService {
             String creditCodeHash,
             String creditCodeMasked,
             String licenseReference,
+            String licenseOriginalFilename, // 原始文件名（从 objectKey 还原或原样返回）
+            String licensePreviewUrl,        // 预签名预览 URL，旧数据为 null
             String firstWorkspaceName,
             String status,
             String reviewedBy,

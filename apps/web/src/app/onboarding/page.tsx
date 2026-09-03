@@ -35,20 +35,20 @@ export default function OnboardingPage() {
       </div>
       <section className="mt-6 rounded-2xl border border-[#d8e6f5] bg-[#f9fcff] p-6">
         {mode === "personal" && <PersonalForm/>}
-        {mode === "company" && <CompanySection/>}
+        {mode === "company" && <CompanySection onSubmitted={data => setPending(data)}/>}
       </section>
     </div>
   </main>;
 }
 
-function CompanySection() {
+function CompanySection({ onSubmitted }: { onSubmitted: (data: { legalName: string; displayName: string }) => void }) {
   const [subMode, setSubMode] = useState<CompanySubMode>("create");
   return <div>
     <div className="mb-5 flex gap-3">
       <SubModeButton active={subMode === "create"} onClick={() => setSubMode("create")} title="创建企业" desc="提交企业认证，平台审核通过后创建企业"/>
       <SubModeButton active={subMode === "join"} onClick={() => setSubMode("join")} title="加入企业" desc="搜索已注册的企业并申请加入"/>
     </div>
-    {subMode === "create" && <CompanyForm/>}
+    {subMode === "create" && <CompanyForm onSubmitted={onSubmitted}/>}
     {subMode === "join" && <JoinCompanyForm/>}
   </div>;
 }
@@ -169,19 +169,58 @@ function PersonalForm() {
   </form>{showVerify&&<div className="fixed inset-0 z-50 grid place-items-center bg-[#071b4b]/40 p-5"><div role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"><div className="flex justify-between"><h2 className="m-0 text-lg font-bold">实名认证信息</h2><button type="button" onClick={()=>setShowVerify(false)} aria-label="关闭"><X size={18}/></button></div><div className="mt-5 space-y-4"><Field label="真实姓名" value={realName} onChange={setRealName}/><Field label="身份证明号码" value={identityNumber} onChange={setIdentityNumber}/><button type="button" className="primary-button w-full" onClick={()=>setShowVerify(false)}>保存</button></div></div></div>}</>;
 }
 
-function CompanyForm() {
+function CompanyForm({ onSubmitted }: { onSubmitted: (data: { legalName: string; displayName: string }) => void }) {
   const status = useActionStatus();
   const [form, setForm] = useState({legalName:"", displayName:"", creditCode:"", licenseReference:"", firstWorkspaceName:"招聘团队"});
+  const [fileName, setFileName] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   async function submit(event: FormEvent) {
     event.preventDefault(); status.start();
-    try { const result = await apiFetch<{id:string}>("/company-verifications", {method:"POST", body:JSON.stringify(form)}); status.success(`企业认证已提交（申请号 ${result.id.slice(0,8)}），平台审核通过后创建企业和首个空间并发放100元试用金。`); }
+    try { const result = await apiFetch<{id:string}>("/company-verifications", {method:"POST", body:JSON.stringify(form)}); status.success(`企业认证已提交（申请号 ${result.id.slice(0,8)}），平台审核通过后创建企业和首个空间并发放100元试用金。`, () => onSubmitted({ legalName: form.legalName, displayName: form.displayName })); }
     catch (error) { status.fail(error); }
   }
-  const [fileName,setFileName]=useState("");
+  // 选择营业执照文件后立即上传，将后端返回的 objectKey 存到 licenseReference
+  async function onFileChange(file: File | undefined) {
+    if (!file) return;
+    if (!(file.type.startsWith("image/") || file.type === "application/pdf")) {
+      setUploadError("营业执照仅支持 JPG、PNG、WEBP、PDF 格式");
+      return;
+    }
+    setUploadError(null);
+    setUploading(true);
+    setFileName(file.name + "（上传中…）");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await apiFetch<{ reference: string; filename: string }>(
+        "/company-verifications/license-files",
+        { method: "POST", body: fd },
+      );
+      setForm({ ...form, licenseReference: res.reference });
+      setFileName(res.filename);
+    } catch (err) {
+      setUploadError(err instanceof ApiError ? err.message : "营业执照上传失败，请稍后重试");
+      setFileName("");
+      setForm({ ...form, licenseReference: "" });
+    } finally {
+      setUploading(false);
+    }
+  }
   return <form onSubmit={submit} className="space-y-4"><Heading title="企业认证" note="企业 Owner 仅在平台审核或认领通过后产生。"/>
     <div className="grid gap-4 sm:grid-cols-2"><Field label="企业法定名称" value={form.legalName} onChange={value=>setForm({...form,legalName:value})}/><Field label="企业简称" value={form.displayName} onChange={value=>setForm({...form,displayName:value})}/><Field label="统一社会信用代码" value={form.creditCode} onChange={value=>setForm({...form,creditCode:value})}/><Field label="首个 Workspace 名称" value={form.firstWorkspaceName} onChange={value=>setForm({...form,firstWorkspaceName:value})}/></div>
-    <label className="block text-sm font-medium"><span className="mb-2 block">营业执照</span><input required type="file" accept="image/*,.pdf" onChange={e=>{const f=e.target.files?.[0];if(!f)return;if(f.type.startsWith("image/")||f.type==="application/pdf"){setFileName(f.name);setForm({...form,licenseReference:f.name});}}} className="block w-full rounded-lg border border-[#cddbea] bg-white p-2 text-sm"/><small className="mt-1 block text-xs text-[#7187a8]">支持 JPG、PNG、WEBP、PDF{fileName&&` · 已选择：${fileName}`}</small></label>
-    <StatusLine status={status}/><button className="primary-button" disabled={status.loading} type="submit">提交平台审核</button>
+    <label className="block text-sm font-medium">
+      <span className="mb-2 block">营业执照</span>
+      <input required disabled={uploading} type="file" accept="image/*,.pdf"
+        onChange={e => onFileChange(e.target.files?.[0])}
+        className="block w-full rounded-lg border border-[#cddbea] bg-white p-2 text-sm disabled:opacity-60"/>
+      <small className="mt-1 block text-xs text-[#7187a8]">支持 JPG、PNG、WEBP、PDF（最大 10MB）{fileName && ` · 已选择：${fileName}`}</small>
+      {uploadError && <small className="mt-1 block text-xs text-red-600">{uploadError}</small>}
+    </label>
+    <StatusLine status={status}/>
+    <button className="primary-button" disabled={status.loading || uploading || !form.licenseReference} type="submit">
+      {status.loading ? "提交中…" : uploading ? "营业执照上传中…" : "提交平台审核"}
+    </button>
   </form>;
 }
 

@@ -1,6 +1,7 @@
 package com.intelligentrecruitment.platform.company.application;
 
 import com.intelligentrecruitment.shared.error.ApiException;
+import com.intelligentrecruitment.tenancy.application.LicenseFileService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -15,9 +16,11 @@ import java.util.UUID;
 public class PlatformCompanyService {
 
     private final JdbcTemplate jdbc;
+    private final LicenseFileService licenseFileService;
 
-    public PlatformCompanyService(JdbcTemplate jdbc) {
+    public PlatformCompanyService(JdbcTemplate jdbc, LicenseFileService licenseFileService) {
         this.jdbc = jdbc;
+        this.licenseFileService = licenseFileService;
     }
 
     public record CompanySummary(
@@ -29,6 +32,8 @@ public class PlatformCompanyService {
             String companyId, String legalName, String displayName,
             String creditCodeMasked, String verificationStatus, String managementStatus,
             String ownerUserId, String ownerDisplayName,
+            String licenseOriginalFilename,   // 营业执照原始文件名
+            String licensePreviewUrl,          // 营业执照预签名预览 URL（旧数据为 null）
             List<MemberSummary> members, List<WorkspaceSummary> workspaces,
             String createdAt) {}
 
@@ -83,7 +88,7 @@ public class PlatformCompanyService {
 
     public CompanyDetail getCompanyDetail(UUID companyId) {
         var company = jdbc.query(
-                "SELECT c.id, c.legal_name, c.display_name, c.credit_code_masked, " +
+                "SELECT c.id, c.legal_name, c.display_name, c.credit_code_masked, c.license_reference, " +
                 "c.verification_status, c.management_status, c.owner_user_id, c.created_at, " +
                 "u.display_name AS owner_name " +
                 "FROM companies c LEFT JOIN users u ON u.id = c.owner_user_id WHERE c.id = ?",
@@ -92,6 +97,7 @@ public class PlatformCompanyService {
                     final String legalName = rs.getString("legal_name");
                     final String displayName = rs.getString("display_name");
                     final String creditCodeMasked = rs.getString("credit_code_masked");
+                    final String licenseReference = rs.getString("license_reference");
                     final String verificationStatus = rs.getString("verification_status");
                     final String managementStatus = rs.getString("management_status");
                     final String ownerUserId = rs.getString("owner_user_id");
@@ -127,6 +133,8 @@ public class PlatformCompanyService {
 
         return new CompanyDetail(c.id, c.legalName, c.displayName, c.creditCodeMasked,
                 c.verificationStatus, c.managementStatus, c.ownerUserId, c.ownerDisplayName,
+                licenseFileService.extractFilename(c.licenseReference),
+                licenseFileService.previewUrl(c.licenseReference),
                 members, workspaces, c.createdAt);
     }
 }

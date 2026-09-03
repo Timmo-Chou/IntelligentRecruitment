@@ -125,12 +125,12 @@ public class TenancyService {
     public CompanyApproval approveCompanyVerification(UUID requestId, String reviewer) {
         List<CompanyRequestRow> rows = jdbc.query("""
                 SELECT applicant_user_id, company_id, request_type, legal_name, display_name,
-                       credit_code_hash, credit_code_masked, first_workspace_name
+                       credit_code_hash, credit_code_masked, license_reference, first_workspace_name
                 FROM company_verification_requests WHERE id = ? AND status = 'PENDING' FOR UPDATE
                 """, (rs, n) -> new CompanyRequestRow(rs.getObject("applicant_user_id", UUID.class),
                         rs.getObject("company_id", UUID.class), rs.getString("request_type"), rs.getString("legal_name"),
                         rs.getString("display_name"), rs.getString("credit_code_hash"), rs.getString("credit_code_masked"),
-                        rs.getString("first_workspace_name")), requestId);
+                        rs.getString("license_reference"), rs.getString("first_workspace_name")), requestId);
         if (rows.isEmpty()) throw new ApiException("VERIFICATION_NOT_PENDING", "企业认证不在待审核状态", HttpStatus.CONFLICT);
         CompanyRequestRow request = rows.getFirst();
         if ("CLAIM".equals(request.requestType())) {
@@ -148,11 +148,12 @@ public class TenancyService {
         UUID companyId = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO companies
-                (id, legal_name, display_name, credit_code_hash, credit_code_masked, verification_status,
-                 management_status, owner_user_id, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 'VERIFIED', 'USER_MANAGED', ?, ?, ?)
+                (id, legal_name, display_name, credit_code_hash, credit_code_masked, license_reference,
+                 verification_status, management_status, owner_user_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'VERIFIED', 'USER_MANAGED', ?, ?, ?)
                 """, companyId, request.legalName(), request.displayName(), request.creditCodeHash(),
-                request.creditCodeMasked(), request.applicantUserId(), timestamp(now), timestamp(now));
+                request.creditCodeMasked(), request.licenseReference(), request.applicantUserId(),
+                timestamp(now), timestamp(now));
         addCompanyMembership(companyId, request.applicantUserId(), "COMPANY_OWNER");
         UUID workspaceId = createWorkspace(companyId, "COMPANY", request.firstWorkspaceName(),
                 request.applicantUserId(), request.applicantUserId());
@@ -174,8 +175,9 @@ public class TenancyService {
             throw new ApiException("COMPANY_ALREADY_CLAIMED", "该企业已有 Owner", HttpStatus.CONFLICT);
         }
         Instant now = Instant.now();
-        jdbc.update("UPDATE companies SET owner_user_id=?, management_status='USER_MANAGED', updated_at=? WHERE id=?",
-                request.applicantUserId(), timestamp(now), request.companyId());
+        // 认领通过时同步写入营业执照引用
+        jdbc.update("UPDATE companies SET owner_user_id=?, management_status='USER_MANAGED', license_reference=?, updated_at=? WHERE id=?",
+                request.applicantUserId(), request.licenseReference(), timestamp(now), request.companyId());
         addCompanyMembership(request.companyId(), request.applicantUserId(), "COMPANY_OWNER");
 
         List<UUID> workspaceIds = jdbc.query("""
@@ -203,8 +205,9 @@ public class TenancyService {
         }
         Instant now = Instant.now();
         jdbc.update("""
-                UPDATE companies SET credit_code_hash=?, credit_code_masked=?, updated_at=? WHERE id=?
-                """, request.creditCodeHash(), request.creditCodeMasked(), timestamp(now), request.companyId());
+                UPDATE companies SET credit_code_hash=?, credit_code_masked=?, license_reference=?, updated_at=? WHERE id=?
+                """, request.creditCodeHash(), request.creditCodeMasked(), request.licenseReference(),
+                timestamp(now), request.companyId());
         jdbc.update("UPDATE company_verification_requests SET status='APPROVED', reviewed_by=?, reviewed_at=? WHERE id=?",
                 reviewer, timestamp(now), requestId);
         audit(null, request.companyId(), null, "COMPANY_LICENSE_CHANGE_APPROVED", "COMPANY_VERIFICATION", requestId.toString());
@@ -572,7 +575,8 @@ public class TenancyService {
     public record Invitation(UUID id, String token, Instant expiresAt) {}
     private record CompanyRequestRow(UUID applicantUserId, UUID companyId, String requestType,
                                      String legalName, String displayName,
-                                     String creditCodeHash, String creditCodeMasked, String firstWorkspaceName) {}
+                                     String creditCodeHash, String creditCodeMasked,
+                                     String licenseReference, String firstWorkspaceName) {}
     private record ApplicationRow(UUID companyId, UUID userId) {}
     private record InvitationRow(UUID id, String targetType, UUID targetId, String role, String phoneHash) {}
 }
