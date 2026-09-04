@@ -100,7 +100,6 @@ export type GenerateJdInput = {
   education?: string;
   jobType?: string;
   skills?: string;
-  scenario?: "NORMAL" | "TIMEOUT" | "INVALID_SCHEMA";
 };
 
 export type JdSourceFile = { id: string; fileAssetId: string; filename: string; mediaType: string; sizeBytes: number; createdAt: string };
@@ -153,7 +152,7 @@ export function generateJd(workspaceId: string, taskId: string, input: GenerateJ
   return apiFetch<TaskDetail>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/jd-runs`, {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey("jd") },
-    body: JSON.stringify({ ...input, scenario: input.scenario ?? "NORMAL" }),
+    body: JSON.stringify(input),
   });
 }
 
@@ -177,6 +176,16 @@ export function updateResumeParseDraft(workspaceId: string, taskId: string, inpu
   return apiFetch<TaskDetail>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/resume-parse-draft`, {
     method: "PUT",
     body: JSON.stringify(input),
+  });
+}
+
+/**
+ * 确认简历解析结果并发布到人才库（与 JD 草稿确认对称）。
+ * 后端会把任务第一份简历源文件创建为人才库候选人，并把解析草稿置为 CONFIRMED。幂等。
+ */
+export function confirmResumeParseDraft(workspaceId: string, taskId: string) {
+  return apiFetch<TaskDetail>(`/workspaces/${workspaceId}/recruitment-tasks/${taskId}/resume-parse-draft/confirm`, {
+    method: "POST",
   });
 }
 

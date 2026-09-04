@@ -18,6 +18,7 @@ import com.intelligentrecruitment.aiplatform.domain.AiTask;
 import com.intelligentrecruitment.aiplatform.domain.AiTaskStatus;
 import com.intelligentrecruitment.billing.application.BillingService;
 import com.intelligentrecruitment.billing.application.PricingService;
+import com.intelligentrecruitment.candidates.application.CandidateService;
 import com.intelligentrecruitment.candidates.application.PiiCipher;
 import com.intelligentrecruitment.jobs.application.JobService;
 import com.intelligentrecruitment.interview.application.InterviewService;
@@ -50,8 +51,8 @@ import static com.intelligentrecruitment.shared.database.SqlTimes.timestamp;
 public class RecruitmentService {
 
     private static final Logger log = LoggerFactory.getLogger(RecruitmentService.class);
-    private static final String JD_PRICING_VERSION = "JD_MOCK_V1";
-    private static final String RESUME_PARSING_PRICING_VERSION = "RESUME_MOCK_V1";
+    private static final String JD_PRICING_VERSION = "JD_DEEPSEEK_V1";
+    private static final String RESUME_PARSING_PRICING_VERSION = "RESUME_DEEPSEEK_V1";
     private static final String LEGACY_DEFAULT_TASK_TITLE = "高级 Java 开发工程师招聘";
 
     /** 计费项 code，与 pricing_items.code 保持一致 */
@@ -70,6 +71,7 @@ public class RecruitmentService {
     private final ResumeSourceFileService resumeSourceFiles;
     private final JobService jobs;
     private final InterviewService interviewService;
+    private final CandidateService candidates;
     private final PiiCipher pii;
     /** pricing_items 表没启用对应计费项时的兜底默认值（分） */
     private final long defaultJdPriceMinor;
@@ -84,6 +86,7 @@ public class RecruitmentService {
                               ResumeSourceFileService resumeSourceFiles,
                               JobService jobs,
                               InterviewService interviewService,
+                              CandidateService candidates,
                               PiiCipher pii,
                               @Value("${app.phase3.jd-generation-price-minor:80}") long defaultJdPriceMinor,
                               @Value("${app.phase4.resume-parsing-price-minor:80}") long defaultResumePriceMinor,
@@ -100,6 +103,7 @@ public class RecruitmentService {
         this.resumeSourceFiles = resumeSourceFiles;
         this.jobs = jobs;
         this.interviewService = interviewService;
+        this.candidates = candidates;
         this.pii = pii;
         this.defaultJdPriceMinor = defaultJdPriceMinor;
         this.defaultResumePriceMinor = defaultResumePriceMinor;
@@ -309,7 +313,6 @@ public class RecruitmentService {
         }
         String requirement = optional(input == null ? null : input.requirement(), 20_000);
         if (requirement.isBlank()) requirement = task.initialRequirement();
-        String scenario = normalizedScenario(input == null ? null : input.scenario());
         UUID runId = UUID.randomUUID();
         int attempt = nextAttempt(taskId);
         Instant now = Instant.now();
@@ -329,7 +332,6 @@ public class RecruitmentService {
                 """, runId, scope.companyId(), workspaceId, taskId, attempt, key, payloadHash,
                 JD_PRICING_VERSION, resolveJdPriceMinor(), userId, timestamp(now), protectedPayload(Map.of(
                         "requirement", requirement,
-                        "scenario", scenario,
                         "title", nullable(value(input, GenerateJdInput::title)),
                         "companyName", nullable(value(input, GenerateJdInput::companyName)),
                         "location", nullable(value(input, GenerateJdInput::location)),
@@ -379,7 +381,6 @@ public class RecruitmentService {
         Map<String, String> input = stringMap(run.inputPayload());
         if ("QUEUED".equals(run.status())) {
             Map<String, Object> aiInput = payloadMap(run.inputPayload());
-            aiInput.remove("scenario");
             aiInput.put("source_documents", sourceFiles.listForGeneration(run.workspaceId(), run.taskId()).stream()
                     .map(file -> Map.<String, Object>of("filename", file.filename(), "text", file.extractedText())).toList());
             AiTask aiTask = aiPlatform.startTask(new StartAiTaskCommand(run.workspaceId().toString(),
@@ -409,7 +410,9 @@ public class RecruitmentService {
         AiTask task = aiPlatform.getTask(run.providerTaskId());
         if (task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.FAILED
                 || task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.CANCELLED) {
-            failJdRun(run, "AI_PROVIDER_UNAVAILABLE", "AI 生成失败，请重试");
+            String errorCode = task.errorCode() == null ? "AI_PROVIDER_UNAVAILABLE" : task.errorCode();
+            String errorMessage = task.errorMessage() == null ? "AI 生成失败，请重试" : task.errorMessage();
+            failJdRun(run, errorCode, errorMessage);
             return;
         }
         if (task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.COMPLETED) finalizeJdRun(runId);
@@ -424,12 +427,6 @@ public class RecruitmentService {
     public void finalizeJdRun(UUID runId) {
         RunExecution run = runExecution(runId, true);
         if (!"RUNNING".equals(run.status())) return;
-        Map<String, String> input = stringMap(run.inputPayload());
-        String scenario = input.getOrDefault("scenario", "NORMAL");
-        if (!"NORMAL".equals(scenario)) {
-            failJdRun(run, scenario);
-            return;
-        }
         JdDraftContent draft = structuredResultMapper.toDraft(aiPlatform.getStructuredResult(run.providerTaskId()));
         WorkspaceScope scope = new WorkspaceScope(run.workspaceId(), run.companyId(), null, null, null);
         upsertDraft(scope, run.taskId(), run.id(), run.createdBy(), draft);
@@ -669,6 +666,48 @@ public class RecruitmentService {
         }
         if (updated == 0) throw new ApiException("RESUME_PARSE_DRAFT_NOT_FOUND", "简历解析草稿不存在，无法更新", HttpStatus.CONFLICT);
         jdbc.update("UPDATE recruitment_tasks SET updated_at=? WHERE id=? AND workspace_id=?", timestamp(now), taskId, workspaceId);
+        return detailScoped(workspaceId, taskId);
+    }
+
+    /**
+     * 确认简历解析结果并发布到人才库（与 JD confirmDraft 对称）。
+     *  - 任务已关联人才（从人才库选择解析 / 已发布过）→ 幂等，仅确认草稿；
+     *  - 否则取任务第一份简历源文件，在人才库创建候选人并回填 linked_candidate_id；
+     *  - 最新解析草稿置为 CONFIRMED。
+     */
+    @Transactional
+    public TaskDetail confirmResumeParse(UUID userId, UUID workspaceId, UUID taskId) {
+        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TaskRow task = taskForUpdate(workspaceId, taskId);
+        List<ResumeParseDraftView> drafts = resumeParseDraftRows(workspaceId, taskId);
+        ResumeParseDraftView draft = drafts.stream().findFirst()
+                .orElseThrow(() -> new ApiException("RESUME_PARSE_DRAFT_NOT_FOUND", "请先完成 AI 简历解析再发布到人才库", HttpStatus.CONFLICT));
+        if (draft.content() == null || draft.content().isBlank()) {
+            throw new ApiException("RESUME_PARSE_DRAFT_EMPTY", "解析结果为空，请重新解析后再发布", HttpStatus.CONFLICT);
+        }
+        Instant now = Instant.now();
+        UUID linkedCandidateId = jdbc.queryForObject(
+                "SELECT linked_candidate_id FROM recruitment_tasks WHERE id=? AND workspace_id=?",
+                UUID.class, taskId, workspaceId);
+        if (linkedCandidateId == null) {
+            // 取第一份上传的简历源文件，发布为人才库候选人
+            List<ResumeSourceFileService.SourceFileView> files = resumeSourceFiles.list(workspaceId, taskId);
+            ResumeSourceFileService.SourceFileView source = files.stream().findFirst()
+                    .orElseThrow(() -> new ApiException("RESUME_SOURCE_REQUIRED", "请先上传简历文件再发布到人才库", HttpStatus.CONFLICT));
+            CandidateService.CandidateDetail candidate = candidates.createFromResumeSource(
+                    userId, workspaceId, source.fileAssetId(), source.filename(), source.extractedText());
+            linkedCandidateId = candidate.id();
+            jdbc.update("UPDATE recruitment_tasks SET linked_candidate_id=?,updated_at=? WHERE id=? AND workspace_id=?",
+                    linkedCandidateId, timestamp(now), taskId, workspaceId);
+            insertMessage(scope, task.conversationId(), "ASSISTANT",
+                    "简历已发布到人才库，可在人才库中查看、补充信息并用于简历筛选。", "RESUME_PARSING", null, now);
+        }
+        // 最新草稿置为 CONFIRMED（重新编辑保存会回到 DRAFT，与 JD 草稿状态机一致）
+        jdbc.update("UPDATE resume_parse_drafts SET status='CONFIRMED',updated_at=? WHERE id=?",
+                timestamp(now), draft.id());
+        jdbc.update("UPDATE recruitment_tasks SET current_stage='RESUME_PARSE_CONFIRMED',updated_at=? WHERE id=?",
+                timestamp(now), taskId);
+        audit(userId, scope, "RESUME_PARSE_CONFIRMED", "AI_RUN", draft.id());
         return detailScoped(workspaceId, taskId);
     }
 
@@ -987,7 +1026,10 @@ public class RecruitmentService {
         Map<String, Object> data = result.data();
         Object markdownObj = data.get("markdown");
         String markdown = markdownObj == null ? "" : String.valueOf(markdownObj).trim();
-        if (markdown.isBlank()) markdown = fallbackMarkdownForResumeParse(run.taskId());
+        if (markdown.isBlank()) {
+            failResumeParseRun(run, "AI_SCHEMA_INVALID", "AI 简历解析未返回有效内容，请重试");
+            return;
+        }
         WorkspaceScope scope = new WorkspaceScope(run.workspaceId(), run.companyId(), null, null, null);
         Instant completed = Instant.now();
         // version 插入：有草稿则生成下一版，否则 V1
@@ -1012,11 +1054,6 @@ public class RecruitmentService {
                 timestamp(completed), run.taskId());
         appendRunEvent(run, "completed", Map.of("status", "COMPLETED", "progress", 100));
         audit(run.createdBy(), scope, "RESUME_PARSE_DRAFT_GENERATED", "AI_RUN", run.id());
-    }
-
-    private String fallbackMarkdownForResumeParse(UUID taskId) {
-        return "## AI 返回内容为空\n\n可能是大模型供应商临时不可用或输出为空。请在右侧 AI 招聘助手中继续沟通，"
-                + "或点击「重新解析」按钮重试。\n\n也可以直接在下方文本框手动编辑解析结果，保存后即成为 V1 版本草稿。";
     }
 
     @Transactional
@@ -1159,12 +1196,6 @@ public class RecruitmentService {
         appendRunEvent(run, "delta", Map.of("delta", delta, "progress", progress));
     }
 
-    private void failJdRun(RunExecution run, String scenario) {
-        String code = "TIMEOUT".equals(scenario) ? "AI_TIMEOUT" : "AI_SCHEMA_INVALID";
-        String message = "TIMEOUT".equals(scenario) ? "AI 生成超时，请重试" : "AI 返回结构不合法，请重试";
-        failJdRun(run, code, message);
-    }
-
     private void failJdRun(RunExecution run, String code, String detail) {
         String message = "WORKER".equals(code) ? "JD 生成任务执行失败，请重试" : detail;
         Instant completed = Instant.now();
@@ -1274,12 +1305,6 @@ public class RecruitmentService {
         return required(key, "缺少 Idempotency-Key", 200);
     }
 
-    private static String normalizedScenario(String scenario) {
-        String value = scenario == null || scenario.isBlank() ? "NORMAL" : scenario.trim().toUpperCase();
-        if (!List.of("NORMAL", "TIMEOUT", "INVALID_SCHEMA").contains(value)) throw validation("无效的 Mock 场景");
-        return value;
-    }
-
     private static String required(String value, String message, int max) {
         if (value == null || value.isBlank()) throw validation(message);
         String clean = value.trim();
@@ -1326,8 +1351,7 @@ public class RecruitmentService {
     public record RouteMessageInput(String message) { }
 
     public record GenerateJdInput(String requirement, String title, String companyName, String location,
-                                  String experienceLevel, String education, String jobType, String skills,
-                                  String scenario) { }
+                                  String experienceLevel, String education, String jobType, String skills) { }
 
     public record UpdateDraftInput(UUID id, int revision, String title, String companyName, String location,
                                    String experienceLevel, String education, String jobType,

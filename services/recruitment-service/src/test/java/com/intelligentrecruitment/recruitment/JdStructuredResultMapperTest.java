@@ -42,6 +42,19 @@ class JdStructuredResultMapperTest {
                 .extracting(error -> ((ApiException) error).code()).isEqualTo("AI_CONTRACT_INVALID");
     }
 
+    @Test
+    void rendersStructuredArrayFieldsAsSeparateLines() {
+        var draft = mapper.toDraft(result(Map.ofEntries(
+                Map.entry("title", "Java 工程师"), Map.entry("company_name", "示例科技"),
+                Map.entry("responsibilities", List.of("负责服务端开发", "优化系统性能")),
+                Map.entry("requirements", List.of("熟悉 Java")),
+                Map.entry("skills", List.of("Java", "Spring Boot")),
+                Map.entry("talent_profile", "有服务端经验"))));
+
+        assertThat(draft.responsibilities()).isEqualTo("- 负责服务端开发\n- 优化系统性能");
+        assertThat(draft.skills()).isEqualTo("- Java\n- Spring Boot");
+    }
+
     private StructuredResult result(Map<String, Object> data) {
         return new StructuredResult(null, "ait-1", FlowCapability.JD_GENERATION, StructuredResult.Status.DRAFT_READY,
                 "jd-v1", data, List.of(), List.of(),

@@ -175,17 +175,17 @@ export function createTalent(workspaceId: string, input: TalentProfileInput) {
   });
 }
 
-export function uploadResume(workspaceId: string, file: File, scenario = "NORMAL") {
+export function uploadResume(workspaceId: string, file: File) {
   const body = new FormData();
   body.append("file", file);
-  return apiFetch<CandidateDetail>(`/workspaces/${workspaceId}/candidates/resumes?scenario=${scenario}`, {
+  return apiFetch<CandidateDetail>(`/workspaces/${workspaceId}/candidates/resumes`, {
     method: "POST", body,
   });
 }
 
-export function retryResumeParse(workspaceId: string, candidateId: string, scenario = "NORMAL") {
+export function retryResumeParse(workspaceId: string, candidateId: string) {
   return apiFetch<CandidateDetail>(`/workspaces/${workspaceId}/candidates/${candidateId}/parse-retries`, {
-    method: "POST", body: JSON.stringify({ scenario }),
+    method: "POST",
   });
 }
 

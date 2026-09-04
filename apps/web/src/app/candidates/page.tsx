@@ -961,7 +961,7 @@ function ImportTalentModal({
       const next: { name: string; ok: boolean; message: string }[] = [];
       for (const file of allowed) {
         try {
-          const value = await uploadResume(workspaceId, file, "NORMAL");
+          const value = await uploadResume(workspaceId, file);
           next.push({
             name: file.name,
             ok: true,

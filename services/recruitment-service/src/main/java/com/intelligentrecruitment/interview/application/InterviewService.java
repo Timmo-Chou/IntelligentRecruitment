@@ -71,25 +71,14 @@ public class InterviewService {
         UUID versionId = UUID.randomUUID();
         UUID companyId = jdbc.queryForObject("SELECT company_id FROM workspaces WHERE id=?", UUID.class, workspaceId);
 
-        // ----------- 优先调 DeepSeek，异常降级本地模板 -----------
-        List<CoreCompetency> competencies;
-        String summary;
-        List<Question> questions;
-        try {
-            JobSnapshot jobSnap = buildJobSnapshot(job);
-            CandidateSnapshot candSnap = new CandidateSnapshot(candidate.name(), candidate.headline(),
-                    candidate.skills(), candidate.summary(), "");
-            InterviewQuestionKit kit = aiPlatformClient.generateInterviewQuestions(
-                    new GenerateInterviewQuestionsInput(workspaceId, jobSnap, candSnap, input.questionCount()));
-            competencies = toCoreCompetencies(kit.competencies());
-            summary = kit.matchSummary();
-            questions = toQuestions(kit.questions());
-        } catch (RuntimeException ignored) {
-            // AI 不可用（配置/鉴权/超时/格式错 等）——使用本地模板兜底，保证业务可用
-            competencies = competencies(job);
-            summary = matchSummary(job, candidate, competencies);
-            questions = generatedQuestions(job, candidate, competencies, input.questionCount());
-        }
+        JobSnapshot jobSnap = buildJobSnapshot(job);
+        CandidateSnapshot candSnap = new CandidateSnapshot(candidate.name(), candidate.headline(),
+                candidate.skills(), candidate.summary(), "");
+        InterviewQuestionKit kit = aiPlatformClient.generateInterviewQuestions(
+                new GenerateInterviewQuestionsInput(workspaceId, jobSnap, candSnap, input.questionCount()));
+        List<CoreCompetency> competencies = toCoreCompetencies(kit.competencies());
+        String summary = kit.matchSummary();
+        List<Question> questions = toQuestions(kit.questions());
 
         jdbc.update("""
                 INSERT INTO interview_kits(id,company_id,workspace_id,job_version_id,candidate_id,screening_result_id,status,

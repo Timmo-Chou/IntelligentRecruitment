@@ -1,6 +1,11 @@
 spring:
   application:
     name: recruitment-service
+  mvc:
+    async:
+      # SSE 流式端点（/jd-runs/events）自身长轮询 deadline 为 55 秒，
+      # 容器异步超时需略大于该值，避免 30 秒默认超时触发 AsyncRequestTimeoutException 告警。
+      request-timeout: ${SPRING_MVC_ASYNC_REQUEST_TIMEOUT:65000}
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/intelligent_recruitment}
     username: ${DATABASE_USERNAME:recruitment}
@@ -69,8 +74,6 @@ app:
       notify-url: ${ALIPAY_NOTIFY_URL:}
       return-url: ${ALIPAY_RETURN_URL:}
   ai-platform:
-    # JD 草稿默认必须由临时 AI Platform 的模型生成；Mock 仅允许显式用于测试。
-    mode: ${AI_PLATFORM_MODE:deepseek}
     deepseek:
       # 外部模型处理默认关闭；仅在经数据处理审批的环境显式开启。
       base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
@@ -99,7 +102,7 @@ app:
   phase5:
     # Phase 5 非生产临时价：0.80元/成功筛选候选人。
     screening-unit-price-minor: ${SCREENING_UNIT_PRICE_MINOR:80}
-    pricing-version: ${SCREENING_PRICING_VERSION:SCREENING_MOCK_V1}
+    pricing-version: ${SCREENING_PRICING_VERSION:SCREENING_DEEPSEEK_V1}
     quote-ttl-seconds: ${SCREENING_QUOTE_TTL_SECONDS:300}
     outbox-lease-seconds: ${SCREENING_OUTBOX_LEASE_SECONDS:300}
     worker-enabled: ${SCREENING_WORKER_ENABLED:true}

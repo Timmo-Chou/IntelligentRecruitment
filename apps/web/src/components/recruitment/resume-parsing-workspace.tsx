@@ -1,12 +1,13 @@
 "use client";
 
-import { AlertCircle, BriefcaseBusiness, CircleDollarSign, File, Loader2, Pencil, Save, Upload, Eye, X, Sparkles, ExternalLink, User, Download, AlertTriangle } from "lucide-react";
+import { AlertCircle, BriefcaseBusiness, CircleDollarSign, File, Loader2, Pencil, Save, Upload, Eye, X, Sparkles, ExternalLink, User, UserPlus, CheckCircle2, Download, AlertTriangle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { ApiError } from "@/lib/api-client";
 import { fetchJobs, type Job } from "@/lib/job-api";
 import { fetchCandidate, type CandidateDetail } from "@/lib/candidate-api";
 import {
-  generateResumeParse, getResumeSourceFileDownload,
+  confirmResumeParseDraft, generateResumeParse, getResumeSourceFileDownload,
   updateResumeParseDraft, uploadResumeSourceFile,
   type ResumeParseDraft, type ResumeSourceFile, type TaskDetail,
 } from "@/lib/recruitment-api";
@@ -33,6 +34,8 @@ export function ResumeParsingWorkspace({
   const { workspaceId, workspace, loading: workspaceLoading, notAuthenticated } = useWorkspace();
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  // 发布到人才库请求中（后端会同步建人才库档案，耗时略长）
+  const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 关联职位（从职位库查询完整详情，只读）
   const [linkedJob, setLinkedJob] = useState<Job | null>(null);
@@ -106,6 +109,29 @@ export function ResumeParsingWorkspace({
       onDetailUpdated?.(next);
     } catch (cause) { setError(messageOf(cause)); }
     finally { setBusy(false); }
+  }
+
+  /**
+   * 发布到人才库：把解析结果对应的简历创建为人才库候选人（与 JD「确认发布」对称）。
+   * 后端幂等：已发布或任务本就关联人才库人才时，仅把草稿置为 CONFIRMED。
+   */
+  async function handleConfirmToPool() {
+    if (!workspaceId || busy || confirming) return;
+    // 发布前若有未保存修改，先落盘，避免人才库拿到旧内容
+    if (draftDirty) {
+      const revision = detail.resumeParseDraft?.revision ?? 1;
+      try {
+        const saved = await updateResumeParseDraft(workspaceId, detail.task.id, { revision, content: draftContent });
+        onDetailUpdated?.(saved);
+        setDraftDirty(false);
+      } catch (cause) { setError(messageOf(cause)); return; }
+    }
+    setConfirming(true); setError(null);
+    try {
+      const next = await confirmResumeParseDraft(workspaceId, detail.task.id);
+      onDetailUpdated?.(next);
+    } catch (cause) { setError(messageOf(cause)); }
+    finally { setConfirming(false); }
   }
 
   /** 上传新的简历文件（补充更多简历或重试） */
@@ -226,6 +252,8 @@ export function ResumeParsingWorkspace({
   const parseStatus = detail.latestAiRun?.status;
   const running = parseStatus === "RUNNING" || parseStatus === "QUEUED";
   const progress = detail.latestAiRun?.progress ?? 0;
+  // 已发布到人才库：草稿已 CONFIRMED，或任务本就关联了人才库人才（含从人才库选择解析 / 已发布）
+  const published = detail.resumeParseDraft?.status === "CONFIRMED" || Boolean(detail.task.linkedCandidateId);
 
   if (workspaceLoading) return <Loading text="正在加载工作空间..."/>;
   if (!workspaceId) return <Loading text="请先进入一个可访问的工作空间"/>;
@@ -274,9 +302,23 @@ export function ResumeParsingWorkspace({
             );
           })()}
           {/* 保存草稿：只要解析结果内容非空就允许点击（首次保存、内容未修改但想落盘、手动修改后三种场景都覆盖） */}
-          <button type="button" className="outline-button" disabled={busy || !draftContent.trim()} onClick={() => void handleSave()}>
+          <button type="button" className="outline-button" disabled={busy || confirming || !draftContent.trim()} onClick={() => void handleSave()}>
             {busy ? <Loader2 className="animate-spin" size={15}/> : <Save size={15}/>}保存草稿
           </button>
+          {/* 发布到人才库：与 JD「确认发布」对称，把简历创建为人才库候选人；已发布后变为跳转入口 */}
+          {published ? (
+            <Link href="/candidates" className="primary-button inline-flex items-center gap-2" style={{ backgroundColor: "#0ca58c" }}>
+              <CheckCircle2 size={15}/>已发布到人才库 · 查看
+            </Link>
+          ) : (
+            <button type="button" className="primary-button inline-flex items-center gap-2"
+              disabled={busy || confirming || running || !draftContent.trim()}
+              onClick={() => void handleConfirmToPool()}
+              title={draftContent.trim() ? "把该简历发布到人才库" : "请先完成 AI 解析再发布到人才库"}>
+              {confirming ? <Loader2 className="animate-spin" size={15}/> : <UserPlus size={15}/>}
+              {confirming ? "发布中…" : "发布到人才库"}
+            </button>
+          )}
         </div>
       </div>
 

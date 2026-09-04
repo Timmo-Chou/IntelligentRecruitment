@@ -19,9 +19,8 @@ AI Recruitment Business Service
     ├── RabbitMQ / Spring Worker
     ├── S3-compatible Object Storage
     └── AIPlatformClient
-            ├── Mock adapter（本地开发与契约测试）
-            ├── 临时 DeepSeek adapter（受数据处理授权约束）
-            └── Partner HTTP adapter（正式联调阶段）
+            ├── DeepSeek adapter（运行时实现，受数据处理授权约束）
+            └── Partner HTTP adapter（后续正式联调阶段）
 ```
 
 ## 2. 客户端

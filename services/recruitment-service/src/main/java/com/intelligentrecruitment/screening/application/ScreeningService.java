@@ -68,7 +68,7 @@ public class ScreeningService {
                             BillingService billing, PricingService pricing, RecruitmentFlowCoordinator flowCoordinator,
                             AiPlatformClient aiPlatform, ScreeningMatcher matcher, PiiCipher pii,
                             @Value("${app.phase5.screening-unit-price-minor:80}") long defaultUnitPriceMinor,
-                            @Value("${app.phase5.pricing-version:SCREENING_MOCK_V1}") String pricingVersion,
+                            @Value("${app.phase5.pricing-version:SCREENING_DEEPSEEK_V1}") String pricingVersion,
                             @Value("${app.phase5.quote-ttl-seconds:300}") long quoteTtlSeconds,
                             @Value("${app.phase5.outbox-lease-seconds:300}") long outboxLeaseSeconds,
                             @Value("${app.phase5.screening-max-in-flight-per-run:3}") int maxInFlightPerRun) {
@@ -203,7 +203,7 @@ public class ScreeningService {
         String key = requiredKey(idempotencyKey);
         if (input == null || input.planId() == null) throw validation("请选择筛选方案");
         List<UUID> candidateIds = safeCandidateIds(input.candidateIds());
-        String scenario = scenario(input.scenario());
+        String scenario = "NORMAL";
         ScreeningPlanView plan = planScoped(workspaceId, input.planId());
         JobRow job = job(workspaceId, plan.jobId());
         List<CandidateRow> candidates = candidates(workspaceId, candidateIds);
@@ -410,14 +410,8 @@ public class ScreeningService {
                 SELECT count(*) FROM screening_run_items WHERE run_id=? AND status IN ('SUCCEEDED','FAILED','CANCELLED')
                 """, Integer.class, runId);
         int index = processed == null ? 0 : processed;
-        boolean fail = "INVALID_SCHEMA".equals(run.scenario())
-                || ("PARTIAL_FAILURE".equals(run.scenario()) && index % 3 == 2);
         Instant now = Instant.now();
-        if (fail) {
-            jdbc.update("UPDATE screening_run_items SET status='FAILED',error_code=?,updated_at=? WHERE id=?",
-                    "INVALID_SCHEMA".equals(run.scenario()) ? "AI_SCHEMA_INVALID" : "AI_ITEM_FAILED",
-                    timestamp(now), item.id());
-        } else if ("PENDING".equals(item.status())) {
+        if ("PENDING".equals(item.status())) {
             try {
                 var aiTask = aiPlatform.startTask(new StartAiTaskCommand(run.workspaceId().toString(),
                         run.companyId() == null ? null : run.companyId().toString(), run.createdBy().toString(),
@@ -428,23 +422,19 @@ public class ScreeningService {
                 if (aiTask.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.COMPLETED) {
                     persistAiResult(run, item, aiPlatform.getStructuredResult(aiTask.aiTaskId()), now);
                 }
-            } catch (RuntimeException exception) {
-                persistFallbackResult(run, item, "AI Platform 调用失败，已使用规则匹配兜底：" + safeError(exception.getMessage()), now);
-            }
+            } catch (RuntimeException exception) { failItem(item, exception, now); }
         } else {
             try {
                 var aiTask = item.providerTaskId() == null ? null : aiPlatform.getTask(item.providerTaskId());
                 if (aiTask == null || aiTask.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.FAILED
                         || aiTask.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.CANCELLED) {
-                    persistFallbackResult(run, item, "AI Platform 未返回可用结果，已使用规则匹配兜底", now);
+                    failItem(item, new ApiException("AI_PROVIDER_UNAVAILABLE", "AI Platform 未返回可用结果", HttpStatus.BAD_GATEWAY), now);
                 } else if (aiTask.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.COMPLETED) {
                     persistAiResult(run, item, aiPlatform.getStructuredResult(aiTask.aiTaskId()), now);
                 } else {
                     return false;
                 }
-            } catch (RuntimeException exception) {
-                persistFallbackResult(run, item, "AI Platform 结果读取失败，已使用规则匹配兜底：" + safeError(exception.getMessage()), now);
-            }
+            } catch (RuntimeException exception) { failItem(item, exception, now); }
         }
         Integer completed = jdbc.queryForObject("""
                 SELECT count(*) FROM screening_run_items WHERE run_id=? AND status IN ('SUCCEEDED','FAILED','CANCELLED')
@@ -880,15 +870,10 @@ public class ScreeningService {
         persistResult(run, item, result, Map.of("source", "AI_PLATFORM", "result", output.data()), now);
     }
 
-    private void persistFallbackResult(ExecutionRow run, ItemExecutionRow item, String reason, Instant now) {
-        ScreeningMatcher.MatchResult fallback = matcher.match(jobFromSnapshot(run.jobSnapshot()),
-                new ScreeningMatcher.FrozenCandidate(item.headline(), item.yearsExperience(), item.education(),
-                        item.skills(), item.summary(), item.workExperience(), item.rawText()), dimensions(run.rulesSnapshot()));
-        List<String> risks = new ArrayList<>(fallback.risks());
-        risks.add(reason);
-        persistResult(run, item, new ScreeningMatcher.MatchResult(fallback.score(), fallback.level(), fallback.matched(),
-                fallback.unmatched(), fallback.negotiable(), fallback.missing(), risks, fallback.evidence()),
-                Map.of("source", "RULE_FALLBACK", "reason", reason), now);
+    private void failItem(ItemExecutionRow item, RuntimeException exception, Instant now) {
+        String code = exception instanceof ApiException api ? api.code() : "AI_PROVIDER_UNAVAILABLE";
+        jdbc.update("UPDATE screening_run_items SET status='FAILED',error_code=?,updated_at=? WHERE id=?",
+                code, timestamp(now), item.id());
     }
 
     private void persistResult(ExecutionRow run, ItemExecutionRow item, ScreeningMatcher.MatchResult result,
@@ -997,11 +982,6 @@ public class ScreeningService {
         return result;
     }
 
-    private static String scenario(String value) {
-        String scenario = value == null || value.isBlank() ? "NORMAL" : value.toUpperCase(Locale.ROOT);
-        if (!List.of("NORMAL", "PARTIAL_FAILURE", "INVALID_SCHEMA").contains(scenario)) throw validation("无效的筛选场景");
-        return scenario;
-    }
 
     private static String requiredKey(String key) {
         if (key == null || key.isBlank() || key.length() > 200) throw validation("Idempotency-Key不能为空且不能超过200字符");
@@ -1050,7 +1030,7 @@ public class ScreeningService {
     public record PlanInput(UUID jobId, String name, List<DimensionInput> dimensions, UUID recruitmentTaskId) { }
     public record PlanUpdateInput(UUID jobId, List<DimensionInput> dimensions) { }
     public record QuoteInput(UUID planId, List<UUID> candidateIds) { }
-    public record RunInput(UUID planId, List<UUID> candidateIds, String scenario, UUID quoteId) { }
+    public record RunInput(UUID planId, List<UUID> candidateIds, UUID quoteId) { }
     public record RetryInput(UUID quoteId) { }
     public record ScreeningPricingView(String pricingVersion, long unitPriceMinor, long quoteTtlSeconds) { }
     public record OutboxClaim(UUID eventId, UUID runId, int attempts) { }

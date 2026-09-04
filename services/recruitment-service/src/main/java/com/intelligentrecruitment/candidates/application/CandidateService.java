@@ -3,6 +3,14 @@ package com.intelligentrecruitment.candidates.application;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intelligentrecruitment.agentflow.domain.ExecutionContext;
+import com.intelligentrecruitment.agentflow.domain.FlowCapability;
+import com.intelligentrecruitment.aiplatform.application.AiPlatformClient;
+import com.intelligentrecruitment.aiplatform.application.StartAiTaskCommand;
+import com.intelligentrecruitment.aiplatform.domain.AiCapability;
+import com.intelligentrecruitment.aiplatform.domain.AiTask;
+import com.intelligentrecruitment.aiplatform.domain.AiTaskStatus;
+import com.intelligentrecruitment.agentflow.domain.StructuredResult;
 import com.intelligentrecruitment.candidates.infrastructure.ResumeObjectStorage;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
@@ -33,12 +41,7 @@ import static com.intelligentrecruitment.shared.database.SqlTimes.timestamp;
 @Service
 public class CandidateService {
 
-    private static final Pattern EMAIL = Pattern.compile("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
-    private static final Pattern PHONE = Pattern.compile("(?<!\\d)1[3-9]\\d{9}(?!\\d)");
-    private static final Pattern YEARS = Pattern.compile("(\\d{1,2})\\s*年");
-    private static final List<String> KNOWN_SKILLS = List.of("Java", "Spring Boot", "Spring Cloud", "MySQL",
-            "Redis", "Kafka", "Python", "Go", "React", "Vue", "TypeScript", "JavaScript", "Docker",
-            "Kubernetes", "产品设计", "需求分析", "数据分析", "项目管理", "自动化测试");
+    private static final Pattern AI_NAME = Pattern.compile("(?m)^- 姓名：(.+)$");
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -46,10 +49,11 @@ public class CandidateService {
     private final ResumeObjectStorage storage;
     private final ResumeTextExtractor extractor;
     private final PiiCipher pii;
+    private final AiPlatformClient aiPlatform;
     private final long maxFileSize;
 
     public CandidateService(JdbcTemplate jdbc, ObjectMapper objectMapper, WorkspaceAccessService workspaceAccess,
-                            ResumeObjectStorage storage, ResumeTextExtractor extractor, PiiCipher pii,
+                            ResumeObjectStorage storage, ResumeTextExtractor extractor, PiiCipher pii, AiPlatformClient aiPlatform,
                             @Value("${app.storage.max-file-size-bytes:10485760}") long maxFileSize) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
@@ -57,11 +61,12 @@ public class CandidateService {
         this.storage = storage;
         this.extractor = extractor;
         this.pii = pii;
+        this.aiPlatform = aiPlatform;
         this.maxFileSize = maxFileSize;
     }
 
     @Transactional
-    public CandidateDetail upload(UUID userId, UUID workspaceId, MultipartFile file, String scenario) {
+    public CandidateDetail upload(UUID userId, UUID workspaceId, MultipartFile file) {
         WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         byte[] bytes = validateAndRead(file);
         String hash = SecurityHashes.sha256(bytes);
@@ -86,12 +91,12 @@ public class CandidateService {
         if (createdAsset) storage.put(objectKey, bytes, mediaType);
         try {
             return persistUpload(userId, scope, assetId, candidateId, resumeFileId, objectKey, filename,
-                    mediaType, bytes, hash, normalizeScenario(scenario), createdAsset);
+                    mediaType, bytes, hash, createdAsset);
         } catch (DuplicateKeyException duplicateKey) {
             if (!createdAsset) throw duplicateKey;
             releaseHashSlot(workspaceId, hash);
             return persistUpload(userId, scope, assetId, candidateId, resumeFileId, objectKey, filename,
-                    mediaType, bytes, hash, normalizeScenario(scenario), true);
+                    mediaType, bytes, hash, true);
         } catch (RuntimeException exception) {
             if (createdAsset) {
                 try { storage.remove(objectKey); } catch (RuntimeException ignored) { }
@@ -102,10 +107,10 @@ public class CandidateService {
 
     protected CandidateDetail persistUpload(UUID userId, WorkspaceScope scope, UUID assetId, UUID candidateId,
                                             UUID resumeFileId, String objectKey, String filename, String mediaType,
-                                            byte[] bytes, String hash, String scenario, boolean createAsset) {
+                                            byte[] bytes, String hash, boolean createAsset) {
         Instant now = Instant.now();
         String rawText = extractor.extract(bytes, filename);
-        ParsedResume parsed = parse(filename, rawText);
+        String provisionalName = filenameDisplayName(filename);
         if (createAsset) {
             jdbc.update("""
                     INSERT INTO file_assets
@@ -120,19 +125,16 @@ public class CandidateService {
                 (id,company_id,workspace_id,display_name_masked,full_name_ciphertext,email_ciphertext,
                  phone_ciphertext,full_name_search_hash,phone_search_hash,status,created_by,created_at,updated_at,profile,search_text)
                 VALUES (?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
-                """, candidateId, scope.companyId(), scope.workspaceId(), mask(parsed.name()), pii.encrypt(parsed.name()),
-                pii.encrypt(parsed.email()), pii.encrypt(parsed.phone()), pii.searchToken(parsed.name()), pii.searchToken(parsed.phone()),
-                userId, timestamp(now), timestamp(now), json(uploadProfile(parsed)),
-                buildSearchText(candidateId,
-                        uploadProfile(parsed), parsed.skills(), parsed.headline()));
-        String status = "INVALID_SCHEMA".equals(scenario) ? "PARSE_FAILED" : "PARSED";
+                """, candidateId, scope.companyId(), scope.workspaceId(), mask(provisionalName), pii.encrypt(provisionalName),
+                pii.encrypt(""), pii.encrypt(""), pii.searchToken(provisionalName), pii.searchToken(""),
+                userId, timestamp(now), timestamp(now), json(Map.of("source", "简历上传", "tags", List.of())), provisionalName);
         jdbc.update("""
                 INSERT INTO resume_files
                 (id,company_id,workspace_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
                 VALUES (?,?,?,?,?,?,?, ?,?,?)
-                """, resumeFileId, scope.companyId(), scope.workspaceId(), candidateId, assetId, status,
-                "INVALID_SCHEMA".equals(scenario) ? "AI_SCHEMA_INVALID" : null, userId, timestamp(now), timestamp(now));
-        if (!"INVALID_SCHEMA".equals(scenario)) saveParseVersion(scope, candidateId, resumeFileId, 1, parsed, now);
+                """, resumeFileId, scope.companyId(), scope.workspaceId(), candidateId, assetId, "PROCESSING",
+                null, userId, timestamp(now), timestamp(now));
+        parseAndSave(userId, scope, candidateId, resumeFileId, filename, rawText, 1);
         audit(userId, scope, "RESUME_UPLOADED", candidateId);
         return detailScoped(scope.workspaceId(), candidateId);
     }
@@ -374,6 +376,56 @@ public class CandidateService {
         }
     }
 
+    /**
+     * AI 简历解析「发布到人才库」：基于招聘任务已上传的简历源文件资产创建候选人。
+     * 复用已有 file_assets（不重复存储文件），并用任务已提取的简历文本走人才库解析入库；
+     * 同一文件资产已关联候选人时幂等返回，避免重复入库。
+     */
+    @Transactional
+    public CandidateDetail createFromResumeSource(UUID userId, UUID workspaceId, UUID assetId,
+                                                  String filename, String extractedText) {
+        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        // 幂等：该简历资产已入库为候选人则直接返回已有候选人
+        List<UUID> linked = jdbc.query("""
+                SELECT c.id FROM candidates c
+                JOIN resume_files rf ON rf.candidate_id=c.id
+                WHERE rf.file_asset_id=? AND c.workspace_id=? AND c.status<>'DELETED'
+                """, (rs, n) -> rs.getObject(1, UUID.class), assetId, workspaceId);
+        if (!linked.isEmpty()) return detailScoped(workspaceId, linked.getFirst());
+        // 资产必须存在且属于当前工作空间
+        Integer assetCount = jdbc.queryForObject(
+                "SELECT count(*) FROM file_assets WHERE id=? AND workspace_id=? AND lifecycle_status='ACTIVE'",
+                Integer.class, assetId, workspaceId);
+        if (assetCount == null || assetCount == 0) {
+            throw new ApiException("FILE_ASSET_NOT_FOUND", "简历文件不存在或已失效，请重新上传", HttpStatus.NOT_FOUND);
+        }
+        UUID candidateId = UUID.randomUUID();
+        UUID resumeFileId = UUID.randomUUID();
+        Instant now = Instant.now();
+        String safeName = filenameDisplayName(filename);
+        // 先建候选人（姓名暂用文件名占位，人才库解析完成后会回填真实姓名）
+        jdbc.update("""
+                INSERT INTO candidates
+                (id,company_id,workspace_id,display_name_masked,full_name_ciphertext,email_ciphertext,
+                 phone_ciphertext,full_name_search_hash,phone_search_hash,status,created_by,created_at,updated_at,profile,search_text)
+                VALUES (?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
+                """, candidateId, scope.companyId(), scope.workspaceId(), mask(safeName), pii.encrypt(safeName),
+                pii.encrypt(""), pii.encrypt(""), pii.searchToken(safeName), pii.searchToken(""),
+                userId, timestamp(now), timestamp(now),
+                json(Map.of("source", "AI简历解析", "tags", List.of())), safeName);
+        jdbc.update("""
+                INSERT INTO resume_files
+                (id,company_id,workspace_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
+                VALUES (?,?,?,?,?,'PROCESSING',NULL,?,?,?)
+                """, resumeFileId, scope.companyId(), scope.workspaceId(), candidateId, assetId, userId,
+                timestamp(now), timestamp(now));
+        // 用任务已提取的简历文本走人才库解析入库（内部失败有兜底，不影响候选人创建）
+        String rawText = extractedText == null || extractedText.isBlank() ? safeName : extractedText;
+        parseAndSave(userId, scope, candidateId, resumeFileId, filename, rawText, 1);
+        audit(userId, scope, "CANDIDATE_CREATED_FROM_RESUME_PARSE", candidateId);
+        return detailScoped(workspaceId, candidateId);
+    }
+
     private void appendSearch(StringBuilder where, List<Object> params, String search) {
         if (search == null || search.isBlank()) return;
         List<String> tokens = tokenizeSearch(search);
@@ -548,22 +600,17 @@ public class CandidateService {
     }
 
     @Transactional
-    public CandidateDetail retryParse(UUID userId, UUID workspaceId, UUID candidateId, String scenario) {
+    public CandidateDetail retryParse(UUID userId, UUID workspaceId, UUID candidateId) {
         WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         CandidateDetail existing = detailScoped(workspaceId, candidateId);
-        if ("INVALID_SCHEMA".equals(normalizeScenario(scenario))) {
-            jdbc.update("UPDATE resume_files SET status='PARSE_FAILED',error_code='AI_SCHEMA_INVALID',updated_at=? WHERE id=? AND workspace_id=?",
-                    timestamp(Instant.now()), existing.resumeFileId(), workspaceId);
-            return detailScoped(workspaceId, candidateId);
-        }
         FileRow file = fileRow(workspaceId, candidateId);
         String filename = pii.decryptIfEncrypted(file.filename());
-        ParsedResume parsed = parse(filename, extractor.extract(storage.get(file.objectKey()), filename));
+        jdbc.update("UPDATE resume_files SET status='PROCESSING',error_code=NULL,updated_at=? WHERE id=? AND workspace_id=?",
+                timestamp(Instant.now()), existing.resumeFileId(), workspaceId);
         Integer version = jdbc.queryForObject("SELECT COALESCE(MAX(version_number),0)+1 FROM resume_parse_versions WHERE candidate_id=?",
                 Integer.class, candidateId);
-        saveParseVersion(scope, candidateId, existing.resumeFileId(), version == null ? 1 : version, parsed, Instant.now());
-        jdbc.update("UPDATE resume_files SET status='PARSED',error_code=NULL,updated_at=? WHERE id=?",
-                timestamp(Instant.now()), existing.resumeFileId());
+        parseAndSave(userId, scope, candidateId, existing.resumeFileId(), filename,
+                extractor.extract(storage.get(file.objectKey()), filename), version == null ? 1 : version);
         audit(userId, scope, "RESUME_PARSE_RETRIED", candidateId);
         return detailScoped(workspaceId, candidateId);
     }
@@ -694,28 +741,108 @@ public class CandidateService {
         return rows.getFirst();
     }
 
-    private ParsedResume parse(String filename, String rawText) {
-        String name = filename.replaceFirst("(?i)\\.(pdf|docx)$", "")
+    private void parseAndSave(UUID userId, WorkspaceScope scope, UUID candidateId, UUID resumeFileId,
+                              String filename, String rawText, int version) {
+        ParsedResume parsed;
+        try {
+            parsed = parseWithDeepSeek(scope, userId, candidateId, filename, rawText);
+        } catch (RuntimeException exception) {
+            String code = exception instanceof ApiException api ? api.code() : "AI_PROVIDER_UNAVAILABLE";
+            // 连简历原文都没有（如纯图片 PDF），无法兜底：标记失败，等待重新上传或解析
+            if (rawText == null || rawText.isBlank()) {
+                jdbc.update("UPDATE resume_files SET status='PARSE_FAILED',error_code=?,updated_at=? WHERE id=? AND workspace_id=?",
+                        code, timestamp(Instant.now()), resumeFileId, scope.workspaceId());
+                return;
+            }
+            // 降级兜底：AI 不可用/超时时，用本地已抽取的简历原文建立解析版本，
+            // 保证候选人能进入人才库与简历筛选（筛选 AI 直接读取简历原文），结构化字段稍后可重新解析补全
+            String safeName = filenameDisplayName(filename);
+            parsed = new ParsedResume(safeName, "", "", "简历原文已入库，AI 结构化待完善", 0, "待确认",
+                    List.of(), List.of(), List.of(), rawText,
+                    List.of("AI 解析暂不可用（" + code + "），已保存简历原文；可稍后在人才库点击「重新解析」补全结构化信息"),
+                    rawText);
+        }
+        Instant now = Instant.now();
+        saveParseVersion(scope, candidateId, resumeFileId, version, parsed, now);
+        Map<String, Object> profile = uploadProfile(parsed);
+        jdbc.update("""
+                UPDATE candidates SET display_name_masked=?,full_name_ciphertext=?,email_ciphertext=?,phone_ciphertext=?,
+                full_name_search_hash=?,phone_search_hash=?,profile=?::jsonb,search_text=?,updated_at=?
+                WHERE id=? AND workspace_id=?
+                """, mask(parsed.name()), pii.encrypt(parsed.name()), pii.encrypt(parsed.email()), pii.encrypt(parsed.phone()),
+                pii.searchToken(parsed.name()), pii.searchToken(parsed.phone()), json(profile),
+                buildSearchText(candidateId, profile, parsed.skills(), parsed.headline()), timestamp(now),
+                candidateId, scope.workspaceId());
+        // 兜底与成功都视为已解析（有可用简历原文）；失败码清空，结构化完善程度通过解析版本 warnings 体现
+        jdbc.update("UPDATE resume_files SET status='PARSED',error_code=NULL,updated_at=? WHERE id=? AND workspace_id=?",
+                timestamp(now), resumeFileId, scope.workspaceId());
+    }
+
+    private ParsedResume parseWithDeepSeek(WorkspaceScope scope, UUID userId, UUID candidateId, String filename, String rawText) {
+        String key = "candidate-resume-parse:" + candidateId + ":" + UUID.randomUUID();
+        ExecutionContext context = new ExecutionContext(UUID.randomUUID(), null, key, key, scope.workspaceId(),
+                scope.companyId(), userId, candidateId, key, FlowCapability.RESUME_PARSING, key, List.of(), null,
+                new ExecutionContext.DataHandling(true, "ephemeral", false), Instant.now());
+        AiTask task = aiPlatform.startTask(new StartAiTaskCommand(scope.workspaceId().toString(),
+                scope.companyId() == null ? null : scope.companyId().toString(),
+                userId.toString(), candidateId.toString(), key, AiCapability.RESUME_PARSING,
+                Map.of("resumes", List.of(Map.of("filename", filename, "text", rawText, "source", "candidate_library")),
+                        "job", Map.of()), context));
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
+        while (System.nanoTime() < deadline) {
+            AiTask current = aiPlatform.getTask(task.aiTaskId());
+            if (current.status() == AiTaskStatus.COMPLETED) {
+                StructuredResult result = aiPlatform.getStructuredResult(task.aiTaskId());
+                String markdown = String.valueOf(result.data().getOrDefault("markdown", "")).trim();
+                if (markdown.isBlank()) throw new ApiException("AI_SCHEMA_INVALID", "DeepSeek 未返回有效简历解析结果", HttpStatus.BAD_GATEWAY);
+                return parsedFromAi(filename, rawText, markdown, stringList(result.data().get("warnings")));
+            }
+            if (current.status() == AiTaskStatus.FAILED || current.status() == AiTaskStatus.CANCELLED) {
+                throw new ApiException("AI_PROVIDER_UNAVAILABLE", "DeepSeek 简历解析失败", HttpStatus.BAD_GATEWAY);
+            }
+            try { Thread.sleep(100); } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new ApiException("AI_TIMEOUT", "DeepSeek 简历解析被中断", HttpStatus.GATEWAY_TIMEOUT);
+            }
+        }
+        throw new ApiException("AI_TIMEOUT", "DeepSeek 简历解析超时，请重试", HttpStatus.GATEWAY_TIMEOUT);
+    }
+
+    private ParsedResume parsedFromAi(String filename, String rawText, String markdown, List<String> warnings) {
+        String name = firstMatch(AI_NAME, markdown, filenameDisplayName(filename));
+        List<String> skills = aiSkills(markdown);
+        String headline = skills.isEmpty() ? "AI 已完成简历解析" : String.join("、", skills);
+        return new ParsedResume(name, "", "", headline, 0, "待确认", skills, List.of(), List.of(), markdown,
+                warnings == null ? List.of() : warnings, rawText);
+    }
+
+    private static String filenameDisplayName(String filename) {
+        String value = filename.replaceFirst("(?i)\\.(pdf|docx|txt)$", "")
                 .replaceAll("(?i)(resume|cv|简历|候选人)", "").replaceAll("[_-]+", " ").trim();
-        if (name.isBlank()) name = "候选人";
-        name = name.substring(0, Math.min(name.length(), 50));
-        String searchable = (rawText + " " + filename).toLowerCase(Locale.ROOT);
-        LinkedHashSet<String> skills = new LinkedHashSet<>();
-        for (String skill : KNOWN_SKILLS) if (searchable.contains(skill.toLowerCase(Locale.ROOT))) skills.add(skill);
-        if (skills.isEmpty()) skills.addAll(List.of("沟通协作", "问题解决"));
-        int years = 0;
-        Matcher yearMatcher = YEARS.matcher(rawText);
-        while (yearMatcher.find()) years = Math.max(years, Integer.parseInt(yearMatcher.group(1)));
-        String education = rawText.contains("硕士") ? "硕士" : rawText.contains("博士") ? "博士" :
-                rawText.contains("本科") ? "本科" : "待确认";
-        String email = match(EMAIL, rawText);
-        String phone = match(PHONE, rawText);
-        String skillText = String.join("、", skills);
-        String headline = (years > 0 ? years + "年经验 · " : "") + skillText;
-        String summary = "Mock 解析结果：候选人具备 " + skillText + " 等相关能力，详细经历需要招聘人员结合原简历复核。";
-        List<String> warnings = rawText.isBlank() ? List.of("原文件文本提取有限，请对照原简历复核") : List.of();
-        return new ParsedResume(name, email, phone, headline, years, education, new ArrayList<>(skills),
-                List.of("工作经历已提取，待人工复核"), List.of(education + "教育经历"), summary, warnings, rawText);
+        return value.isBlank() ? "待 AI 识别" : value.substring(0, Math.min(value.length(), 50));
+    }
+
+    private static String firstMatch(Pattern pattern, String value, String fallback) {
+        Matcher matcher = pattern.matcher(value);
+        String result = matcher.find() ? matcher.group(1).trim() : fallback;
+        return result.isBlank() || result.contains("待确认") ? fallback : result.substring(0, Math.min(result.length(), 50));
+    }
+
+    private static List<String> aiSkills(String markdown) {
+        int section = markdown.indexOf("### 4. 核心技能标签");
+        if (section < 0) return List.of();
+        String body = markdown.substring(section + "### 4. 核心技能标签".length());
+        int next = body.indexOf("###");
+        if (next >= 0) body = body.substring(0, next);
+        return java.util.Arrays.stream(body.replace("-", "").trim().split("[、,，/]+"))
+                .map(String::trim).filter(value -> !value.isBlank()).limit(15).toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> stringList(Object value) {
+        if (!(value instanceof List<?> source)) return List.of();
+        return source.stream().filter(String.class::isInstance).map(String.class::cast)
+                .map(String::trim).filter(item -> !item.isBlank()).toList();
     }
 
     private byte[] validateAndRead(MultipartFile file) {
@@ -773,12 +900,6 @@ public class CandidateService {
         if (body.isBlank()) return List.of();
         return java.util.Arrays.stream(body.split(",")).map(item -> item.trim().replaceAll("^\"|\"$", ""))
                 .filter(item -> !item.isBlank()).toList();
-    }
-
-    private static String normalizeScenario(String scenario) {
-        String value = scenario == null || scenario.isBlank() ? "NORMAL" : scenario.toUpperCase(Locale.ROOT);
-        if (!List.of("NORMAL", "INVALID_SCHEMA").contains(value)) throw validation("无效的解析场景");
-        return value;
     }
 
     /**

@@ -1,6 +1,6 @@
 # Intelligent Recruitment
 
-AI 智能招聘 MVP。当前已完成工程、身份、Company/Workspace 租户权限、账本，以及 JD、人才库、简历筛选、简历解析和面试题库的业务闭环。JD 与简历解析通过事务性 Outbox 进入 Worker，前端使用可恢复的 SSE/轮询展示进度。AI 运行时支持 `mock` 与临时 DeepSeek 适配器；部分能力仍有 Mock 或规则兜底，详见 [AI 运行现状与 Mock 退役方案](docs/architecture/ai-runtime-and-mock-retirement.md)。
+AI 智能招聘 MVP。当前已完成工程、身份、Company/Workspace 租户权限、账本，以及 JD、人才库、简历筛选、简历解析和面试题库的业务闭环。JD 与简历解析通过事务性 Outbox 进入 Worker，前端使用可恢复的 SSE/轮询展示进度。运行时 AI 能力统一调用 DeepSeek；模型不可用或输出不合约时任务明确失败并支持重试，详见 [AI 运行现状与 Mock 退役方案](docs/architecture/ai-runtime-and-mock-retirement.md)。
 
 ## 目录
 

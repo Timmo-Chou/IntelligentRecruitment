@@ -6,6 +6,7 @@ import com.intelligentrecruitment.recruitment.application.JdDraftGenerator.JdDra
 import com.intelligentrecruitment.shared.error.ApiException;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
@@ -38,6 +39,14 @@ public class JdStructuredResultMapper {
 
     private static String text(Map<String, Object> data, String field) {
         Object value = data == null ? null : data.get(field);
+        if (value instanceof List<?> items) {
+            return items.stream()
+                    .map(String::valueOf)
+                    .map(String::trim)
+                    .filter(item -> !item.isBlank())
+                    .map(item -> item.startsWith("-") ? item : "- " + item)
+                    .collect(Collectors.joining("\n"));
+        }
         return value == null ? "" : String.valueOf(value).trim();
     }
 

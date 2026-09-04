@@ -152,6 +152,16 @@ public class RecruitmentController {
     }
 
     /**
+     * 确认简历解析结果并发布到人才库（与 JD 草稿确认对称）。
+     * 幂等：已发布或任务本就关联人才库候选人时，仅把草稿置为 CONFIRMED。
+     */
+    @PostMapping("/{taskId}/resume-parse-draft/confirm")
+    RecruitmentService.TaskDetail confirmResumeParseDraft(@PathVariable UUID workspaceId, @PathVariable UUID taskId,
+                                                          Authentication authentication) {
+        return recruitment.confirmResumeParse(CurrentUser.id(authentication), workspaceId, taskId);
+    }
+
+    /**
      * 触发一次 AI 简历解析 run。幂等键相同且 payload hash 一致时直接返回现有任务详情。
      * 解析完成后结果自动写入 resume_parse_drafts 新 revision。
      */

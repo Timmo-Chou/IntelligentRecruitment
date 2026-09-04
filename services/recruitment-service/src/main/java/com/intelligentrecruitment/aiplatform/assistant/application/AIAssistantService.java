@@ -3,8 +3,10 @@ package com.intelligentrecruitment.aiplatform.assistant.application;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intelligentrecruitment.platform.ticket.application.TicketService;
+import com.intelligentrecruitment.shared.error.ApiException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -17,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * AI咨询助手服务
  * 管理对话会话、阶段流转和回复生成。
- * 支持通过DeepSeek大模型生成回复，也可使用内置关键词匹配作为降级方案。
+ * 所有 AI 对话回复均由 DeepSeek 生成；模型不可用时明确返回可重试错误。
  * 用户反馈会自动创建工单到平台工单系统。
  */
 @Service
@@ -209,7 +211,7 @@ public class AIAssistantService {
      */
     private String callLlm(String systemPrompt, String userMessage) {
         if (!useLlm || deepseekApiKey == null || deepseekApiKey.isBlank()) {
-            return null; // 返回null表示LLM不可用，由调用方降级
+            return null;
         }
         try {
             Map<String, Object> payload = Map.of(
@@ -234,7 +236,6 @@ public class AIAssistantService {
             String content = root.path("choices").path(0).path("message").path("content").asText("");
             return content.isBlank() ? null : content.trim();
         } catch (RestClientException e) {
-            // LLM调用失败，降级到硬编码回复
             return null;
         } catch (Exception e) {
             return null;
@@ -662,18 +663,13 @@ public class AIAssistantService {
     // ==================== 辅助方法 ====================
 
     /**
-     * 调用LLM获取回复，失败时使用降级方案
+     * 调用 DeepSeek 获取回复。业务流程可保留固定的非 AI 提示文案，
+     * 但任何请求 AI 生成的内容都不得退回本地模板。
      */
-    private String callLlmOrDefault(String systemPrompt, String userMessage, java.util.function.Supplier<String> fallback) {
-        try {
-            String llmReply = callLlm(systemPrompt, userMessage);
-            if (llmReply != null && !llmReply.isBlank()) {
-                return llmReply;
-            }
-        } catch (Exception ignored) {
-            // LLM异常，降级
-        }
-        return fallback.get();
+    private String callLlmOrDefault(String systemPrompt, String userMessage, java.util.function.Supplier<String> ignoredFallback) {
+        String llmReply = callLlm(systemPrompt, userMessage);
+        if (llmReply != null && !llmReply.isBlank()) return llmReply;
+        throw new ApiException("AI_PROVIDER_UNAVAILABLE", "DeepSeek 助手暂不可用，请稍后重试", HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     /**

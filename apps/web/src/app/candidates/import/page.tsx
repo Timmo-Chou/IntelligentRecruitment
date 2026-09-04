@@ -143,7 +143,7 @@ function ImportTalentWorkspace() {
         let failed = 0;
         for (const file of files) {
           try {
-            await uploadResume(workspaceId, file, "NORMAL");
+            await uploadResume(workspaceId, file);
             ok += 1;
           } catch {
             failed += 1;

@@ -68,10 +68,10 @@ export function createScreeningQuote(workspaceId: string, planId: string, candid
 export function fetchScreeningPricing(workspaceId: string) {
   return apiFetch<ScreeningPricing>(`/workspaces/${workspaceId}/screening-pricing`);
 }
-export function startScreeningRun(workspaceId: string, planId: string, candidateIds: string[], scenario: string, quoteId: string, idempotencyKey: string) {
+export function startScreeningRun(workspaceId: string, planId: string, candidateIds: string[], quoteId: string, idempotencyKey: string) {
   return apiFetch<ScreeningRun>(`/workspaces/${workspaceId}/screening-runs`, {
     method: "POST", headers: { "Idempotency-Key": idempotencyKey },
-    body: JSON.stringify({ planId, candidateIds, scenario, quoteId }),
+    body: JSON.stringify({ planId, candidateIds, quoteId }),
   });
 }
 export function cancelScreeningRun(workspaceId: string, runId: string, idempotencyKey: string) {

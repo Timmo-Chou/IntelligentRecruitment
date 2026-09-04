@@ -26,9 +26,8 @@ public class CandidateController {
     @PostMapping(value = "/resumes", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     CandidateService.CandidateDetail upload(@PathVariable UUID workspaceId,
                                             @RequestPart("file") MultipartFile file,
-                                            @RequestParam(defaultValue = "NORMAL") String scenario,
                                             Authentication authentication) {
-        return candidates.upload(CurrentUser.id(authentication), workspaceId, file, scenario);
+        return candidates.upload(CurrentUser.id(authentication), workspaceId, file);
     }
 
     @PostMapping
@@ -83,10 +82,8 @@ public class CandidateController {
 
     @PostMapping("/{candidateId}/parse-retries")
     CandidateService.CandidateDetail retry(@PathVariable UUID workspaceId, @PathVariable UUID candidateId,
-                                           @RequestBody(required = false) ParseRequest request,
                                            Authentication authentication) {
-        return candidates.retryParse(CurrentUser.id(authentication), workspaceId, candidateId,
-                request == null ? "NORMAL" : request.scenario());
+        return candidates.retryParse(CurrentUser.id(authentication), workspaceId, candidateId);
     }
 
     @GetMapping("/{candidateId}/resume-file")
@@ -115,6 +112,5 @@ public class CandidateController {
         return ResponseEntity.noContent().build();
     }
 
-    public record ParseRequest(String scenario) { }
     public record TagsUpdateRequest(java.util.List<String> tags) { }
 }

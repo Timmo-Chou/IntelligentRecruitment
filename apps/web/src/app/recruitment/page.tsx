@@ -19,10 +19,11 @@ import {
 } from "@/lib/recruitment-api";
 import { fetchJob, fetchJobs, type Job } from "@/lib/job-api";
 import { fetchCandidate, fetchCandidates, type CandidateDetail, type CandidateSummary } from "@/lib/candidate-api";
+import { resolveRecruitmentTaskTitle, type RecruitmentFeature } from "@/lib/recruitment-task-title";
 import { useWorkspace } from "@/lib/workspace-context";
 
 type WorkspaceSection = "home" | "jd" | "candidates" | "screening" | "interviews" | "resume-parsing";
-type SelectedFeature = "JD_GENERATION" | "CANDIDATE_SCREENING" | "INTERVIEW_KIT" | "RESUME_PARSING" | null;
+type SelectedFeature = RecruitmentFeature | null;
 type RecruitmentAgent = "RECRUITMENT_ASSISTANT" | "TALENT_PLANNER";
 type JdGenerationSource = "TEMPLATE" | "JOB_LIBRARY" | "UPLOAD" | null;
 
@@ -96,6 +97,12 @@ export default function RecruitmentPage() {
           if (!cancelled) {
             setDetail(next);
             setDraft(next.jdDraft);
+            // 修复：切换历史任务时，根据任务的 featureType 同步更新 section，
+            // 避免 section 停留在上一个任务的值，导致渲染错误面板
+            const ft = next.task.featureType;
+            if (ft === "CANDIDATE_SCREENING") setSection("screening");
+            else if (ft === "RESUME_PARSING") setSection("resume-parsing");
+            else setSection("jd"); // JD_GENERATION / INTERVIEW_KIT / 默认 均走 JD 面板
           }
         })
         .catch((cause) => {
@@ -163,15 +170,13 @@ export default function RecruitmentPage() {
     if (!featureRequirementMet) return;
     await run(async () => {
       const extra: { featureType?: string | null; linkedJobId?: string | null; linkedCandidateId?: string | null } = {};
+      if (selectedFeature) extra.featureType = selectedFeature;
       if (selectedFeature === "RESUME_PARSING") {
-        extra.featureType = "RESUME_PARSING";
         extra.linkedJobId = selectedScreeningJob?.id ?? null;
         extra.linkedCandidateId = selectedCandidate?.id ?? null;
       } else if (selectedFeature === "CANDIDATE_SCREENING") {
-        extra.featureType = "CANDIDATE_SCREENING";
         extra.linkedJobId = selectedScreeningJob?.id ?? null;
       } else if (selectedFeature === "INTERVIEW_KIT") {
-        extra.featureType = "INTERVIEW_KIT";
         extra.linkedJobId = selectedScreeningJob?.id ?? null;
         extra.linkedCandidateId = selectedCandidate?.id ?? null;
       }
@@ -195,7 +200,7 @@ export default function RecruitmentPage() {
       );
       const created = await createTask(
         workspaceId,
-        resolveTaskTitle(newTitle, effectiveRequirement, selectedFeature),
+        resolveRecruitmentTaskTitle(newTitle, selectedFeature),
         effectiveRequirement,
         extra,
       );
@@ -299,7 +304,7 @@ export default function RecruitmentPage() {
   async function startJdGeneration(taskDetail: TaskDetail) {
     if (!workspaceId) return;
     setStreamText("");
-    const queued = await generateJd(workspaceId, taskDetail.task.id, { scenario: "NORMAL" });
+    const queued = await generateJd(workspaceId, taskDetail.task.id, {});
     setDetail(queued);
     setDraft(queued.jdDraft);
     await refreshTaskList(queued.task.id);
@@ -383,8 +388,24 @@ export default function RecruitmentPage() {
           : !detail ? <CreateTaskPanel title={newTitle} requirement={newRequirement} busy={busy} onTitle={setNewTitle} onRequirement={setNewRequirement} onCreate={() => void handleCreate()} />
           : detail.task.featureType === "INTERVIEW_KIT" ? <InterviewKitPanel workspaceId={workspaceId} linkedJobId={detail.task.linkedJobId} linkedCandidateId={detail.task.linkedCandidateId} />
           : detail.task.featureType === "RESUME_PARSING" ? <ResumeParsingWorkspace embedded detail={detail} onDetailUpdated={(next) => { setDetail(next); setDraft(next.jdDraft); }} />
-          : detail.jdDrafts?.length ? <div className="space-y-5"><div className="flex justify-end"><button type="button" className="outline-button" disabled={busy || ["QUEUED", "RUNNING"].includes(detail.latestAiRun?.status ?? "")} onClick={() => void handleAddJdDraft()}><Plus size={15}/>新增 JD 草稿</button></div>{detail.jdDrafts.map((panel) => <section key={panel.id} className="rounded-xl border border-[#d6e5f5] bg-[#fbfdff] p-4"><JdEditor draft={panel} busy={busy} confirmed={panel.status === "CONFIRMED"} editing={editingPublishedJd && draft?.id === panel.id} jobId={detail.task.jobId} onEdit={() => { setDraft(panel); setEditingPublishedJd(true); }} onSave={(next) => void handleSave(next)} onConfirm={() => void handleConfirm(panel)} /></section>)}</div>
-          : <JdWaitingState task={detail.task} running={busy || ["QUEUED", "RUNNING"].includes(detail.latestAiRun?.status ?? "")} onRetry={() => void handleAddJdDraft()} />}
+          : detail.jdDrafts?.length ? <div className="space-y-5">
+              {/* 标题栏：与 AI 简历解析页面保持一致 */}
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e4edf6] pb-4">
+                <div>
+                  <h2 className="m-0 flex items-center gap-2 text-base text-[#173568]"><BriefcaseBusiness className="text-[#1478e8]" size={18}/>AI JD 生成</h2>
+                  <p className="mb-0 mt-1 text-xs text-[#7185a3]">已生成 {detail.jdDrafts.length} 个 JD 草稿，可编辑修改并确认为正式版本发布到职位库。</p>
+                </div>
+              </div>
+              {detail.jdDrafts.map((panel) => <section key={panel.id} className="rounded-xl border border-[#d6e5f5] bg-[#fbfdff] p-4"><JdEditor draft={panel} busy={busy} confirmed={panel.status === "CONFIRMED"} editing={editingPublishedJd && draft?.id === panel.id} jobId={detail.task.jobId} onEdit={() => { setDraft(panel); setEditingPublishedJd(true); }} onSave={(next) => void handleSave(next)} onConfirm={() => void handleConfirm(panel)} /></section>)}
+            </div>
+          : <>{/* 标题栏：与 AI 简历解析页面保持一致 */}
+              <div className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-[#e4edf6] pb-4">
+                <div>
+                  <h2 className="m-0 flex items-center gap-2 text-base text-[#173568]"><BriefcaseBusiness className="text-[#1478e8]" size={18}/>AI JD 生成</h2>
+                  <p className="mb-0 mt-1 text-xs text-[#7185a3]">右侧 AI 招聘助手正在根据需求生成 JD，完成后将在此展示草稿供你编辑确认。</p>
+                </div>
+              </div>
+              <JdWaitingState task={detail.task} running={busy || ["QUEUED", "RUNNING"].includes(detail.latestAiRun?.status ?? "")} errorCode={detail.latestAiRun?.errorCode} errorMessage={detail.latestAiRun?.errorMessage} onRetry={() => void handleAddJdDraft()} /></>}
       </main>
 
       <aside className="flex min-h-0 flex-col rounded-xl border border-[#d6e5f5] bg-white shadow-[0_6px_20px_rgba(30,92,160,0.04)] lg:h-[calc(100dvh-190px)] lg:overflow-hidden">
@@ -1216,19 +1237,6 @@ function quoteFor(feature: SelectedFeature, content: string, fileCount: number =
   return `对话预估 ¥${yuan.toFixed(2)}`;
 }
 
-function resolveTaskTitle(inputTitle: string, requirement: string, feature: SelectedFeature = null) {
-  const explicit = inputTitle.trim();
-  if (explicit) return explicit;
-  const match = requirement.match(/(?:招聘|招募|招)(?:一名|1名)?\s*([^，。；、,.!?！？]{2,40})/);
-  const role = match?.[1]?.trim();
-  if (role) return `${role}招聘`;
-  // 根据所选功能返回对应默认任务名
-  if (feature === "CANDIDATE_SCREENING") return "简历筛选任务";
-  if (feature === "INTERVIEW_KIT") return "AI面试题任务";
-  if (feature === "RESUME_PARSING") return "简历解析任务";
-  return "智能招聘任务";
-}
-
 function insertLineBreak(target: HTMLTextAreaElement, apply: (update: (current: string) => string) => void) {
   const start = target.selectionStart;
   const end = target.selectionEnd;
@@ -1246,10 +1254,14 @@ function CreateTaskPanel({ title, requirement, busy, onTitle, onRequirement, onC
   </div>;
 }
 
-function JdWaitingState({ task, running, onRetry }: { task: TaskSummary; running: boolean; onRetry: () => void }) {
+function JdWaitingState({ task, running, errorCode, errorMessage, onRetry }: { task: TaskSummary; running: boolean; errorCode: string | null | undefined; errorMessage: string | null | undefined; onRetry: () => void }) {
   return <div className="mx-auto max-w-xl py-16 text-center">
     <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#e9f8ff] text-[#1778df]"><MessageSquareText size={27}/></span>
-    <h2 className="mb-0 mt-5 text-xl font-bold text-[#173568]">{task.title}</h2><p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#60799f]">{running ? "AI 正在生成结构化 JD，结果完成后会自动填入此处。" : "可继续补充招聘需求，或重新发起 JD 生成。"}</p>{!running && <button type="button" className="primary-button mt-4" onClick={onRetry}><Plus size={15}/>重新生成 JD</button>}
+    <h2 className="mb-0 mt-5 text-xl font-bold text-[#173568]">{task.title}</h2>
+    {running ? <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#60799f]">AI 正在生成结构化 JD，结果完成后会自动填入此处。</p>
+      : errorMessage ? <div className="mx-auto mt-3 max-w-md rounded-lg border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-left text-sm leading-6 text-[#b42318]"><span className="font-semibold">生成失败：</span>{errorMessage}{errorCode && <p className="mb-0 mt-1 text-xs text-[#9f3a38]">错误码：{errorCode}</p>}</div>
+        : <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#60799f]">可继续补充招聘需求，或重新发起 JD 生成。</p>}
+    {!running && <button type="button" className="primary-button mt-4" onClick={onRetry}><Plus size={15}/>重新生成 JD</button>}
   </div>;
 }
 

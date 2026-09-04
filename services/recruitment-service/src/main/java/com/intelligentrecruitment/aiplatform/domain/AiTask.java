@@ -10,7 +10,8 @@ public record AiTask(
         int completed,
         int total,
         int percent,
-        Instant acceptedAt
+        Instant acceptedAt,
+        String errorCode,
+        String errorMessage
 ) {
 }
-
