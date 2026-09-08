@@ -19,8 +19,8 @@ export default function OverviewPage() {
   useEffect(()=>{if(!workspaceId)return;
     Promise.all([
       fetchTasks(workspaceId),
-      apiFetch<BillingStats>(`/workspaces/${workspaceId}/billing`),
-      apiFetch<JobStats>(`/workspaces/${workspaceId}/jobs/stats`).catch(()=>({total:0,active:0,closed:0,draft:0}))
+      apiFetch<BillingStats>(`/companies/${workspaceId}/billing`),
+      apiFetch<JobStats>(`/companies/${workspaceId}/jobs/stats`).catch(()=>({total:0,active:0,closed:0,draft:0}))
     ]).then(([tasks,billing,jobs])=>{
       setTasksData(tasks);
       setBalance(billing.availableAmountMinor);

@@ -136,7 +136,7 @@ export function removeJobFromCache(workspaceId: string, jobId: string) {
 
 /** 获取职位统计 */
 export async function fetchJobStats(workspaceId: string): Promise<JobStats> {
-  return apiFetch<JobStats>(`/workspaces/${workspaceId}/jobs/stats`);
+  return apiFetch<JobStats>(`/companies/${workspaceId}/jobs/stats`);
 }
 
 /** 分页查询职位列表 */
@@ -150,18 +150,18 @@ export async function fetchJobs(
   searchParams.set("page", String(params.page ?? 1));
   searchParams.set("pageSize", String(params.pageSize ?? 10));
   return apiFetch<JobListResult>(
-    `/workspaces/${workspaceId}/jobs?${searchParams.toString()}`,
+    `/companies/${workspaceId}/jobs?${searchParams.toString()}`,
   );
 }
 
 /** 获取职位详情 */
 export async function fetchJob(workspaceId: string, jobId: string): Promise<Job> {
-  return apiFetch<Job>(`/workspaces/${workspaceId}/jobs/${jobId}`);
+  return apiFetch<Job>(`/companies/${workspaceId}/jobs/${jobId}`);
 }
 
 /** 创建职位 */
 export async function createJob(workspaceId: string, input: JobInput): Promise<Job> {
-  return apiFetch<Job>(`/workspaces/${workspaceId}/jobs`, {
+  return apiFetch<Job>(`/companies/${workspaceId}/jobs`, {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -169,7 +169,7 @@ export async function createJob(workspaceId: string, input: JobInput): Promise<J
 
 /** 更新职位 */
 export async function updateJob(workspaceId: string, jobId: string, input: JobInput): Promise<Job> {
-  return apiFetch<Job>(`/workspaces/${workspaceId}/jobs/${jobId}`, {
+  return apiFetch<Job>(`/companies/${workspaceId}/jobs/${jobId}`, {
     method: "PUT",
     body: JSON.stringify(input),
   });
@@ -177,7 +177,7 @@ export async function updateJob(workspaceId: string, jobId: string, input: JobIn
 
 /** 更新职位状态 */
 export async function updateJobStatus(workspaceId: string, jobId: string, status: string): Promise<Job> {
-  return apiFetch<Job>(`/workspaces/${workspaceId}/jobs/${jobId}/status`, {
+  return apiFetch<Job>(`/companies/${workspaceId}/jobs/${jobId}/status`, {
     method: "PATCH",
     body: JSON.stringify({ status }),
   });
@@ -185,14 +185,14 @@ export async function updateJobStatus(workspaceId: string, jobId: string, status
 
 /** 删除职位 */
 export async function deleteJob(workspaceId: string, jobId: string): Promise<void> {
-  return apiFetch<void>(`/workspaces/${workspaceId}/jobs/${jobId}`, {
+  return apiFetch<void>(`/companies/${workspaceId}/jobs/${jobId}`, {
     method: "DELETE",
   });
 }
 
 /** 批量更新状态 */
 export async function batchUpdateStatus(workspaceId: string, jobIds: string[], status: string): Promise<void> {
-  return apiFetch<void>(`/workspaces/${workspaceId}/jobs/batch/status`, {
+  return apiFetch<void>(`/companies/${workspaceId}/jobs/batch/status`, {
     method: "POST",
     body: JSON.stringify({ jobIds, status }),
   });
@@ -200,7 +200,7 @@ export async function batchUpdateStatus(workspaceId: string, jobIds: string[], s
 
 /** 批量删除 */
 export async function batchDelete(workspaceId: string, jobIds: string[]): Promise<void> {
-  return apiFetch<void>(`/workspaces/${workspaceId}/jobs/batch/delete`, {
+  return apiFetch<void>(`/companies/${workspaceId}/jobs/batch/delete`, {
     method: "POST",
     body: JSON.stringify({ jobIds }),
   });
@@ -208,5 +208,5 @@ export async function batchDelete(workspaceId: string, jobIds: string[]): Promis
 
 /** 获取职位版本历史 */
 export async function fetchJobVersions(workspaceId: string, jobId: string): Promise<JobVersion[]> {
-  return apiFetch<JobVersion[]>(`/workspaces/${workspaceId}/jobs/${jobId}/versions`);
+  return apiFetch<JobVersion[]>(`/companies/${workspaceId}/jobs/${jobId}/versions`);
 }

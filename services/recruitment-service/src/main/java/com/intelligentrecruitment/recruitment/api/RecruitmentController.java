@@ -29,7 +29,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/workspaces/{workspaceId}/recruitment-tasks")
+@RequestMapping("/api/v1/companies/{workspaceId}/recruitment-tasks")
 public class RecruitmentController {
 
     private final RecruitmentService recruitment;

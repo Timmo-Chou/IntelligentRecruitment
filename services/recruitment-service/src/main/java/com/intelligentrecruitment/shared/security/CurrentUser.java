@@ -17,4 +17,11 @@ public final class CurrentUser {
         }
         return user.userId();
     }
+
+    public static String bossAccessToken(Authentication authentication) {
+        if (authentication == null || !(authentication.getPrincipal() instanceof AuthenticatedUser user)) {
+            throw new ApiException("AUTHENTICATION_REQUIRED", "请先登录", HttpStatus.UNAUTHORIZED);
+        }
+        return user.bossAccessToken();
+    }
 }

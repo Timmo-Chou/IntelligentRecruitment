@@ -5,6 +5,7 @@
 - [产品与架构基线](baseline/README.md)
 - [第一阶段技术栈设计](architecture/technical-stack.md)
 - [Phase 2 身份、租户、权限与数据隔离方案](architecture/phase-2-identity-tenancy-and-isolation.md)
+- [Recruitment SaaS 对接 BOSS 实施契约](architecture/recruitment-saas-boss-integration.md)
 - [Agent 编排契约 V1](architecture/agent-orchestration-contract-v1.md)
 - [AI 运行现状与 Mock 退役方案](architecture/ai-runtime-and-mock-retirement.md)
 - [业务应用前端与服务端开发阶段（Phase 3—8 已按最新 Phase 2 修订）](baseline/09-development-phases.md)
@@ -22,7 +23,7 @@
 
 ## 当前状态
 
-- Phase 0、Phase 1 已完成，Phase 2 已形成可运行的 MVP 代码基线。
-- 已建立手机号 Mock 验证码登录、Company/Workspace、两级成员权限、Workspace 账本和30/100元试用额度基础。
+- Phase 0、Phase 1 已完成，Phase 2 已切换为以 BOSS 为身份、租户、Company、权限和账单权威的可运行代码基线。
+- Recruitment SaaS 仅保留招聘业务数据；对外上下文使用 BOSS Company ID，历史 Workspace 物理列仅作迁移兼容。
 - Phase 3、Phase 4、Phase 5 已形成可运行的 MVP 代码基线；Phase 6—8 计划已按最新租户、数据隔离和账本规则修订。
 - AI Platform Contract V1 已形成文档基线；当前实现与契约之间的 DeepSeek/Mock 兜底差异见 [AI 运行现状与 Mock 退役方案](architecture/ai-runtime-and-mock-retirement.md)。

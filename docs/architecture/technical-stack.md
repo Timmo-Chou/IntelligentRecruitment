@@ -1,6 +1,6 @@
-# 第一阶段技术栈设计
+# 第一阶段技术栈设计（历史基线）
 
-状态：架构基线；部分实现已落地
+状态：历史架构基线；业务身份、Company/Tenant、权限和计费已由 BOSS 控制面统一承载，当前对接规则以 [Recruitment SaaS 对接 BOSS 实施契约](recruitment-saas-boss-integration.md) 为准。
 范围：① Web 客户端、② AI 招聘业务服务、③ 临时 DeepSeek 适配器
 不包含：正式伙伴 AI Platform、模型网关、MCP/Provider 的生产化运营实现。
 

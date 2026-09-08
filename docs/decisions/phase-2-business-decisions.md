@@ -2,9 +2,9 @@
 
 版本：V0.1  
 确认日期：2026-08-21  
-状态：由《Phase 2 注册登录、授权、租户权限与数据隔离方案》V1.0 补充并部分取代
+状态：历史决策记录，已由 BOSS 对接方案取代；当前身份、Company/Tenant、权限、价格和计费以 [Recruitment SaaS 对接 BOSS 实施契约](../architecture/recruitment-saas-boss-integration.md) 为准。
 
-> 最新身份、企业、工作空间和额度边界以 `docs/architecture/phase-2-identity-tenancy-and-isolation.md` 为准。本文件保留已确认的 Token 生命周期、90天有效期及不可变账本原则。
+> 本文件保留历史 Token 生命周期和业务边界背景；其中“本地 Workspace、试用额度、本地价格和账本”描述不再是当前实现契约。
 
 ## 1. 认证
 

@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/workspaces/{workspaceId}/candidates")
+@RequestMapping("/api/v1/companies/{workspaceId}/candidates")
 public class CandidateController {
 
     private final CandidateService candidates;

@@ -13,7 +13,6 @@ import com.intelligentrecruitment.aiplatform.application.AiPlatformClient;
 import com.intelligentrecruitment.aiplatform.application.StartAiTaskCommand;
 import com.intelligentrecruitment.aiplatform.domain.AiCapability;
 import com.intelligentrecruitment.billing.application.BillingService;
-import com.intelligentrecruitment.billing.application.PricingService;
 import com.intelligentrecruitment.candidates.application.PiiCipher;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
@@ -49,25 +48,18 @@ public class ScreeningService {
     private final ObjectMapper objectMapper;
     private final WorkspaceAccessService workspaceAccess;
     private final BillingService billing;
-    private final PricingService pricing;
     private final RecruitmentFlowCoordinator flowCoordinator;
     private final AiPlatformClient aiPlatform;
     private final ScreeningMatcher matcher;
     private final PiiCipher pii;
-    /** 当 pricing_items 表没有启用项时的兜底默认值（分） */
-    private final long defaultUnitPriceMinor;
     private final String pricingVersion;
     private final long quoteTtlSeconds;
     private final long outboxLeaseSeconds;
     private final int maxInFlightPerRun;
 
-    /** 计费项 code，与 pricing_items.code 保持一致 */
-    private static final String SCREENING_BILLING_CODE = "SCREENING";
-
     public ScreeningService(JdbcTemplate jdbc, ObjectMapper objectMapper, WorkspaceAccessService workspaceAccess,
-                            BillingService billing, PricingService pricing, RecruitmentFlowCoordinator flowCoordinator,
+                            BillingService billing, RecruitmentFlowCoordinator flowCoordinator,
                             AiPlatformClient aiPlatform, ScreeningMatcher matcher, PiiCipher pii,
-                            @Value("${app.phase5.screening-unit-price-minor:80}") long defaultUnitPriceMinor,
                             @Value("${app.phase5.pricing-version:SCREENING_DEEPSEEK_V1}") String pricingVersion,
                             @Value("${app.phase5.quote-ttl-seconds:300}") long quoteTtlSeconds,
                             @Value("${app.phase5.outbox-lease-seconds:300}") long outboxLeaseSeconds,
@@ -76,22 +68,19 @@ public class ScreeningService {
         this.objectMapper = objectMapper;
         this.workspaceAccess = workspaceAccess;
         this.billing = billing;
-        this.pricing = pricing;
         this.flowCoordinator = flowCoordinator;
         this.aiPlatform = aiPlatform;
         this.matcher = matcher;
         this.pii = pii;
-        this.defaultUnitPriceMinor = defaultUnitPriceMinor;
         this.pricingVersion = pricingVersion;
         this.quoteTtlSeconds = quoteTtlSeconds;
         this.outboxLeaseSeconds = outboxLeaseSeconds;
         this.maxInFlightPerRun = Math.max(1, Math.min(maxInFlightPerRun, 10));
     }
 
-    /** 从 pricing_items 查当前单价（分），查不到则 fallback 到配置默认值 */
-    private long resolveUnitPriceMinor() {
-        Long configured = pricing.findUnitPriceMinor(SCREENING_BILLING_CODE);
-        return configured != null ? configured : defaultUnitPriceMinor;
+    /** BOSS 是筛选价格的唯一来源。 */
+    private long resolveUnitPriceMinor(UUID companyId) {
+        return billing.quoteUnitPrice(companyId, "RESUME_SCREENING");
     }
 
     @Transactional
@@ -173,7 +162,7 @@ public class ScreeningService {
         if (candidates.size() != candidateIds.size()) {
             throw validation("候选人不存在、未解析或不属于当前工作空间");
         }
-        long unitPrice = resolveUnitPriceMinor();
+        long unitPrice = resolveUnitPriceMinor(scope.companyId());
         long estimate = Math.multiplyExact(unitPrice, candidateIds.size());
         var billingView = billing.view(userId, workspaceId);
         UUID quoteId = UUID.randomUUID();
@@ -193,8 +182,8 @@ public class ScreeningService {
     }
 
     public ScreeningPricingView pricing(UUID userId, UUID workspaceId) {
-        workspaceAccess.requireBusinessAccess(userId, workspaceId);
-        return new ScreeningPricingView(pricingVersion, resolveUnitPriceMinor(), quoteTtlSeconds);
+        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        return new ScreeningPricingView(pricingVersion, resolveUnitPriceMinor(scope.companyId()), quoteTtlSeconds);
     }
 
     @Transactional
@@ -222,7 +211,7 @@ public class ScreeningService {
                 || !java.util.Objects.equals(quote.candidateVersionsHash(), candidateVersionHash(candidates))
                 || quote.candidateCount() != candidateIds.size()
                 || !quote.pricingVersion().equals(pricingVersion)
-                || quote.unitPriceMinor() != resolveUnitPriceMinor()) {
+                || quote.unitPriceMinor() != resolveUnitPriceMinor(scope.companyId())) {
             throw new ApiException("SCREENING_QUOTE_CHANGED", "筛选范围、方案或价格已变化，请重新确认", HttpStatus.CONFLICT);
         }
         List<QueuedCandidate> queued = candidates.stream()
@@ -237,7 +226,7 @@ public class ScreeningService {
         RetryContext context = retryContext(workspaceId, originalRunId);
         List<QueuedCandidate> failed = failedCandidates(workspaceId, originalRunId);
         if (failed.isEmpty()) throw new ApiException("NO_FAILED_ITEMS", "没有可重试的失败候选人", HttpStatus.CONFLICT);
-        long unitPrice = resolveUnitPriceMinor();
+        long unitPrice = resolveUnitPriceMinor(scope.companyId());
         long estimate = Math.multiplyExact(unitPrice, failed.size());
         var billingView = billing.view(userId, workspaceId);
         UUID quoteId = UUID.randomUUID();
@@ -278,7 +267,7 @@ public class ScreeningService {
                 || !java.util.Objects.equals(quote.candidateVersionsHash(), queuedCandidateVersionHash(failed))
                 || quote.candidateCount() != failed.size()
                 || !quote.pricingVersion().equals(pricingVersion)
-                || quote.unitPriceMinor() != resolveUnitPriceMinor()) {
+                || quote.unitPriceMinor() != resolveUnitPriceMinor(scope.companyId())) {
             throw new ApiException("SCREENING_QUOTE_CHANGED", "重试范围、冻结版本或价格已变化，请重新确认", HttpStatus.CONFLICT);
         }
         UUID rootRunId = context.rootRunId() == null ? originalRunId : context.rootRunId();
@@ -456,7 +445,7 @@ public class ScreeningService {
                 Integer.class, runId);
         int successCount = succeeded == null ? 0 : succeeded;
         long actual = Math.multiplyExact(run.unitPriceMinor(), successCount);
-        billing.settleSystem(run.workspaceId(), "screening-run:" + runId, actual);
+        billing.settleSystemWithUnits(run.workspaceId(), "screening-run:" + runId, actual, successCount);
         String status = successCount == run.totalItems() ? "COMPLETED" : successCount == 0 ? "FAILED" : "PARTIAL_FAILED";
         jdbc.update("""
                 UPDATE screening_runs SET status=?,progress=100,settled_amount_minor=?,completed_at=?
@@ -498,7 +487,7 @@ public class ScreeningService {
             Integer succeeded = jdbc.queryForObject("SELECT count(*) FROM screening_run_items WHERE run_id=? AND status='SUCCEEDED'",
                     Integer.class, run.id());
             long actual = Math.multiplyExact(run.unitPriceMinor(), succeeded == null ? 0 : succeeded);
-            billing.settleSystem(run.workspaceId(), "screening-run:" + run.id(), actual);
+            billing.settleSystemWithUnits(run.workspaceId(), "screening-run:" + run.id(), actual, succeeded == null ? 0 : succeeded);
             jdbc.update("""
                     UPDATE screening_runs SET status=?,progress=100,settled_amount_minor=?,completed_at=? WHERE id=?
                     """, actual > 0 ? "PARTIAL_FAILED" : "FAILED", actual, timestamp(Instant.now()), run.id());
@@ -520,7 +509,7 @@ public class ScreeningService {
         Integer succeeded = jdbc.queryForObject("SELECT count(*) FROM screening_run_items WHERE run_id=? AND status='SUCCEEDED'",
                 Integer.class, run.id());
         long actual = Math.multiplyExact(run.unitPriceMinor(), succeeded == null ? 0 : succeeded);
-        billing.settleSystem(run.workspaceId(), "screening-run:" + run.id(), actual);
+        billing.settleSystemWithUnits(run.workspaceId(), "screening-run:" + run.id(), actual, succeeded == null ? 0 : succeeded);
         jdbc.update("""
                 UPDATE screening_runs SET status=?,progress=100,settled_amount_minor=?,completed_at=? WHERE id=?
                 """, actual > 0 ? "PARTIAL_FAILED" : "FAILED", actual, timestamp(Instant.now()), run.id());

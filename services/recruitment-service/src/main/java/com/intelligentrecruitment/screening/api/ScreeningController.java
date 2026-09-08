@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/workspaces/{workspaceId}")
+@RequestMapping("/api/v1/companies/{workspaceId}")
 public class ScreeningController {
 
     private final ScreeningService screening;

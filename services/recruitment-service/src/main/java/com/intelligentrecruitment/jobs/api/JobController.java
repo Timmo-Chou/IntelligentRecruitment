@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/workspaces/{workspaceId}/jobs")
+@RequestMapping("/api/v1/companies/{workspaceId}/jobs")
 public class JobController {
 
     private final JobService jobService;

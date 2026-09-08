@@ -1,31 +1,31 @@
 package com.intelligentrecruitment.identity.api;
 
-import com.intelligentrecruitment.identity.application.IdentityService;
+import com.intelligentrecruitment.boss.application.BossControlPlaneClient;
 import com.intelligentrecruitment.shared.security.CurrentUser;
 import jakarta.validation.Valid;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
+/** Profile reads/writes are delegated to BOSS, preventing a second local account record. */
 @RestController
 @RequestMapping("/api/v1")
 public class MeController {
-    private final IdentityService identityService;
-
-    public MeController(IdentityService identityService) {
-        this.identityService = identityService;
-    }
+    private final BossControlPlaneClient boss;
+    public MeController(BossControlPlaneClient boss) { this.boss = boss; }
 
     @GetMapping("/me")
-    IdentityService.UserView me(Authentication authentication) {
-        return identityService.me(CurrentUser.id(authentication));
+    BossControlPlaneClient.User me(Authentication authentication) {
+        return boss.currentUser(CurrentUser.bossAccessToken(authentication));
     }
 
     @PutMapping("/me/display-name")
-    IdentityService.UserView updateDisplayName(@Valid @RequestBody DisplayNameRequest request,
-                                               Authentication authentication) {
-        identityService.updateDisplayName(CurrentUser.id(authentication), request.displayName());
-        return identityService.me(CurrentUser.id(authentication));
+    BossControlPlaneClient.User updateDisplayName(@Valid @RequestBody DisplayNameRequest request, Authentication authentication) {
+        return boss.updateDisplayName(CurrentUser.bossAccessToken(authentication), request.displayName());
     }
 
-    public record DisplayNameRequest(String displayName) {}
+    public record DisplayNameRequest(String displayName) { }
 }

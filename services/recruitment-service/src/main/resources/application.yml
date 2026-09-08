@@ -48,31 +48,17 @@ management:
         enabled: true
 
 app:
+  boss:
+    # BOSS is the authority for user, tenant, Company, authorization, billing and audit.
+    # Production must inject the internal client credentials through its secret manager.
+    base-url: ${BOSS_BASE_URL:http://localhost:18084}
+    internal-client-id: ${BOSS_INTERNAL_CLIENT_ID:}
+    internal-client-secret: ${BOSS_INTERNAL_CLIENT_SECRET:}
+    event-bearer-token: ${BOSS_EVENT_BEARER_TOKEN:}
   web-origin: ${WEB_ORIGIN:http://localhost:3000}
   auth:
-    expose-mock-code: ${EXPOSE_MOCK_CODE:false}
     secure-cookie: ${AUTH_SECURE_COOKIE:true}
-    verification-code:
-      # local：仅本地测试；aliyun：调用国内短信 SendSms。生产环境请显式设置为 aliyun。
-      provider: ${VERIFICATION_CODE_PROVIDER:local}
-      aliyun:
-        access-key-id: ${ALIYUN_SMS_ACCESS_KEY_ID:}
-        access-key-secret: ${ALIYUN_SMS_ACCESS_KEY_SECRET:}
-        sign-name: ${ALIYUN_SMS_SIGN_NAME:}
-        template-code: ${ALIYUN_SMS_TEMPLATE_CODE:}
-        endpoint: ${ALIYUN_SMS_ENDPOINT:dysmsapi.aliyuncs.com}
-        connect-timeout-ms: ${ALIYUN_SMS_CONNECT_TIMEOUT_MS:2000}
-        read-timeout-ms: ${ALIYUN_SMS_READ_TIMEOUT_MS:3000}
   platform-admin-key: ${PLATFORM_ADMIN_KEY:phase2-local-admin}
-  recharge:
-    credit-validity-days: ${RECHARGE_CREDIT_VALIDITY_DAYS:3650}
-    alipay:
-      gateway-url: ${ALIPAY_GATEWAY_URL:https://openapi.alipay.com/gateway.do}
-      app-id: ${ALIPAY_APP_ID:}
-      private-key: ${ALIPAY_PRIVATE_KEY:}
-      public-key: ${ALIPAY_PUBLIC_KEY:}
-      notify-url: ${ALIPAY_NOTIFY_URL:}
-      return-url: ${ALIPAY_RETURN_URL:}
   ai-platform:
     deepseek:
       # 外部模型处理默认关闭；仅在经数据处理审批的环境显式开启。
@@ -92,16 +78,12 @@ app:
     cooperation-phone: ${AI_ASSISTANT_COOPERATION_PHONE:400-888-8888}
     cooperation-email: ${AI_ASSISTANT_COOPERATION_EMAIL:support@intelligentrecruitment.com}
   phase3:
-    # Phase 3 非生产临时价：0.80元/次，正式客户启用前必须冻结价格版本。
-    jd-generation-price-minor: ${JD_GENERATION_PRICE_MINOR:80}
     outbox-lease-seconds: ${JD_OUTBOX_LEASE_SECONDS:300}
     worker-enabled: ${JD_WORKER_ENABLED:true}
     worker-poll-delay-ms: ${JD_WORKER_POLL_DELAY_MS:250}
     worker-delta-delay-ms: ${JD_WORKER_DELTA_DELAY_MS:0}
     worker-completion-delay-ms: ${JD_WORKER_COMPLETION_DELAY_MS:0}
   phase5:
-    # Phase 5 非生产临时价：0.80元/成功筛选候选人。
-    screening-unit-price-minor: ${SCREENING_UNIT_PRICE_MINOR:80}
     pricing-version: ${SCREENING_PRICING_VERSION:SCREENING_DEEPSEEK_V1}
     quote-ttl-seconds: ${SCREENING_QUOTE_TTL_SECONDS:300}
     outbox-lease-seconds: ${SCREENING_OUTBOX_LEASE_SECONDS:300}

@@ -1,7 +1,7 @@
-# 业务应用前端与服务端开发阶段
+# 业务应用前端与服务端开发阶段（历史计划）
 
 版本：V0.2  
-状态：已按 Phase 2 最新租户与账本基线修订，Phase 3—8 开发前评审稿  
+状态：历史开发计划；当前对接 BOSS 后，身份、Company/Tenant、权限、价格、账单、充值和审计不再在 Recruitment 本地实现。当前验收以 [Recruitment SaaS 对接 BOSS 实施契约](../architecture/recruitment-saas-boss-integration.md) 及代码测试为准。
 技术栈：Next.js + TypeScript；Java 21 + Spring Boot
 
 ## 1. 阶段设计原则

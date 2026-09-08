@@ -1447,25 +1447,7 @@ function TalentDetailDrawer({
         )}
       </div>
 
-      <div className="relative grid grid-cols-2 gap-2 border-t border-[#eaf1fa] bg-[#f9fcff] p-3 sm:grid-cols-4">
-        <div className="relative">
-          <button type="button" className="h-9 w-full rounded-lg bg-[#2f6bff] text-xs font-semibold text-white" onClick={() => setFooterMenu(footerMenu === "pool" ? null : "pool")}>加入人才池</button>
-          {footerMenu === "pool" && (
-            <FooterMenu
-              items={["核心人才池", "高潜人才池", "工艺专家人才池", "化工研发人才池"]}
-              onPick={(item) => notify(`已加入「${item}」`)}
-            />
-          )}
-        </div>
-        <div className="relative">
-          <button type="button" className="h-9 w-full rounded-lg border border-[#d9e2ec] bg-white text-xs font-semibold text-[#36527f]" onClick={() => setFooterMenu(footerMenu === "activate" ? null : "activate")}>激活人才</button>
-          {footerMenu === "activate" && (
-            <FooterMenu
-              items={["AI推荐激活话术", "发送职位", "发送短信", "发送邮件", "企业微信沟通"]}
-              onPick={(item) => notify(`${item}已就绪`)}
-            />
-          )}
-        </div>
+      <div className="relative grid grid-cols-2 gap-2 border-t border-[#eaf1fa] bg-[#f9fcff] p-3">
         <div className="relative">
           <button type="button" className="h-9 w-full rounded-lg border border-[#d9e2ec] bg-white text-xs font-semibold text-[#36527f]" onClick={() => setFooterMenu(footerMenu === "invite" ? null : "invite")}>发送邀请</button>
           {footerMenu === "invite" && (

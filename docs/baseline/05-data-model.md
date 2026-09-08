@@ -1,6 +1,6 @@
-# 核心数据模型
+# 核心数据模型（历史基线）
 
-> 本文的单层 `Organization` 模型已被 [Phase 2 身份、租户、权限与数据隔离方案](../architecture/phase-2-identity-tenancy-and-isolation.md) 部分取代。新开发必须使用 `Company + Workspace`：Company 是企业治理主体，Workspace 是招聘数据、权限和 MVP 账本的租户边界；旧文中的业务 `organization_id` 应理解为待迁移的 `workspace_id`。
+> 本文保留历史模型，不作为当前实现契约。BOSS 是身份、Tenant、Company、成员权限和计费的权威系统；Recruitment 的招聘数据继续保存在本项目，历史 `workspace_id` 仅作为 BOSS `company_id` 的物理兼容键。新开发请先阅读 [Recruitment SaaS 对接 BOSS 实施契约](../architecture/recruitment-saas-boss-integration.md)。
 
 ## 1. 建模原则
 

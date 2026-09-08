@@ -27,7 +27,7 @@ describe("streamJdRunEvents", () => {
     await streamJdRunEvents("workspace", "task", 41, event => events.push(event), new AbortController().signal);
 
     expect(apiStream).toHaveBeenCalledWith(
-      "/workspaces/workspace/recruitment-tasks/task/jd-runs/events",
+      "/companies/workspace/recruitment-tasks/task/jd-runs/events",
       expect.objectContaining({ headers: { "Last-Event-ID": "41" } }),
     );
     expect(events).toEqual([
@@ -46,10 +46,10 @@ describe("task lifecycle requests", () => {
     await renameTask("workspace-1", "task-1", "新名称");
     await deleteTask("workspace-1", "task-1");
 
-    expect(apiFetch).toHaveBeenNthCalledWith(1, "/workspaces/workspace-1/recruitment-tasks/task-1", {
+    expect(apiFetch).toHaveBeenNthCalledWith(1, "/companies/workspace-1/recruitment-tasks/task-1", {
       method: "PUT", body: JSON.stringify({ title: "新名称" }),
     });
-    expect(apiFetch).toHaveBeenNthCalledWith(2, "/workspaces/workspace-1/recruitment-tasks/task-1", { method: "DELETE" });
+    expect(apiFetch).toHaveBeenNthCalledWith(2, "/companies/workspace-1/recruitment-tasks/task-1", { method: "DELETE" });
   });
 });
 
@@ -63,7 +63,7 @@ describe("JD source file requests", () => {
     await uploadJdSourceFile("workspace-1", "task-1", file);
 
     expect(apiFetch).toHaveBeenCalledWith(
-      "/workspaces/workspace-1/recruitment-tasks/task-1/jd-source-files",
+      "/companies/workspace-1/recruitment-tasks/task-1/jd-source-files",
       expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
     );
   });

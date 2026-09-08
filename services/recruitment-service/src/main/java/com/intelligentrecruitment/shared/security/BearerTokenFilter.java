@@ -1,30 +1,27 @@
 package com.intelligentrecruitment.shared.security;
 
+import com.intelligentrecruitment.boss.application.BossControlPlaneClient;
+import com.intelligentrecruitment.boss.application.BossRequestContext;
+import com.intelligentrecruitment.shared.error.ApiException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.time.Instant;
-import java.util.List;
-import java.util.UUID;
-
-import static com.intelligentrecruitment.shared.database.SqlTimes.timestamp;
 
 @Component
 public class BearerTokenFilter extends OncePerRequestFilter {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final BossControlPlaneClient boss;
 
-    public BearerTokenFilter(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    public BearerTokenFilter(BossControlPlaneClient boss) {
+        this.boss = boss;
     }
 
     @Override
@@ -32,17 +29,29 @@ public class BearerTokenFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header != null && header.startsWith("Bearer ")) {
-            String tokenHash = SecurityHashes.sha256(header.substring(7));
-            List<UUID> users = jdbcTemplate.query("""
-                    SELECT user_id FROM access_tokens
-                    WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?
-                    """, (rs, rowNum) -> rs.getObject("user_id", UUID.class), tokenHash, timestamp(Instant.now()));
-            if (!users.isEmpty()) {
-                AuthenticatedUser principal = new AuthenticatedUser(users.getFirst());
+            String accessToken = header.substring(7);
+            try {
+                var user = boss.currentUser(accessToken);
+                if ("ACTIVE".equals(user.status())) {
+                    AuthenticatedUser principal = new AuthenticatedUser(user.userId(), accessToken);
+                    BossRequestContext.set(user.userId(), accessToken);
                 SecurityContextHolder.getContext().setAuthentication(
-                        new UsernamePasswordAuthenticationToken(principal, tokenHash, List.of()));
+                        new UsernamePasswordAuthenticationToken(principal, null, java.util.List.of()));
+                }
+            } catch (ApiException exception) {
+                if (exception.status() == org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE
+                        || exception.status() == org.springframework.http.HttpStatus.BAD_GATEWAY) {
+                    response.setStatus(exception.status().value());
+                    response.setContentType("application/json");
+                    response.getWriter().write("{\"code\":\"" + exception.code() + "\",\"message\":\"BOSS 服务暂不可用，请稍后重试\"}");
+                    return;
+                }
             }
         }
-        chain.doFilter(request, response);
+        try {
+            chain.doFilter(request, response);
+        } finally {
+            BossRequestContext.clear();
+        }
     }
 }

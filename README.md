@@ -67,24 +67,18 @@ pnpm dev:web
 主要页面：
 
 - `/login`：手机号验证码登录/注册。
-- `/onboarding`：创建个人 Workspace、企业认证、认领已有企业或加入企业。
-- `/settings`：企业与 Workspace 治理、实名认证、成员邀请和全部设备退出。
-- `/billing`：Workspace 余额、90天额度批次和不可变账本。
+- `/onboarding`：使用 BOSS 自动创建个人 Company、申请企业认证或加入已有企业。
+- `/settings`：更新 BOSS 个人资料、查看 Company 上下文并发起企业申请/加入申请。
+- `/billing`：只读查看 BOSS Company 余额和账单。
 - `/recruitment`：招聘任务、异步 JD 生成、SSE 进度、草稿编辑确认。
 - `/jobs`：Workspace 职位库和不可变 JD 版本。
 - `/candidates`：简历上传、基础规则解析、人才库与 PII Reveal。
 - `/screening`：筛选方案、费用确认、异步 AI 匹配、部分结算和失败重试。
 - `/interviews`：已发布面试题包的 JD、人才、胜任力、匹配总结与题目结果查看。
 
-账本服务已包含幂等试用发放、最早到期额度优先冻结、全部/部分结算、失败释放、到期处理和平台人工调整。结算与人工调整只开放受保护的平台/内部接口，浏览器不能自行提交实际结算金额。
+账单、充值、价格、计量结算和审计由 BOSS 统一负责；Recruitment 只通过 BOSS 内部 OpenAPI 查询价格、预占额度并上报 AI 使用量。
 
-平台运营功能位于 `apps/admin`，本地默认访问 `http://localhost:3001`。平台审核也保留以下受保护 API：
-
-- `POST /api/v1/platform/personal-verifications/{userId}/approve`
-- `POST /api/v1/platform/company-verifications/{requestId}/approve`
-- `POST /api/v1/platform/company-verifications/{requestId}/reject`
-- `POST /api/v1/platform/company-membership-applications/{applicationId}/approve`
-- `POST /api/v1/platform/company-membership-applications/{applicationId}/reject`
+平台运营功能位于 `apps/admin`，本地默认访问 `http://localhost:3001`。身份、企业审核、成员治理、价格、账单、充值和审计请使用 BOSS 管理台及其 `/api/v1/platform/**` 接口；Recruitment SaaS 不再提供这些本地主数据写接口。
 
 ## 校验
 

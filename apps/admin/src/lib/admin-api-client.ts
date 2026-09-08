@@ -17,18 +17,46 @@ export class ApiError extends Error {
 }
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080/api/v1";
+const bossApiBaseUrl = process.env.NEXT_PUBLIC_BOSS_API_BASE_URL ?? "http://localhost:18084/api/v1";
 
 /**
  * 管理后台专用 fetch 封装
  * 自动从 localStorage 读取 adminKey 并添加到请求头
  */
 export async function adminApiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  return fetchAdmin<T>(apiBaseUrl, path, init);
+}
+
+/** BOSS control-plane requests use the same platform-admin credential, but never the local legacy review tables. */
+export async function bossAdminApiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  return fetchAdmin<T>(bossApiBaseUrl, path, init);
+}
+
+/** Fetch a protected BOSS binary response, such as registration evidence. */
+export async function bossAdminFileFetch(path: string): Promise<Blob> {
+  const adminKey = typeof window !== "undefined" ? localStorage.getItem("admin-key") : null;
+  const response = await fetch(`${bossApiBaseUrl}${path}`, {
+    headers: {
+      ...(adminKey ? { "X-Platform-Admin-Key": adminKey } : {}),
+    },
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({
+      code: "CLIENT_UNEXPECTED_RESPONSE",
+      message: "服务暂时不可用，请稍后重试",
+    }))) as ApiErrorBody;
+    throw new ApiError(response.status, body);
+  }
+  return response.blob();
+}
+
+async function fetchAdmin<T>(baseUrl: string, path: string, init?: RequestInit): Promise<T> {
   // 从 localStorage 获取管理员密钥
   const adminKey = typeof window !== "undefined" ? localStorage.getItem("admin-key") : null;
 
   const multipart = typeof FormData !== "undefined" && init?.body instanceof FormData;
 
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const response = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
       Accept: "application/json",

@@ -17,7 +17,6 @@ import com.intelligentrecruitment.aiplatform.domain.AiCapability;
 import com.intelligentrecruitment.aiplatform.domain.AiTask;
 import com.intelligentrecruitment.aiplatform.domain.AiTaskStatus;
 import com.intelligentrecruitment.billing.application.BillingService;
-import com.intelligentrecruitment.billing.application.PricingService;
 import com.intelligentrecruitment.candidates.application.CandidateService;
 import com.intelligentrecruitment.candidates.application.PiiCipher;
 import com.intelligentrecruitment.jobs.application.JobService;
@@ -55,15 +54,11 @@ public class RecruitmentService {
     private static final String RESUME_PARSING_PRICING_VERSION = "RESUME_DEEPSEEK_V1";
     private static final String LEGACY_DEFAULT_TASK_TITLE = "高级 Java 开发工程师招聘";
 
-    /** 计费项 code，与 pricing_items.code 保持一致 */
-    private static final String JD_BILLING_CODE = "JD_GENERATION";
-    private static final String RESUME_PARSING_BILLING_CODE = "RESUME_PARSING";
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final WorkspaceAccessService workspaceAccess;
     private final BillingService billing;
-    private final PricingService pricing;
     private final RecruitmentFlowCoordinator flowCoordinator;
     private final AiPlatformClient aiPlatform;
     private final JdStructuredResultMapper structuredResultMapper;
@@ -73,13 +68,10 @@ public class RecruitmentService {
     private final InterviewService interviewService;
     private final CandidateService candidates;
     private final PiiCipher pii;
-    /** pricing_items 表没启用对应计费项时的兜底默认值（分） */
-    private final long defaultJdPriceMinor;
-    private final long defaultResumePriceMinor;
     private final long outboxLeaseSeconds;
 
     public RecruitmentService(JdbcTemplate jdbc, ObjectMapper objectMapper, WorkspaceAccessService workspaceAccess,
-                              BillingService billing, PricingService pricing, RecruitmentFlowCoordinator flowCoordinator,
+                              BillingService billing, RecruitmentFlowCoordinator flowCoordinator,
                               AiPlatformClient aiPlatform,
                               JdStructuredResultMapper structuredResultMapper,
                               JdSourceFileService sourceFiles,
@@ -88,14 +80,11 @@ public class RecruitmentService {
                               InterviewService interviewService,
                               CandidateService candidates,
                               PiiCipher pii,
-                              @Value("${app.phase3.jd-generation-price-minor:80}") long defaultJdPriceMinor,
-                              @Value("${app.phase4.resume-parsing-price-minor:80}") long defaultResumePriceMinor,
                               @Value("${app.phase3.outbox-lease-seconds:300}") long outboxLeaseSeconds) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.workspaceAccess = workspaceAccess;
         this.billing = billing;
-        this.pricing = pricing;
         this.flowCoordinator = flowCoordinator;
         this.aiPlatform = aiPlatform;
         this.structuredResultMapper = structuredResultMapper;
@@ -105,21 +94,17 @@ public class RecruitmentService {
         this.interviewService = interviewService;
         this.candidates = candidates;
         this.pii = pii;
-        this.defaultJdPriceMinor = defaultJdPriceMinor;
-        this.defaultResumePriceMinor = defaultResumePriceMinor;
         this.outboxLeaseSeconds = outboxLeaseSeconds;
     }
 
-    /** JD 生成单价：优先从 pricing_items 查，fallback 到默认值 */
-    private long resolveJdPriceMinor() {
-        Long configured = pricing.findUnitPriceMinor(JD_BILLING_CODE);
-        return configured != null ? configured : defaultJdPriceMinor;
+    /** JD 生成单价：BOSS 是唯一价格来源。 */
+    private long resolveJdPriceMinor(UUID companyId) {
+        return billing.quoteUnitPrice(companyId, "JD_GENERATION");
     }
 
-    /** 简历解析单价：优先从 pricing_items 查，fallback 到默认值 */
-    private long resolveResumePriceMinor() {
-        Long configured = pricing.findUnitPriceMinor(RESUME_PARSING_BILLING_CODE);
-        return configured != null ? configured : defaultResumePriceMinor;
+    /** 简历解析单价：BOSS 是唯一价格来源。 */
+    private long resolveResumePriceMinor(UUID companyId) {
+        return billing.quoteUnitPrice(companyId, "RESUME_PARSE");
     }
 
     @Transactional
@@ -223,8 +208,33 @@ public class RecruitmentService {
         Integer screeningPlanCount = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM screening_plans WHERE recruitment_task_id=? AND workspace_id=?
                 """, Integer.class, taskId, workspaceId);
+        // 筛简历任务允许删除：级联清理筛选方案/版本/报价/运行/结果，不做存在性拦截。
         if (screeningPlanCount != null && screeningPlanCount > 0) {
-            throw new ApiException("RECRUITMENT_TASK_HAS_SCREENING", "该任务已创建筛选方案或筛选记录，无法删除。请保留任务以追溯筛选依据与结果。", HttpStatus.CONFLICT);
+            // 按外键依赖顺序删除：results → run_items → runs → quotes → plan_versions → plans
+            jdbc.update("""
+                    DELETE FROM screening_results WHERE workspace_id=? AND run_item_id IN (
+                        SELECT id FROM screening_run_items WHERE workspace_id=? AND run_id IN (
+                            SELECT id FROM screening_runs WHERE recruitment_task_id=? AND workspace_id=?))
+                    """, workspaceId, workspaceId, taskId, workspaceId);
+            jdbc.update("""
+                    DELETE FROM screening_run_items WHERE workspace_id=? AND run_id IN (
+                        SELECT id FROM screening_runs WHERE recruitment_task_id=? AND workspace_id=?)
+                    """, workspaceId, taskId, workspaceId);
+            jdbc.update("""
+                    DELETE FROM outbox_events WHERE aggregate_type='SCREENING_RUN'
+                    AND aggregate_id IN (SELECT id::text FROM screening_runs WHERE recruitment_task_id=? AND workspace_id=?)
+                    """, taskId, workspaceId);
+            jdbc.update("DELETE FROM screening_runs WHERE recruitment_task_id=? AND workspace_id=?", taskId, workspaceId);
+            jdbc.update("""
+                    DELETE FROM screening_quotes WHERE workspace_id=? AND plan_version_id IN (
+                        SELECT id FROM screening_plan_versions WHERE workspace_id=? AND plan_id IN (
+                            SELECT id FROM screening_plans WHERE recruitment_task_id=? AND workspace_id=?))
+                    """, workspaceId, workspaceId, taskId, workspaceId);
+            jdbc.update("""
+                    DELETE FROM screening_plan_versions WHERE workspace_id=? AND plan_id IN (
+                        SELECT id FROM screening_plans WHERE recruitment_task_id=? AND workspace_id=?)
+                    """, workspaceId, taskId, workspaceId);
+            jdbc.update("DELETE FROM screening_plans WHERE recruitment_task_id=? AND workspace_id=?", taskId, workspaceId);
         }
         jdbc.update("""
                 DELETE FROM outbox_events WHERE aggregate_type='AI_RUN'
@@ -319,7 +329,7 @@ public class RecruitmentService {
         updateLegacyDefaultTaskTitle(task, requirement, now);
         long availableAmountMinor = billing.view(userId, workspaceId).availableAmountMinor();
         PolicyDecision policyDecision = flowCoordinator.evaluate(FlowCapability.JD_GENERATION, scope, userId,
-                availableAmountMinor, resolveJdPriceMinor(), null, true);
+                availableAmountMinor, resolveJdPriceMinor(scope.companyId()), null, true);
         ExecutionContext executionContext = flowCoordinator.createExecutionContext(policyDecision, taskId, key,
                 "jd-run:" + runId, List.of(new ExecutionContext.InputVersion("conversation_summary",
                 taskId.toString(), "frozen", payloadHash)), false);
@@ -330,7 +340,7 @@ public class RecruitmentService {
                  input_payload,policy_decision,execution_context)
                 VALUES (?,?,?,?, 'JD_GENERATION','QUEUED',0,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
                 """, runId, scope.companyId(), workspaceId, taskId, attempt, key, payloadHash,
-                JD_PRICING_VERSION, resolveJdPriceMinor(), userId, timestamp(now), protectedPayload(Map.of(
+                JD_PRICING_VERSION, resolveJdPriceMinor(scope.companyId()), userId, timestamp(now), protectedPayload(Map.of(
                         "requirement", requirement,
                         "title", nullable(value(input, GenerateJdInput::title)),
                         "companyName", nullable(value(input, GenerateJdInput::companyName)),
@@ -341,7 +351,7 @@ public class RecruitmentService {
                         "skills", nullable(value(input, GenerateJdInput::skills)))), json(policyDecision),
                 json(executionContext));
         String billingReference = "jd-run:" + runId;
-        billing.reserve(userId, workspaceId, billingReference, resolveJdPriceMinor());
+        billing.reserve(userId, workspaceId, billingReference, resolveJdPriceMinor(scope.companyId()));
         jdbc.update("""
                 INSERT INTO outbox_events
                 (id,aggregate_type,aggregate_id,event_type,payload,status,attempts,next_attempt_at,created_at)
@@ -431,9 +441,9 @@ public class RecruitmentService {
         WorkspaceScope scope = new WorkspaceScope(run.workspaceId(), run.companyId(), null, null, null);
         upsertDraft(scope, run.taskId(), run.id(), run.createdBy(), draft);
         Instant completed = Instant.now();
-        billing.settleSystem(run.workspaceId(), "jd-run:" + run.id(), resolveJdPriceMinor());
+        billing.settleSystem(run.workspaceId(), "jd-run:" + run.id(), resolveJdPriceMinor(run.companyId()));
         jdbc.update("UPDATE ai_runs SET status='COMPLETED',progress=100,settled_amount_minor=?,completed_at=? WHERE id=?",
-                resolveJdPriceMinor(), timestamp(completed), run.id());
+                resolveJdPriceMinor(run.companyId()), timestamp(completed), run.id());
         insertMessage(scope, run.conversationId(), "ASSISTANT",
                 "JD 草稿已生成。请检查职责、任职要求和待确认项，确认后再进入职位库。",
                 "JD_GENERATION", null, completed);
@@ -820,7 +830,7 @@ public class RecruitmentService {
         Instant now = Instant.now();
         long availableAmountMinor = billing.view(userId, workspaceId).availableAmountMinor();
         PolicyDecision policyDecision = flowCoordinator.evaluate(FlowCapability.RESUME_PARSING, scope, userId,
-                availableAmountMinor, resolveResumePriceMinor(), null, true);
+                availableAmountMinor, resolveResumePriceMinor(scope.companyId()), null, true);
         ExecutionContext executionContext = flowCoordinator.createExecutionContext(policyDecision, taskId, key,
                 "resume-parse:" + runId, List.of(new ExecutionContext.InputVersion("resume_payload",
                         taskId.toString(), "frozen", payloadHash)), false);
@@ -831,10 +841,10 @@ public class RecruitmentService {
                  input_payload,policy_decision,execution_context)
                 VALUES (?,?,?,?, 'RESUME_PARSING','QUEUED',0,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
                 """, runId, scope.companyId(), workspaceId, taskId, attempt, key, payloadHash,
-                RESUME_PARSING_PRICING_VERSION, resolveResumePriceMinor(), userId, timestamp(now), protectedPayload(payload),
+                RESUME_PARSING_PRICING_VERSION, resolveResumePriceMinor(scope.companyId()), userId, timestamp(now), protectedPayload(payload),
                 json(policyDecision), json(executionContext));
         String billingReference = "resume-parse:" + runId;
-        billing.reserve(userId, workspaceId, billingReference, resolveResumePriceMinor());
+        billing.reserve(userId, workspaceId, billingReference, resolveResumePriceMinor(scope.companyId()));
         jdbc.update("""
                 INSERT INTO outbox_events
                 (id,aggregate_type,aggregate_id,event_type,payload,status,attempts,next_attempt_at,created_at)
@@ -1043,9 +1053,9 @@ public class RecruitmentService {
                 VALUES (?,?,?,?,?,?,?,'DRAFT',?,?,?)
                 """, UUID.randomUUID(), scope.companyId(), scope.workspaceId(), run.taskId(), run.id(),
                 nextRevision, pii.encrypt(markdown), run.createdBy(), timestamp(completed), timestamp(completed));
-        billing.settleSystem(run.workspaceId(), "resume-parse:" + run.id(), resolveResumePriceMinor());
+        billing.settleSystem(run.workspaceId(), "resume-parse:" + run.id(), resolveResumePriceMinor(run.companyId()));
         jdbc.update("UPDATE ai_runs SET status='COMPLETED',progress=100,settled_amount_minor=?,completed_at=? WHERE id=?",
-                resolveResumePriceMinor(), timestamp(completed), run.id());
+                resolveResumePriceMinor(run.companyId()), timestamp(completed), run.id());
         insertMessage(scope, run.conversationId(), "ASSISTANT",
                 "简历解析已完成，结果已写入左侧「解析结果」文本框，你可以直接编辑并保存版本。"
                         + (run.taskId().version() > 0 ? "" : ""),

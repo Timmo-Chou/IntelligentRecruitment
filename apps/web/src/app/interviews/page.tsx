@@ -19,7 +19,7 @@ export default function InterviewsPage() {
   async function load() {
     if (!workspaceId) return;
     setLoading(true);
-    try { setKits(await apiFetch<Kit[]>(`/workspaces/${workspaceId}/interview-kits`)); }
+    try { setKits(await apiFetch<Kit[]>(`/companies/${workspaceId}/interview-kits`)); }
     finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, [workspaceId]);
@@ -28,7 +28,7 @@ export default function InterviewsPage() {
     detail?.questions.forEach((question) => map.set(question.category, [...(map.get(question.category) ?? []), question]));
     return [...map.entries()];
   }, [detail]);
-  async function open(kit: Kit) { if (workspaceId) setDetail(await apiFetch<KitDetail>(`/workspaces/${workspaceId}/interview-kits/${kit.id}`)); }
+  async function open(kit: Kit) { if (workspaceId) setDetail(await apiFetch<KitDetail>(`/companies/${workspaceId}/interview-kits/${kit.id}`)); }
 
   return <AppShell activeItem="面试题库" pageHeader={<div className="flex items-center gap-3"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#edf5ff] text-[#2878da]"><Library size={24}/></span><div><h1 className="m-0 text-[25px] font-bold text-[#09245d]">面试题库</h1><p className="mb-0 mt-1 text-sm text-[#55709d]">已发布的题包会保留对应 JD、人才及结构化面试结果。</p></div></div>}>
     <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]"><aside className="rounded-xl border border-[#d6e5f5] bg-white p-4"><h2 className="m-0 text-base font-bold text-[#173568]">已保存题包</h2>{loading && <Loader2 className="mx-auto my-8 animate-spin text-[#2878da]"/>}{!loading && kits.length === 0 && <p className="mt-5 text-sm leading-6 text-[#7187a8]">暂无题包。请在「智能招聘」中选择 JD 和人才后生成并发布。</p>}{kits.map((kit) => <button type="button" key={kit.id} onClick={() => void open(kit)} className={`mt-3 w-full rounded-lg border p-3 text-left transition ${detail?.id === kit.id ? "border-[#69a8ed] bg-[#f1f8ff]" : "border-[#dce7f3] hover:bg-[#f8fbff]"}`}><p className="m-0 text-sm font-semibold text-[#244a78]">{kit.jobTitle || "未关联 JD"}</p><p className="mb-0 mt-1 text-xs text-[#7187a8]">人才：{kit.candidateName}</p><span className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#07885b]">{kit.status === "CONFIRMED" && <CheckCircle2 size={12}/>} {kit.status === "CONFIRMED" ? "已发布" : "草稿"}</span></button>)}</aside>

@@ -583,11 +583,13 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
     }
 
     private String completeJson(String systemPrompt, String userPrompt, int maxTokens) {
+        // 关闭思考模式：deepseek-v4-flash 默认 thinking 会让业务 JSON 进 reasoning_content、content 为空。
         Map<String, Object> payload = Map.of(
                 "model", model,
                 "messages", List.of(Map.of("role", "system", "content", systemPrompt),
                         Map.of("role", "user", "content", userPrompt)),
                 "response_format", Map.of("type", JSON_FORMAT),
+                "thinking", Map.of("type", "disabled"),
                 "stream", false,
                 "max_tokens", maxTokens
         );
@@ -599,7 +601,11 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
             JsonNode root = readJson(response);
             JsonNode firstChoice = root.path("choices").path(0);
             String finishReason = firstChoice.path("finish_reason").asText("");
+            // 优先取 message.content；若模型仍把结果放进 reasoning_content（thinking 未生效时），回退取该字段。
             String content = firstChoice.path("message").path("content").asText("");
+            if (content.isBlank()) {
+                content = firstChoice.path("message").path("reasoning_content").asText("");
+            }
             if (content.isBlank()) throw contractInvalid("DeepSeek 返回了空的 JSON 内容");
             // 输出被 max_tokens 截断时内容必然是不完整 JSON，提前给出明确错误，
             // 避免下游误报「不是有效 JSON」（也便于调用方决定是否降级）。
@@ -613,10 +619,12 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
     }
 
     private String completeText(String systemPrompt, String userPrompt) {
+        // 关闭思考模式，避免 content 为空。
         Map<String, Object> payload = Map.of(
                 "model", model,
                 "messages", List.of(Map.of("role", "system", "content", systemPrompt),
                         Map.of("role", "user", "content", userPrompt)),
+                "thinking", Map.of("type", "disabled"),
                 "stream", false,
                 "max_tokens", 800
         );
@@ -626,7 +634,10 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
                     .header("Authorization", "Bearer " + apiKey)
                     .body(payload).retrieve().body(String.class);
             JsonNode root = readJson(response);
-            return root.path("choices").path(0).path("message").path("content").asText("");
+            JsonNode message = root.path("choices").path(0).path("message");
+            String content = message.path("content").asText("");
+            if (content.isBlank()) content = message.path("reasoning_content").asText("");
+            return content;
         } catch (RestClientException exception) {
             throw new ApiException("AI_PROVIDER_UNAVAILABLE", "DeepSeek 服务暂不可用", HttpStatus.SERVICE_UNAVAILABLE);
         }
