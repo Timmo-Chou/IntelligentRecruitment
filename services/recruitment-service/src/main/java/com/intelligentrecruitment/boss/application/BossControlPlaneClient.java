@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -97,18 +98,72 @@ public class BossControlPlaneClient {
         JsonNode body = request("GET", "/api/v1/me/contexts", accessToken, null, null).body();
         List<Tenant> tenants = new ArrayList<>();
         for (JsonNode tenant : body.path("tenants")) {
-            tenants.add(new Tenant(uuid(tenant, "tenant_id"), text(tenant, "tenant_type"),
-                    text(tenant, "tenant_name"), text(tenant, "tenant_status")));
+            tenants.add(new Tenant(uuid(tenant, "tenant_id"), text(tenant, "product_domain"), text(tenant, "tenant_type"),
+                    text(tenant, "tenant_name"), text(tenant, "tenant_status"), text(tenant, "role_code"),
+                    tenant.path("is_owner").asBoolean(false), tenant.path("seat_assigned").asBoolean(false)));
         }
-        List<Company> companies = new ArrayList<>();
-        for (JsonNode company : body.path("companies")) {
-            companies.add(new Company(uuid(company, "company_id"), uuid(company, "tenant_id"),
-                    text(company, "legal_name"), text(company, "entity_type"),
-                    text(company, "company_status"), text(company, "tenant_status"),
-                    company.path("is_company_owner").asBoolean(false)));
-        }
-        return new Contexts(uuid(body, "user_id"), tenants, companies);
+        return new Contexts(uuid(body, "user_id"), tenants);
     }
+
+    public Map<String, Object> creditCodeAvailability(String accessToken, String creditCode) {
+        JsonNode body = request("GET", "/api/v1/recruitment/enterprise-registrations/credit-code-availability?creditCode=" + encode(creditCode), accessToken, null, null).body();
+        return Map.of("available", body.path("available").asBoolean(false));
+    }
+
+    /** Streams the enterprise licence file to BOSS, which owns the registration document. */
+    public JsonNode uploadEnterpriseLicense(String accessToken, MultipartFile file) {
+        if (file == null || file.isEmpty()) throw new ApiException("EMPTY_FILE", "营业执照文件不能为空", HttpStatus.BAD_REQUEST);
+        try {
+            String boundary = "----RecruitmentTenant" + UUID.randomUUID().toString().replace("-", "");
+            String filename = (file.getOriginalFilename() == null ? "license" : file.getOriginalFilename()).replace("\"", "_");
+            String contentType = file.getContentType() == null ? "application/octet-stream" : file.getContentType();
+            byte[] opening = ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"\r\nContent-Type: " + contentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8);
+            byte[] closing = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
+            HttpResponse<String> response = http.send(HttpRequest.newBuilder(URI.create(baseUrl + "/api/v1/recruitment/enterprise-registration-documents"))
+                    .timeout(Duration.ofSeconds(15)).header("Accept", "application/json").header("Authorization", "Bearer " + accessToken)
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .POST(HttpRequest.BodyPublishers.ofByteArrays(Arrays.asList(opening, file.getBytes(), closing))).build(), HttpResponse.BodyHandlers.ofString());
+            JsonNode body = response.body().isBlank() ? json.createObjectNode() : json.readTree(response.body());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw bossError(response.statusCode(), body);
+            return body;
+        } catch (ApiException exception) { throw exception; }
+        catch (IOException exception) { throw new ApiException("BOSS_UNAVAILABLE", "BOSS 文件服务暂不可用，请稍后重试", HttpStatus.SERVICE_UNAVAILABLE); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new ApiException("BOSS_UNAVAILABLE", "BOSS 文件服务暂不可用，请稍后重试", HttpStatus.SERVICE_UNAVAILABLE); }
+    }
+
+    public JsonNode submitEnterpriseRegistration(String accessToken, String legalName, String creditCode, UUID licenseDocumentId,
+                                                  String contactName, String contactPhone) {
+        return request("POST", "/api/v1/recruitment/enterprise-registrations", accessToken,
+                "{\"legalName\":" + quoted(legalName) + ",\"creditCode\":" + quoted(creditCode) + ",\"licenseDocumentId\":\"" + licenseDocumentId
+                        + "\",\"contactName\":" + quoted(contactName) + ",\"contactPhone\":" + quoted(contactPhone) + "}", null).body();
+    }
+
+    public List<DirectoryTenant> searchEnterprises(String accessToken, String keyword) {
+        JsonNode body = request("GET", "/api/v1/recruitment/enterprises/search?keyword=" + encode(keyword), accessToken, null, null).body();
+        List<DirectoryTenant> result = new ArrayList<>();
+        for (JsonNode item : body) result.add(new DirectoryTenant(uuid(item, "tenant_id"), text(item, "tenant_name"), text(item, "legal_name")));
+        return result;
+    }
+
+    public JsonNode applyToJoin(String accessToken, UUID tenantId, String roleCode, String reason) { return request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/join-applications", accessToken, "{\"roleCode\":" + quoted(roleCode) + ",\"reason\":" + quoted(reason) + "}", null).body(); }
+    public JsonNode enterpriseOverview(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "overview"); }
+    public JsonNode enterpriseMembers(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "members"); }
+    public JsonNode enterpriseInvitations(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "invitations"); }
+    public JsonNode enterpriseJoinApplications(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "join-applications"); }
+    public JsonNode enterpriseBilling(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "billing"); }
+    public JsonNode enterpriseRoles(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "roles"); }
+    public JsonNode permissionCatalog(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "permission-catalog"); }
+    public JsonNode createInvitation(String accessToken, UUID tenantId, String roleCode, int maxUses, Instant expiresAt, String note) { return request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/invitations", accessToken, "{\"roleCode\":" + quoted(roleCode) + ",\"maxUses\":" + maxUses + ",\"expiresAt\":" + quoted(expiresAt.toString()) + ",\"note\":" + quoted(note) + "}", null).body(); }
+    public void claimInvitation(String accessToken, String invitationToken) { request("POST", "/api/v1/recruitment/invitations/claim", accessToken, "{\"invitationToken\":" + quoted(invitationToken) + "}", null); }
+    public void decideJoinApplication(String accessToken, UUID applicationId, boolean approve, String reason) { request("POST", "/api/v1/recruitment/join-applications/" + applicationId + "/decision", accessToken, "{\"approve\":" + approve + ",\"reason\":" + quoted(reason) + "}", null); }
+    public void assignOwnerSeat(String accessToken, UUID tenantId) { request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/owner-seat/assign", accessToken, "{}", null); }
+    public void releaseOwnerSeat(String accessToken, UUID tenantId) { request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/owner-seat/release", accessToken, "{}", null); }
+    public void removeMember(String accessToken, UUID tenantId, UUID userId) { request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/members/" + userId + "/remove", accessToken, "{}", null); }
+    public void updateFeatureSettings(String accessToken, UUID tenantId, boolean talent, boolean jobs) { request("PUT", "/api/v1/recruitment/tenants/" + tenantId + "/feature-settings", accessToken, "{\"talentPoolSharingEnabled\":" + talent + ",\"jobPoolSharingEnabled\":" + jobs + "}", null); }
+    public JsonNode createRole(String accessToken, UUID tenantId, String code, String displayName, JsonNode permissionCodes) { return request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/roles", accessToken, "{\"code\":" + quoted(code) + ",\"displayName\":" + quoted(displayName) + ",\"permissionCodes\":" + permissionCodes + "}", null).body(); }
+    public void updateRolePermissions(String accessToken, UUID tenantId, UUID roleId, JsonNode permissionCodes) { request("PUT", "/api/v1/recruitment/tenants/" + tenantId + "/roles/" + roleId + "/permissions", accessToken, "{\"permissionCodes\":" + permissionCodes + "}", null); }
+    public void updateMemberRole(String accessToken, UUID tenantId, UUID userId, String roleCode) { request("PUT", "/api/v1/recruitment/tenants/" + tenantId + "/members/" + userId + "/role", accessToken, "{\"roleCode\":" + quoted(roleCode) + "}", null); }
+    private JsonNode recruitmentGet(String accessToken, UUID tenantId, String resource) { return request("GET", "/api/v1/recruitment/tenants/" + tenantId + "/" + resource, accessToken, null, null).body(); }
 
     public Registration registerCompany(String accessToken, String legalName, String creditCode,
                                         String licenseReference, String contactName, String contactPhone) {
@@ -428,8 +483,10 @@ public class BossControlPlaneClient {
     public record Session(UUID userId, String accessToken, Instant expiresAt, boolean newUser,
                           boolean passwordSetupRequired, String setCookie) { }
     public record User(UUID userId, String displayName, String maskedPhone, String status) { }
-    public record Contexts(UUID userId, List<Tenant> tenants, List<Company> companies) { }
-    public record Tenant(UUID tenantId, String tenantType, String tenantName, String tenantStatus) { }
+    public record Contexts(UUID userId, List<Tenant> tenants) { }
+    public record Tenant(UUID tenantId, String productDomain, String tenantType, String tenantName, String tenantStatus,
+                         String roleCode, boolean owner, boolean seatAssigned) { }
+    public record DirectoryTenant(UUID tenantId, String tenantName, String legalName) { }
     public record Company(UUID companyId, UUID tenantId, String legalName, String entityType,
                           String companyStatus, String tenantStatus, boolean companyOwner) { }
     public record Registration(UUID tenantId, UUID companyId, UUID verificationRequestId, String status) { }

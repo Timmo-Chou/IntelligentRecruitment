@@ -11,7 +11,7 @@ public record ExecutionContext(
         @JsonProperty("request_id") String requestId,
         @JsonProperty("trace_id") String traceId,
         @JsonProperty("workspace_id") UUID workspaceId,
-        @JsonProperty("company_id") UUID companyId,
+        @JsonProperty("tenant_id") UUID tenantId,
         @JsonProperty("actor_id") UUID actorId,
         @JsonProperty("business_task_id") UUID businessTaskId,
         @JsonProperty("idempotency_key") String idempotencyKey,

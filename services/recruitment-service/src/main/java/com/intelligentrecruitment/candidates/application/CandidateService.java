@@ -8,7 +8,7 @@ import com.intelligentrecruitment.candidates.infrastructure.ResumeObjectStorage;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
 import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.WorkspaceScope;
+import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.TenantScope;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
@@ -60,7 +60,7 @@ public class CandidateService {
 
     @Transactional
     public CandidateDetail upload(UUID userId, UUID workspaceId, MultipartFile file) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         byte[] bytes = validateAndRead(file);
         String hash = SecurityHashes.sha256(bytes);
         List<UUID> duplicate = jdbc.query("""
@@ -98,7 +98,7 @@ public class CandidateService {
         }
     }
 
-    protected CandidateDetail persistUpload(UUID userId, WorkspaceScope scope, UUID assetId, UUID candidateId,
+    protected CandidateDetail persistUpload(UUID userId, TenantScope scope, UUID assetId, UUID candidateId,
                                             UUID resumeFileId, String objectKey, String filename, String mediaType,
                                             byte[] bytes, String hash, boolean createAsset) {
         Instant now = Instant.now();
@@ -110,7 +110,7 @@ public class CandidateService {
                     (id,company_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
                     VALUES (?,?,?,?,?,?,?,?, 'CLEAN','ACTIVE',?,?)
-                    """, assetId, scope.companyId(), scope.workspaceId(), objectKey, pii.encrypt(filename), mediaType, bytes.length,
+                    """, assetId, scope.tenantId(), scope.tenantId(), objectKey, pii.encrypt(filename), mediaType, bytes.length,
                     hash, userId, timestamp(now));
         }
         jdbc.update("""
@@ -118,18 +118,18 @@ public class CandidateService {
                 (id,company_id,workspace_id,display_name_masked,full_name_ciphertext,email_ciphertext,
                  phone_ciphertext,full_name_search_hash,phone_search_hash,status,created_by,created_at,updated_at,profile,search_text)
                 VALUES (?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
-                """, candidateId, scope.companyId(), scope.workspaceId(), mask(provisionalName), pii.encrypt(provisionalName),
+                """, candidateId, scope.tenantId(), scope.tenantId(), mask(provisionalName), pii.encrypt(provisionalName),
                 pii.encrypt(""), pii.encrypt(""), pii.searchToken(provisionalName), pii.searchToken(""),
                 userId, timestamp(now), timestamp(now), json(Map.of("source", "简历上传", "tags", List.of())), provisionalName);
         jdbc.update("""
                 INSERT INTO resume_files
                 (id,company_id,workspace_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
                 VALUES (?,?,?,?,?,?,?, ?,?,?)
-                """, resumeFileId, scope.companyId(), scope.workspaceId(), candidateId, assetId, "PROCESSING",
+                """, resumeFileId, scope.tenantId(), scope.tenantId(), candidateId, assetId, "PROCESSING",
                 null, userId, timestamp(now), timestamp(now));
         parseAndSave(userId, scope, candidateId, resumeFileId, filename, rawText, 1);
         audit(userId, scope, "RESUME_UPLOADED", candidateId);
-        return detailScoped(scope.workspaceId(), candidateId);
+        return detailScoped(scope.tenantId(), candidateId);
     }
 
     /**
@@ -313,7 +313,7 @@ public class CandidateService {
 
     @Transactional
     public CandidateDetail createManual(UUID userId, UUID workspaceId, ManualTalentInput input) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         if (input == null || isBlank(input.fullName())) throw validation("姓名不能为空");
         Instant now = Instant.now();
         UUID candidateId = UUID.randomUUID();
@@ -338,21 +338,21 @@ public class CandidateService {
                     (id,company_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
                     VALUES (?,?,?,?,?,?,?,?,'CLEAN','ACTIVE',?,?)
-                    """, assetId, scope.companyId(), scope.workspaceId(), objectKey, pii.encrypt(filename), "text/plain",
+                    """, assetId, scope.tenantId(), scope.tenantId(), objectKey, pii.encrypt(filename), "text/plain",
                     bytes.length, SecurityHashes.sha256(bytes), userId, timestamp(now));
             jdbc.update("""
                     INSERT INTO candidates
                     (id,company_id,workspace_id,display_name_masked,full_name_ciphertext,email_ciphertext,
                      phone_ciphertext,full_name_search_hash,phone_search_hash,status,created_by,created_at,updated_at,profile,search_text)
                     VALUES (?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
-                    """, candidateId, scope.companyId(), scope.workspaceId(), mask(name), pii.encrypt(name),
+                    """, candidateId, scope.tenantId(), scope.tenantId(), mask(name), pii.encrypt(name),
                     pii.encrypt(email), pii.encrypt(phone), pii.searchToken(name), pii.searchToken(phone), userId, timestamp(now), timestamp(now),
                     json(profile), searchText);
             jdbc.update("""
                     INSERT INTO resume_files
                     (id,company_id,workspace_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
                     VALUES (?,?,?,?,?,'PARSED',NULL,?,?,?)
-                    """, resumeFileId, scope.companyId(), scope.workspaceId(), candidateId, assetId, userId,
+                    """, resumeFileId, scope.tenantId(), scope.tenantId(), candidateId, assetId, userId,
                     timestamp(now), timestamp(now));
             ParsedResume parsed = new ParsedResume(name, email == null ? "" : email, phone == null ? "" : phone,
                     headline, years, nullable(input.highestEducation()).isBlank() ? "待确认" : input.highestEducation().trim(),
@@ -362,7 +362,7 @@ public class CandidateService {
                     "手动录入人才档案", List.of(), "手动录入人才档案");
             saveParseVersion(scope, candidateId, resumeFileId, 1, parsed, now);
             audit(userId, scope, "CANDIDATE_CREATED_MANUAL", candidateId);
-            return detailScoped(scope.workspaceId(), candidateId);
+            return detailScoped(scope.tenantId(), candidateId);
         } catch (RuntimeException exception) {
             try { storage.remove(objectKey); } catch (RuntimeException ignored) { }
             throw exception;
@@ -377,7 +377,7 @@ public class CandidateService {
     @Transactional
     public CandidateDetail createFromResumeSource(UUID userId, UUID workspaceId, UUID assetId,
                                                   String filename, String extractedText) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         // 幂等：该简历资产已入库为候选人则直接返回已有候选人
         List<UUID> linked = jdbc.query("""
                 SELECT c.id FROM candidates c
@@ -402,7 +402,7 @@ public class CandidateService {
                 (id,company_id,workspace_id,display_name_masked,full_name_ciphertext,email_ciphertext,
                  phone_ciphertext,full_name_search_hash,phone_search_hash,status,created_by,created_at,updated_at,profile,search_text)
                 VALUES (?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
-                """, candidateId, scope.companyId(), scope.workspaceId(), mask(safeName), pii.encrypt(safeName),
+                """, candidateId, scope.tenantId(), scope.tenantId(), mask(safeName), pii.encrypt(safeName),
                 pii.encrypt(""), pii.encrypt(""), pii.searchToken(safeName), pii.searchToken(""),
                 userId, timestamp(now), timestamp(now),
                 json(Map.of("source", "AI简历解析", "tags", List.of())), safeName);
@@ -410,7 +410,7 @@ public class CandidateService {
                 INSERT INTO resume_files
                 (id,company_id,workspace_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
                 VALUES (?,?,?,?,?,'PROCESSING',NULL,?,?,?)
-                """, resumeFileId, scope.companyId(), scope.workspaceId(), candidateId, assetId, userId,
+                """, resumeFileId, scope.tenantId(), scope.tenantId(), candidateId, assetId, userId,
                 timestamp(now), timestamp(now));
         // 用任务已提取的简历文本走人才库解析入库（内部失败有兜底，不影响候选人创建）
         String rawText = extractedText == null || extractedText.isBlank() ? safeName : extractedText;
@@ -566,7 +566,7 @@ public class CandidateService {
     }
 
     public RevealedPii reveal(UUID userId, UUID workspaceId, UUID candidateId) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         List<RevealedPii> rows = jdbc.query("""
                 SELECT full_name_ciphertext,email_ciphertext,phone_ciphertext FROM candidates
                 WHERE id=? AND workspace_id=? AND status<>'DELETED'
@@ -579,7 +579,7 @@ public class CandidateService {
 
     @Transactional
     public DownloadedResume download(UUID userId, UUID workspaceId, UUID candidateId) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         List<FileRow> rows = jdbc.query("""
                 SELECT f.object_key,f.original_filename,f.media_type FROM candidates c
                 JOIN resume_files rf ON rf.candidate_id=c.id JOIN file_assets f ON f.id=rf.file_asset_id
@@ -594,7 +594,7 @@ public class CandidateService {
 
     @Transactional
     public CandidateDetail retryParse(UUID userId, UUID workspaceId, UUID candidateId) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         CandidateDetail existing = detailScoped(workspaceId, candidateId);
         FileRow file = fileRow(workspaceId, candidateId);
         String filename = pii.decryptIfEncrypted(file.filename());
@@ -610,7 +610,7 @@ public class CandidateService {
 
     @Transactional
     public void delete(UUID userId, UUID workspaceId, UUID candidateId) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         List<FileRow> files = jdbc.query("""
                 SELECT f.object_key,f.original_filename,f.media_type FROM candidates c
                 JOIN resume_files rf ON rf.candidate_id=c.id JOIN file_assets f ON f.id=rf.file_asset_id
@@ -637,7 +637,7 @@ public class CandidateService {
         audit(userId, scope, "CANDIDATE_DELETED", candidateId);
     }
 
-    private void saveParseVersion(WorkspaceScope scope, UUID candidateId, UUID resumeFileId, int version,
+    private void saveParseVersion(TenantScope scope, UUID candidateId, UUID resumeFileId, int version,
                                   ParsedResume parsed, Instant now) {
         UUID parseId = UUID.randomUUID();
         jdbc.update("""
@@ -646,12 +646,12 @@ public class CandidateService {
                  headline,years_experience,highest_education,skills,work_experience,education_experience,
                  summary,warnings,raw_text,created_at)
                 VALUES (?,?,?,?,?,?,'RESUME_V1','CONFIRMED',?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?::jsonb,?,?)
-                """, parseId, scope.companyId(), scope.workspaceId(), candidateId, resumeFileId, version,
+                """, parseId, scope.tenantId(), scope.tenantId(), candidateId, resumeFileId, version,
                 parsed.headline(), parsed.yearsExperience(), parsed.education(), json(parsed.skills()),
                 json(parsed.workExperience()), json(parsed.educationExperience()), parsed.summary(),
                 json(parsed.warnings()), pii.encrypt(parsed.rawText()), timestamp(now));
         jdbc.update("UPDATE candidates SET current_parse_version_id=?,updated_at=? WHERE id=? AND workspace_id=?",
-                parseId, timestamp(now), candidateId, scope.workspaceId());
+                parseId, timestamp(now), candidateId, scope.tenantId());
     }
 
     private CandidateDetail detailScoped(UUID workspaceId, UUID candidateId) {
@@ -734,7 +734,7 @@ public class CandidateService {
         return rows.getFirst();
     }
 
-    private void parseAndSave(UUID userId, WorkspaceScope scope, UUID candidateId, UUID resumeFileId,
+    private void parseAndSave(UUID userId, TenantScope scope, UUID candidateId, UUID resumeFileId,
                               String filename, String rawText, int version) {
         ParsedResume parsed = parseWithDeepSeek(scope, userId, candidateId, filename, rawText);
         Instant now = Instant.now();
@@ -747,13 +747,13 @@ public class CandidateService {
                 """, mask(parsed.name()), pii.encrypt(parsed.name()), pii.encrypt(parsed.email()), pii.encrypt(parsed.phone()),
                 pii.searchToken(parsed.name()), pii.searchToken(parsed.phone()), json(profile),
                 buildSearchText(candidateId, profile, parsed.skills(), parsed.headline()), timestamp(now),
-                candidateId, scope.workspaceId());
+                candidateId, scope.tenantId());
         // 兜底与成功都视为已解析（有可用简历原文）；失败码清空，结构化完善程度通过解析版本 warnings 体现
         jdbc.update("UPDATE resume_files SET status='PARSED',error_code=NULL,updated_at=? WHERE id=? AND workspace_id=?",
-                timestamp(now), resumeFileId, scope.workspaceId());
+                timestamp(now), resumeFileId, scope.tenantId());
     }
 
-    private ParsedResume parseWithDeepSeek(WorkspaceScope scope, UUID userId, UUID candidateId, String filename, String rawText) {
+    private ParsedResume parseWithDeepSeek(TenantScope scope, UUID userId, UUID candidateId, String filename, String rawText) {
         throw new ApiException("POLICY_REQUIRED",
                 "候选人上传不能直接触发 AI 简历解析；请通过携带 BOSS 授权和 PolicyDecision 的招聘流程发起",
                 HttpStatus.CONFLICT);
@@ -824,12 +824,12 @@ public class CandidateService {
         catch (JsonProcessingException exception) { return List.of(); }
     }
 
-    private void audit(UUID actor, WorkspaceScope scope, String action, UUID resourceId) {
+    private void audit(UUID actor, TenantScope scope, String action, UUID resourceId) {
         jdbc.update("""
                 INSERT INTO audit_logs
                 (id,actor_user_id,company_id,workspace_id,action,resource_type,resource_id,created_at)
                 VALUES (?,?,?,?,?,'CANDIDATE',?,?)
-                """, UUID.randomUUID(), actor, scope.companyId(), scope.workspaceId(), action,
+                """, UUID.randomUUID(), actor, scope.tenantId(), scope.tenantId(), action,
                 resourceId.toString(), timestamp(Instant.now()));
     }
 
@@ -1038,12 +1038,12 @@ public class CandidateService {
     private record FileRow(String objectKey, String filename, String mediaType) { }
     private record AssetHashRow(UUID id, String sha256) { }
 
-    public record CandidateSummary(UUID id, UUID companyId, UUID workspaceId, String displayNameMasked, String phone, String email,
+    public record CandidateSummary(UUID id, UUID tenantId, UUID workspaceId, String displayNameMasked, String phone, String email,
                                    String status, String parseStatus, String originalFilename, String headline,
                                    int yearsExperience, String highestEducation, List<String> skills,
                                    Instant createdAt, Instant updatedAt, Integer matchScore, String matchedJobTitle,
                                    String profileJson) { }
-    public record CandidateDetail(UUID id, UUID companyId, UUID workspaceId, String displayNameMasked, String phone, String email,
+    public record CandidateDetail(UUID id, UUID tenantId, UUID workspaceId, String displayNameMasked, String phone, String email,
                                   String status, UUID currentParseVersionId, UUID resumeFileId, String parseStatus,
                                   String errorCode, String originalFilename, String mediaType, long sizeBytes,
                                   int parseVersion, String headline, int yearsExperience, String highestEducation,

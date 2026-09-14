@@ -102,7 +102,7 @@ export function parseProfile(json?: string | null): CandidateProfile {
 }
 
 export function fetchCandidateStats(workspaceId: string) {
-  return apiFetch<CandidateStats>(`/companies/${workspaceId}/candidates/stats`);
+  return apiFetch<CandidateStats>(`/tenants/${workspaceId}/candidates/stats`);
 }
 
 export function fetchCandidates(workspaceId: string, options: CandidateListQuery = {}) {
@@ -132,16 +132,16 @@ export function fetchCandidates(workspaceId: string, options: CandidateListQuery
       query.set(key, String(value));
     }
 }
-  return apiFetch<CandidateListResult>(`/companies/${workspaceId}/candidates?${query}`);
+  return apiFetch<CandidateListResult>(`/tenants/${workspaceId}/candidates?${query}`);
 }
 
 export function fetchCandidate(workspaceId: string, candidateId: string) {
-  return apiFetch<CandidateDetail>(`/companies/${workspaceId}/candidates/${candidateId}`);
+  return apiFetch<CandidateDetail>(`/tenants/${workspaceId}/candidates/${candidateId}`);
 }
 
 export function createTalent(workspaceId: string, input: TalentProfileInput) {
   const skills = skillsFromProfile(input);
-  return apiFetch<CandidateDetail>(`/companies/${workspaceId}/candidates`, {
+  return apiFetch<CandidateDetail>(`/tenants/${workspaceId}/candidates`, {
     method: "POST",
     body: JSON.stringify({
       fullName: input.fullName,
@@ -178,34 +178,34 @@ export function createTalent(workspaceId: string, input: TalentProfileInput) {
 export function uploadResume(workspaceId: string, file: File) {
   const body = new FormData();
   body.append("file", file);
-  return apiFetch<CandidateDetail>(`/companies/${workspaceId}/candidates/resumes`, {
+  return apiFetch<CandidateDetail>(`/tenants/${workspaceId}/candidates/resumes`, {
     method: "POST", body,
   });
 }
 
 export function retryResumeParse(workspaceId: string, candidateId: string) {
-  return apiFetch<CandidateDetail>(`/companies/${workspaceId}/candidates/${candidateId}/parse-retries`, {
+  return apiFetch<CandidateDetail>(`/tenants/${workspaceId}/candidates/${candidateId}/parse-retries`, {
     method: "POST",
   });
 }
 
 export function revealCandidate(workspaceId: string, candidateId: string) {
-  return apiFetch<RevealedPii>(`/companies/${workspaceId}/candidates/${candidateId}/reveal`, { method: "POST" });
+  return apiFetch<RevealedPii>(`/tenants/${workspaceId}/candidates/${candidateId}/reveal`, { method: "POST" });
 }
 
 export function updateCandidateTags(workspaceId: string, candidateId: string, tags: string[]) {
-  return apiFetch<CandidateDetail>(`/companies/${workspaceId}/candidates/${candidateId}/tags`, {
+  return apiFetch<CandidateDetail>(`/tenants/${workspaceId}/candidates/${candidateId}/tags`, {
     method: "PATCH",
     body: JSON.stringify({ tags }),
   });
 }
 
 export function deleteCandidate(workspaceId: string, candidateId: string) {
-  return apiFetch<void>(`/companies/${workspaceId}/candidates/${candidateId}`, { method: "DELETE" });
+  return apiFetch<void>(`/tenants/${workspaceId}/candidates/${candidateId}`, { method: "DELETE" });
 }
 
 export async function downloadResume(workspaceId: string, candidate: CandidateDetail) {
-  const blob = await apiDownload(`/companies/${workspaceId}/candidates/${candidate.id}/resume-file`);
+  const blob = await apiDownload(`/tenants/${workspaceId}/candidates/${candidate.id}/resume-file`);
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

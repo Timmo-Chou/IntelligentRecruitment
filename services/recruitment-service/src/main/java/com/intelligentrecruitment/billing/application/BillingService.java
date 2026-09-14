@@ -24,9 +24,9 @@ public class BillingService {
 
     /** Reads the BOSS wallet through the user's BOSS session. */
     @Transactional(readOnly = true)
-    public BillingView view(UUID userId, UUID companyId) {
-        var wallet = boss.companyWallet(BossRequestContext.accessToken(userId), companyId);
-        return new BillingView(companyId, wallet.path("currency").asText("CNY"),
+    public BillingView view(UUID userId, UUID tenantId) {
+        var wallet = boss.companyWallet(BossRequestContext.accessToken(userId), tenantId);
+        return new BillingView(tenantId, wallet.path("currency").asText("CNY"),
                 wallet.path("gift_micro").asLong(0), wallet.path("recharge_micro").asLong(0),
                 wallet.path("reserved_gift_micro").asLong(0), wallet.path("reserved_recharge_micro").asLong(0),
                 true, List.of(), List.of(), 0);
@@ -34,50 +34,50 @@ public class BillingService {
 
     /** Checks BOSS capability/price and reserves against the BOSS wallet. */
     @Transactional
-    public ReservationView reserve(UUID userId, UUID companyId, String businessReference, long amountMicro) {
+    public ReservationView reserve(UUID userId, UUID tenantId, String businessReference, long amountMicro) {
         String reference = requiredReference(businessReference);
         if (amountMicro < 0) throw new ApiException("INVALID_AMOUNT", "冻结金额不能小于0", HttpStatus.BAD_REQUEST);
         String capability = capabilityFor(reference);
-        if (!boss.quotaCheck(companyId, capabilityFor(reference))) {
+        if (!boss.quotaCheck(tenantId, capabilityFor(reference))) {
             throw new ApiException("CAPABILITY_NOT_ENABLED", "BOSS 未开通该 AI 能力", HttpStatus.UNPROCESSABLE_ENTITY);
         }
-        long unitPriceMicro = quoteUnitPrice(companyId, capability);
+        long unitPriceMicro = quoteUnitPrice(tenantId, capability);
         long requestedUnits = unitPriceMicro <= 0 ? 1 : Math.max(1, divideCeil(amountMicro, unitPriceMicro));
-        boss.reserve(companyId, capability, reference, requestedUnits, amountMicro);
-        return reservation(companyId, reference, "RESERVED", amountMicro, 0);
+        boss.reserve(tenantId, capability, reference, requestedUnits, amountMicro);
+        return reservation(tenantId, reference, "RESERVED", amountMicro, 0);
     }
 
-    public ReservationView settle(UUID userId, UUID companyId, String businessReference, long actualAmountMinor) {
-        return settleSystem(companyId, businessReference, actualAmountMinor);
+    public ReservationView settle(UUID userId, UUID tenantId, String businessReference, long actualAmountMinor) {
+        return settleSystem(tenantId, businessReference, actualAmountMinor);
     }
 
     /** Worker completion path; only BOSS machine credentials are used. */
-    public ReservationView settleSystem(UUID companyId, String businessReference, long actualAmountMinor) {
-        return settleSystemWithUnits(companyId, businessReference, actualAmountMinor, actualAmountMinor > 0 ? 1 : 0);
+    public ReservationView settleSystem(UUID tenantId, String businessReference, long actualAmountMinor) {
+        return settleSystemWithUnits(tenantId, businessReference, actualAmountMinor, actualAmountMinor > 0 ? 1 : 0);
     }
 
-    public ReservationView settleSystemWithUnits(UUID companyId, String businessReference,
+    public ReservationView settleSystemWithUnits(UUID tenantId, String businessReference,
                                                   long actualAmountMinor, long successfulUnits) {
         String reference = requiredReference(businessReference);
         if (actualAmountMinor < 0 || successfulUnits < 0) {
             throw new ApiException("INVALID_AMOUNT", "结算金额不能小于0", HttpStatus.BAD_REQUEST);
         }
         Instant occurredAt = usageStore.timestamp(reference);
-        boss.reportUsage(reference, reference, companyId, capabilityFor(reference),
+        boss.reportUsage(reference, reference, tenantId, capabilityFor(reference),
                 successfulUnits > 0 ? "SUCCEEDED" : "FAILED", successfulUnits, 0, 0, occurredAt);
-        return reservation(companyId, reference, successfulUnits > 0 ? "SETTLED" : "RELEASED",
+        return reservation(tenantId, reference, successfulUnits > 0 ? "SETTLED" : "RELEASED",
                 actualAmountMinor, actualAmountMinor);
     }
 
-    public long quoteUnitPrice(UUID companyId, String capability) {
-        long price = boss.quoteUnitPrice(companyId, capability);
+    public long quoteUnitPrice(UUID tenantId, String capability) {
+        long price = boss.quoteUnitPrice(tenantId, capability);
         if (price < 0) throw new ApiException("ACTIVE_PRICE_NOT_FOUND", "BOSS 未配置生效价格", HttpStatus.UNPROCESSABLE_ENTITY);
         return price;
     }
 
-    private static ReservationView reservation(UUID companyId, String reference, String status,
+    private static ReservationView reservation(UUID tenantId, String reference, String status,
                                                long reserved, long settled) {
-        UUID id = UUID.nameUUIDFromBytes(("boss:" + companyId + ":" + reference).getBytes(StandardCharsets.UTF_8));
+        UUID id = UUID.nameUUIDFromBytes(("boss:" + tenantId + ":" + reference).getBytes(StandardCharsets.UTF_8));
         return new ReservationView(id, status, reserved, settled, Math.max(0, reserved - settled));
     }
 

@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/companies/{companyId}")
+@RequestMapping("/api/v1/tenants/{tenantId}")
 public class ScreeningController {
 
     private final ScreeningService screening;
@@ -19,77 +19,77 @@ public class ScreeningController {
     }
 
     @PostMapping("/screening-plans")
-    ScreeningService.ScreeningPlanView createPlan(@PathVariable UUID companyId,
+    ScreeningService.ScreeningPlanView createPlan(@PathVariable UUID tenantId,
                                                    @RequestBody ScreeningService.PlanInput input,
                                                    Authentication authentication) {
-        return screening.createPlan(CurrentUser.id(authentication), companyId, input);
+        return screening.createPlan(CurrentUser.id(authentication), tenantId, input);
     }
 
     @PutMapping("/screening-plans/{planId}")
-    ScreeningService.ScreeningPlanView updatePlan(@PathVariable UUID companyId, @PathVariable UUID planId,
+    ScreeningService.ScreeningPlanView updatePlan(@PathVariable UUID tenantId, @PathVariable UUID planId,
                                                    @RequestBody ScreeningService.PlanUpdateInput input,
                                                    Authentication authentication) {
-        return screening.updatePlan(CurrentUser.id(authentication), companyId, planId, input);
+        return screening.updatePlan(CurrentUser.id(authentication), tenantId, planId, input);
     }
 
     @GetMapping("/screening-plans")
-    List<ScreeningService.ScreeningPlanView> plans(@PathVariable UUID companyId,
+    List<ScreeningService.ScreeningPlanView> plans(@PathVariable UUID tenantId,
                                                     @RequestParam(required = false) UUID recruitmentTaskId,
                                                     Authentication authentication) {
-        return screening.listPlans(CurrentUser.id(authentication), companyId, recruitmentTaskId);
+        return screening.listPlans(CurrentUser.id(authentication), tenantId, recruitmentTaskId);
     }
 
     @PostMapping("/screening-quotes")
-    ScreeningService.ScreeningQuoteView quote(@PathVariable UUID companyId,
+    ScreeningService.ScreeningQuoteView quote(@PathVariable UUID tenantId,
                                                @RequestBody ScreeningService.QuoteInput input,
                                                Authentication authentication) {
-        return screening.quote(CurrentUser.id(authentication), companyId, input);
+        return screening.quote(CurrentUser.id(authentication), tenantId, input);
     }
 
     @GetMapping("/screening-pricing")
-    ScreeningService.ScreeningPricingView pricing(@PathVariable UUID companyId, Authentication authentication) {
-        return screening.pricing(CurrentUser.id(authentication), companyId);
+    ScreeningService.ScreeningPricingView pricing(@PathVariable UUID tenantId, Authentication authentication) {
+        return screening.pricing(CurrentUser.id(authentication), tenantId);
     }
 
     @PostMapping("/screening-runs")
-    ScreeningService.ScreeningRunDetail run(@PathVariable UUID companyId,
+    ScreeningService.ScreeningRunDetail run(@PathVariable UUID tenantId,
                                              @RequestHeader("Idempotency-Key") String idempotencyKey,
                                              @RequestBody ScreeningService.RunInput input,
                                              Authentication authentication) {
-        return screening.run(CurrentUser.id(authentication), companyId, idempotencyKey, input);
+        return screening.run(CurrentUser.id(authentication), tenantId, idempotencyKey, input);
     }
 
     @GetMapping("/screening-runs")
-    List<ScreeningService.ScreeningRunSummary> runs(@PathVariable UUID companyId,
+    List<ScreeningService.ScreeningRunSummary> runs(@PathVariable UUID tenantId,
                                                      @RequestParam(required = false) UUID recruitmentTaskId,
                                                      Authentication authentication) {
-        return screening.listRuns(CurrentUser.id(authentication), companyId, recruitmentTaskId);
+        return screening.listRuns(CurrentUser.id(authentication), tenantId, recruitmentTaskId);
     }
 
     @GetMapping("/screening-runs/{runId}")
-    ScreeningService.ScreeningRunDetail get(@PathVariable UUID companyId, @PathVariable UUID runId,
+    ScreeningService.ScreeningRunDetail get(@PathVariable UUID tenantId, @PathVariable UUID runId,
                                              Authentication authentication) {
-        return screening.getRun(CurrentUser.id(authentication), companyId, runId);
+        return screening.getRun(CurrentUser.id(authentication), tenantId, runId);
     }
 
     @PostMapping("/screening-runs/{runId}/retry-quote")
-    ScreeningService.ScreeningQuoteView retryQuote(@PathVariable UUID companyId, @PathVariable UUID runId,
+    ScreeningService.ScreeningQuoteView retryQuote(@PathVariable UUID tenantId, @PathVariable UUID runId,
                                                     Authentication authentication) {
-        return screening.retryQuote(CurrentUser.id(authentication), companyId, runId);
+        return screening.retryQuote(CurrentUser.id(authentication), tenantId, runId);
     }
 
     @PostMapping("/screening-runs/{runId}/retry-failed")
-    ScreeningService.ScreeningRunDetail retry(@PathVariable UUID companyId, @PathVariable UUID runId,
+    ScreeningService.ScreeningRunDetail retry(@PathVariable UUID tenantId, @PathVariable UUID runId,
                                                @RequestHeader("Idempotency-Key") String idempotencyKey,
                                                @RequestBody ScreeningService.RetryInput input,
                                                Authentication authentication) {
-        return screening.retryFailed(CurrentUser.id(authentication), companyId, runId, idempotencyKey, input);
+        return screening.retryFailed(CurrentUser.id(authentication), tenantId, runId, idempotencyKey, input);
     }
 
     @PostMapping("/screening-runs/{runId}/cancel")
-    ScreeningService.ScreeningRunDetail cancel(@PathVariable UUID companyId, @PathVariable UUID runId,
+    ScreeningService.ScreeningRunDetail cancel(@PathVariable UUID tenantId, @PathVariable UUID runId,
                                                 @RequestHeader("Idempotency-Key") String idempotencyKey,
                                                 Authentication authentication) {
-        return screening.cancel(CurrentUser.id(authentication), companyId, runId, idempotencyKey);
+        return screening.cancel(CurrentUser.id(authentication), tenantId, runId, idempotencyKey);
     }
 }

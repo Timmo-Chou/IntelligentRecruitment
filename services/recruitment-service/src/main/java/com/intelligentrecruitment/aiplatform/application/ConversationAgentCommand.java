@@ -6,7 +6,7 @@ import java.util.Map;
 /** Bounded, task-scoped conversation context. The business service remains the source of truth. */
 public record ConversationAgentCommand(
         String workspaceId,
-        String companyId,
+        String tenantId,
         String actorId,
         String businessTaskId,
         List<Map<String, String>> messages,

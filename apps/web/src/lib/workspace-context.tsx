@@ -6,14 +6,13 @@ import { apiFetch, ApiError } from "@/lib/api-client";
 
 export type Workspace = {
   id: string;
-  companyId: string | null;
-  type: "PERSONAL" | "COMPANY";
+  productDomain: "RECRUITMENT";
+  type: "PERSONAL" | "ENTERPRISE";
   name: string;
-  ownerUserId: string;
   status: string;
-  memberCount: number;
-  hasDataAccess: boolean;
-  currentRole: string | null;
+  roleCode: string | null;
+  owner: boolean;
+  seatAssigned: boolean;
 };
 
 type WorkspaceContextValue = {
@@ -27,106 +26,41 @@ type WorkspaceContextValue = {
   selectWorkspace: (workspaceId: string) => void;
 };
 
-const WorkspaceContext = createContext<WorkspaceContextValue>({
-  workspaceId: null,
-  workspace: null,
-  workspaces: [],
-  loading: true,
-  error: null,
-  notAuthenticated: false,
-  refresh: async () => {},
-  selectWorkspace: () => {},
-});
+const WorkspaceContext = createContext<WorkspaceContextValue>({ workspaceId: null, workspace: null, workspaces: [], loading: true, error: null, notAuthenticated: false, refresh: async () => {}, selectWorkspace: () => {} });
+export function useWorkspace() { return useContext(WorkspaceContext); }
 
-export function useWorkspace() {
-  return useContext(WorkspaceContext);
-}
+type TenantContextResponse = { tenantId: string; productDomain: string; tenantType: "PERSONAL" | "ENTERPRISE"; tenantName: string; tenantStatus: string; roleCode?: string | null; owner: boolean; seatAssigned: boolean };
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
-  const [state, setState] = useState<WorkspaceContextValue>({
-    workspaceId: null,
-    workspace: null,
-    workspaces: [],
-    loading: true,
-    error: null,
-    notAuthenticated: false,
-    refresh: async () => {},
-    selectWorkspace: () => {},
-  });
+  const [state, setState] = useState<Omit<WorkspaceContextValue, "refresh" | "selectWorkspace">>({ workspaceId: null, workspace: null, workspaces: [], loading: true, error: null, notAuthenticated: false });
 
-  const loadWorkspaces = useCallback(async () => {
-    setState((prev) => ({ ...prev, loading: true, error: null, notAuthenticated: false }));
+  const refresh = useCallback(async () => {
+    setState(previous => ({ ...previous, loading: true, error: null, notAuthenticated: false }));
     try {
-      // 先验证认证状态，再请求企业列表（BOSS 原生，不再有 workspace 概念）
-      await apiFetch<unknown>("/me");
-      const companies = await apiFetch<Array<{ id: string; displayName: string; legalName: string; verificationStatus: string; role: string }>>("/companies");
-      // 将 BOSS Company 映射为前端 Workspace 类型，保持内部状态结构不变
-      const spaces: Workspace[] = companies.map((c) => ({
-        id: c.id,
-        companyId: c.id,
-        type: "COMPANY",
-        name: c.displayName || c.legalName,
-        ownerUserId: "",
-        status: c.verificationStatus,
-        memberCount: 0,
-        hasDataAccess: true,
-        currentRole: c.role,
+      const response = await apiFetch<{ tenants: TenantContextResponse[] }>("/tenants/contexts");
+      const workspaces = response.tenants.filter(item => item.productDomain === "RECRUITMENT").map(item => ({
+        id: item.tenantId, productDomain: "RECRUITMENT" as const, type: item.tenantType, name: item.tenantName,
+        status: item.tenantStatus, roleCode: item.roleCode ?? null, owner: item.owner, seatAssigned: item.seatAssigned,
       }));
-      const savedId = window.localStorage.getItem("active-workspace-id");
-      const accessible = spaces.filter((item) => item.hasDataAccess);
-      // 优先匹配已保存的空间（含无数据权限的空间），其次是有数据权限的空间，最后退到任意空间，
-      // 确保企业用户即使只有「无数据权限」空间时，顶部切换器仍能正常展示
-      const selected = spaces.find((item) => item.id === savedId) ?? accessible[0] ?? spaces[0] ?? null;
-      if (selected) window.localStorage.setItem("active-workspace-id", selected.id);
-      setState((prev) => ({
-        ...prev,
-        workspaceId: selected?.id ?? null,
-        workspace: selected,
-        workspaces: spaces,
-        loading: false,
-        error: null,
-        notAuthenticated: false,
-        refresh: prev.refresh,
-      }));
+      const savedId = window.localStorage.getItem("active-tenant-id");
+      const selected = workspaces.find(item => item.id === savedId) ?? workspaces.find(item => item.type === "PERSONAL") ?? workspaces[0] ?? null;
+      if (selected) window.localStorage.setItem("active-tenant-id", selected.id);
+      setState({ workspaceId: selected?.id ?? null, workspace: selected, workspaces, loading: false, error: null, notAuthenticated: false });
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        setState((prev) => ({ ...prev, loading: false, notAuthenticated: true, refresh: prev.refresh }));
-      } else {
-        setState((prev) => ({
-          ...prev,
-          loading: false,
-          error: error instanceof Error ? error.message : "加载工作空间失败",
-          refresh: prev.refresh,
-        }));
-      }
+      if (error instanceof ApiError && error.status === 401) setState(previous => ({ ...previous, loading: false, notAuthenticated: true }));
+      else setState(previous => ({ ...previous, loading: false, error: error instanceof Error ? error.message : "加载租户失败" }));
     }
   }, []);
-
-  useEffect(() => {
-    loadWorkspaces();
-  }, [loadWorkspaces]);
-
+  useEffect(() => { void refresh(); }, [refresh]);
   const selectWorkspace = useCallback((workspaceId: string) => {
-    setState((previous) => {
-      const selected = previous.workspaces.find((item) => item.id === workspaceId);
-      if (!selected) return previous;
-      window.localStorage.setItem("active-workspace-id", selected.id);
+    setState(previous => {
+      const workspace = previous.workspaces.find(item => item.id === workspaceId);
+      if (!workspace) return previous;
+      window.localStorage.setItem("active-tenant-id", workspace.id);
       queryClient.clear();
-      return { ...previous, workspaceId: selected.id, workspace: selected };
+      return { ...previous, workspaceId: workspace.id, workspace };
     });
   }, [queryClient]);
-
-  // 将 refresh 方法绑定到 state 中，对外暴露重试能力
-  const value: WorkspaceContextValue = {
-    ...state,
-    refresh: loadWorkspaces,
-    selectWorkspace,
-  };
-
-  return (
-    <WorkspaceContext.Provider value={value}>
-      {children}
-    </WorkspaceContext.Provider>
-  );
+  return <WorkspaceContext.Provider value={{ ...state, refresh, selectWorkspace }}>{children}</WorkspaceContext.Provider>;
 }

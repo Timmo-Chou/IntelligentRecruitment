@@ -29,7 +29,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/companies/{companyId}/recruitment-tasks")
+@RequestMapping("/api/v1/tenants/{tenantId}/recruitment-tasks")
 public class RecruitmentController {
 
     private final RecruitmentService recruitment;
@@ -39,74 +39,74 @@ public class RecruitmentController {
     }
 
     @PostMapping
-    RecruitmentService.TaskDetail create(@PathVariable UUID companyId,
+    RecruitmentService.TaskDetail create(@PathVariable UUID tenantId,
                                          @RequestHeader("Idempotency-Key") String idempotencyKey,
                                          @RequestBody RecruitmentService.CreateTaskInput input,
                                          Authentication authentication) {
-        return recruitment.createTask(CurrentUser.id(authentication), companyId, idempotencyKey, input);
+        return recruitment.createTask(CurrentUser.id(authentication), tenantId, idempotencyKey, input);
     }
 
     @GetMapping
-    List<RecruitmentService.TaskSummary> list(@PathVariable UUID companyId, Authentication authentication) {
-        return recruitment.listTasks(CurrentUser.id(authentication), companyId);
+    List<RecruitmentService.TaskSummary> list(@PathVariable UUID tenantId, Authentication authentication) {
+        return recruitment.listTasks(CurrentUser.id(authentication), tenantId);
     }
 
     @GetMapping("/{taskId}")
-    RecruitmentService.TaskDetail get(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    RecruitmentService.TaskDetail get(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                       Authentication authentication) {
-        return recruitment.getTask(CurrentUser.id(authentication), companyId, taskId);
+        return recruitment.getTask(CurrentUser.id(authentication), tenantId, taskId);
     }
 
     @PutMapping("/{taskId}")
-    RecruitmentService.TaskSummary rename(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    RecruitmentService.TaskSummary rename(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                           @RequestBody RecruitmentService.RenameTaskInput input,
                                           Authentication authentication) {
-        return recruitment.renameTask(CurrentUser.id(authentication), companyId, taskId, input);
+        return recruitment.renameTask(CurrentUser.id(authentication), tenantId, taskId, input);
     }
 
     @DeleteMapping("/{taskId}")
-    void delete(@PathVariable UUID companyId, @PathVariable UUID taskId, Authentication authentication) {
-        recruitment.deleteTask(CurrentUser.id(authentication), companyId, taskId);
+    void delete(@PathVariable UUID tenantId, @PathVariable UUID taskId, Authentication authentication) {
+        recruitment.deleteTask(CurrentUser.id(authentication), tenantId, taskId);
     }
 
     @PostMapping("/{taskId}/messages")
-    RecruitmentService.TaskDetail message(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    RecruitmentService.TaskDetail message(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                           @RequestBody RecruitmentService.MessageInput input,
                                           Authentication authentication) {
-        return recruitment.addMessage(CurrentUser.id(authentication), companyId, taskId, input);
+        return recruitment.addMessage(CurrentUser.id(authentication), tenantId, taskId, input);
     }
 
     @PostMapping("/{taskId}/agent-routes")
-    RouteDecision route(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    RouteDecision route(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                         @RequestBody RecruitmentService.RouteMessageInput input,
                         Authentication authentication) {
-        return recruitment.routeMessage(CurrentUser.id(authentication), companyId, taskId, input);
+        return recruitment.routeMessage(CurrentUser.id(authentication), tenantId, taskId, input);
     }
 
     @PostMapping(value = "/{taskId}/jd-source-files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    RecruitmentService.SourceFileView uploadJdSourceFile(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    RecruitmentService.SourceFileView uploadJdSourceFile(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                                          @RequestPart("file") MultipartFile file,
                                                          Authentication authentication) {
-        return recruitment.uploadJdSourceFile(CurrentUser.id(authentication), companyId, taskId, file);
+        return recruitment.uploadJdSourceFile(CurrentUser.id(authentication), tenantId, taskId, file);
     }
 
     @PostMapping(value = "/{taskId}/resume-source-files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    RecruitmentService.SourceFileView uploadResumeSourceFile(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    RecruitmentService.SourceFileView uploadResumeSourceFile(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                                              @RequestPart("file") MultipartFile file,
                                                              Authentication authentication) {
-        return recruitment.uploadResumeSourceFile(CurrentUser.id(authentication), companyId, taskId, file);
+        return recruitment.uploadResumeSourceFile(CurrentUser.id(authentication), tenantId, taskId, file);
     }
 
     @PostMapping("/{taskId}/jd-runs")
-    RecruitmentService.TaskDetail generate(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    RecruitmentService.TaskDetail generate(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                            @RequestHeader("Idempotency-Key") String idempotencyKey,
                                            @RequestBody RecruitmentService.GenerateJdInput input,
                                            Authentication authentication) {
-        return recruitment.generateJd(CurrentUser.id(authentication), companyId, taskId, idempotencyKey, input);
+        return recruitment.generateJd(CurrentUser.id(authentication), tenantId, taskId, idempotencyKey, input);
     }
 
     @GetMapping(value = "/{taskId}/jd-runs/events", produces = "text/event-stream")
-    StreamingResponseBody events(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    StreamingResponseBody events(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                  @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
                                  Authentication authentication, HttpServletResponse response) {
         UUID userId = CurrentUser.id(authentication);
@@ -117,7 +117,7 @@ public class RecruitmentController {
             long cursor = initialCursor;
             long deadline = System.currentTimeMillis() + 55_000;
             while (System.currentTimeMillis() < deadline) {
-                List<RecruitmentService.RunEvent> batch = recruitment.runEvents(userId, companyId, taskId, cursor);
+                List<RecruitmentService.RunEvent> batch = recruitment.runEvents(userId, tenantId, taskId, cursor);
                 if (batch.isEmpty()) {
                     output.write(": keep-alive\n\n".getBytes(StandardCharsets.UTF_8));
                     output.flush();
@@ -138,17 +138,17 @@ public class RecruitmentController {
     }
 
     @PutMapping("/{taskId}/jd-draft")
-    RecruitmentService.TaskDetail updateDraft(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    RecruitmentService.TaskDetail updateDraft(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                               @RequestBody RecruitmentService.UpdateDraftInput input,
                                               Authentication authentication) {
-        return recruitment.updateDraft(CurrentUser.id(authentication), companyId, taskId, input);
+        return recruitment.updateDraft(CurrentUser.id(authentication), tenantId, taskId, input);
     }
 
     @PutMapping("/{taskId}/resume-parse-draft")
-    RecruitmentService.TaskDetail updateResumeParseDraft(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    RecruitmentService.TaskDetail updateResumeParseDraft(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                                          @RequestBody RecruitmentService.UpdateResumeParseDraftInput input,
                                                          Authentication authentication) {
-        return recruitment.updateResumeParseDraft(CurrentUser.id(authentication), companyId, taskId, input);
+        return recruitment.updateResumeParseDraft(CurrentUser.id(authentication), tenantId, taskId, input);
     }
 
     /**
@@ -156,9 +156,9 @@ public class RecruitmentController {
      * 幂等：已发布或任务本就关联人才库候选人时，仅把草稿置为 CONFIRMED。
      */
     @PostMapping("/{taskId}/resume-parse-draft/confirm")
-    RecruitmentService.TaskDetail confirmResumeParseDraft(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    RecruitmentService.TaskDetail confirmResumeParseDraft(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                                           Authentication authentication) {
-        return recruitment.confirmResumeParse(CurrentUser.id(authentication), companyId, taskId);
+        return recruitment.confirmResumeParse(CurrentUser.id(authentication), tenantId, taskId);
     }
 
     /**
@@ -166,11 +166,11 @@ public class RecruitmentController {
      * 解析完成后结果自动写入 resume_parse_drafts 新 revision。
      */
     @PostMapping("/{taskId}/resume-parse-runs")
-    RecruitmentService.TaskDetail generateResumeParse(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    RecruitmentService.TaskDetail generateResumeParse(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                                       @RequestHeader("Idempotency-Key") String idempotencyKey,
                                                       @RequestBody(required = false) RecruitmentService.GenerateResumeParseInput input,
                                                       Authentication authentication) {
-        return recruitment.generateResumeParse(CurrentUser.id(authentication), companyId, taskId, idempotencyKey, input);
+        return recruitment.generateResumeParse(CurrentUser.id(authentication), tenantId, taskId, idempotencyKey, input);
     }
 
     /**
@@ -178,11 +178,11 @@ public class RecruitmentController {
      * 并在右侧 AI 助手以消息形式返回题包摘要，与 JD 生成体验一致。
      */
     @PostMapping("/{taskId}/interview-kit-runs")
-    RecruitmentService.TaskDetail generateInterviewKit(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    RecruitmentService.TaskDetail generateInterviewKit(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                                         @RequestHeader("Idempotency-Key") String idempotencyKey,
                                                         @RequestBody(required = false) RecruitmentService.GenerateInterviewKitInput input,
                                                         Authentication authentication) {
-        return recruitment.generateInterviewKit(CurrentUser.id(authentication), companyId, taskId, idempotencyKey, input);
+        return recruitment.generateInterviewKit(CurrentUser.id(authentication), tenantId, taskId, idempotencyKey, input);
     }
 
     /**
@@ -190,11 +190,11 @@ public class RecruitmentController {
      * 前端直接 window.open(url) 即可在新标签页预览 PDF/DOCX/TXT。
      */
     @GetMapping("/{taskId}/resume-source-files/{sourceFileId}/download")
-    Map<String, Object> getResumeSourceFileDownload(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    Map<String, Object> getResumeSourceFileDownload(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                                     @PathVariable UUID sourceFileId,
                                                     Authentication authentication) {
         UUID userId = CurrentUser.id(authentication);
-        String url = recruitment.downloadResumeSourceFileUrl(userId, companyId, sourceFileId);
+        String url = recruitment.downloadResumeSourceFileUrl(userId, tenantId, sourceFileId);
         long expiresMinutes = 10L;
         return Map.of(
                 "url", url == null ? "" : url,
@@ -204,10 +204,10 @@ public class RecruitmentController {
     }
 
     @PostMapping("/{taskId}/jd-draft/confirm")
-    JobService.JobView confirm(@PathVariable UUID companyId, @PathVariable UUID taskId,
+    JobService.JobView confirm(@PathVariable UUID tenantId, @PathVariable UUID taskId,
                                @RequestParam UUID draftId,
                                Authentication authentication) {
-        return recruitment.confirmDraft(CurrentUser.id(authentication), companyId, taskId, draftId);
+        return recruitment.confirmDraft(CurrentUser.id(authentication), tenantId, taskId, draftId);
     }
 
     private static long parseCursor(String value) {

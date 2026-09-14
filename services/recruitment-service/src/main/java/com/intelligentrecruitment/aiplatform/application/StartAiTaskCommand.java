@@ -6,7 +6,7 @@ import java.util.Map;
 
 public record StartAiTaskCommand(
         String workspaceId,
-        String companyId,
+        String tenantId,
         String actorId,
         String businessTaskId,
         String idempotencyKey,

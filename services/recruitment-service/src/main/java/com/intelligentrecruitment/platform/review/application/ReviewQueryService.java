@@ -301,7 +301,7 @@ public class ReviewQueryService {
     public record CompanyVerificationRow(
             UUID id,
             UUID applicantUserId,
-            UUID companyId,
+            UUID tenantId,
             String requestType,
             String legalName,
             String displayName,
@@ -324,7 +324,7 @@ public class ReviewQueryService {
      */
     public record MembershipApplicationRow(
             UUID id,
-            UUID companyId,
+            UUID tenantId,
             UUID applicantUserId,
             String evidence,
             String status,

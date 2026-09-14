@@ -6,7 +6,7 @@ import com.intelligentrecruitment.recruitment.infrastructure.JdSourceObjectStora
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
 import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.WorkspaceScope;
+import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.TenantScope;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
@@ -44,7 +44,7 @@ public class JdSourceFileService {
 
     @Transactional
     public SourceFileView upload(UUID userId, UUID workspaceId, UUID taskId, MultipartFile file) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         requireTask(workspaceId, taskId);
         byte[] bytes = read(file);
         String filename = safeFilename(file.getOriginalFilename());
@@ -60,7 +60,7 @@ public class JdSourceFileService {
                     (id,company_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
                     VALUES (?,?,?,?,?,?,?,?,'PENDING','ACTIVE',?,?)
-                    """, assetId, scope.companyId(), workspaceId, objectKey, pii.encrypt(filename), mediaType, bytes.length, hash,
+                    """, assetId, scope.tenantId(), workspaceId, objectKey, pii.encrypt(filename), mediaType, bytes.length, hash,
                     userId, timestamp(Instant.now()));
         }
         UUID sourceId = UUID.randomUUID();
@@ -72,7 +72,7 @@ public class JdSourceFileService {
                 (id,company_id,workspace_id,recruitment_task_id,file_asset_id,extracted_text,created_by,created_at)
                 VALUES (?,?,?,?,?,?,?,?)
                 ON CONFLICT (recruitment_task_id,file_asset_id) DO NOTHING
-                """, sourceId, scope.companyId(), workspaceId, taskId, resolvedAssetId, pii.encrypt(extracted), userId, timestamp(now));
+                """, sourceId, scope.tenantId(), workspaceId, taskId, resolvedAssetId, pii.encrypt(extracted), userId, timestamp(now));
         List<SourceFileView> files = list(workspaceId, taskId);
         return files.stream().filter(item -> item.fileAssetId().equals(resolvedAssetId)).findFirst().orElseThrow();
     }

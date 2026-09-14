@@ -55,13 +55,13 @@ public class HttpAiPlatformClient implements AiPlatformClient {
                 || !execution.policyDecision().allowsExecution()) {
             throw new IllegalStateException("调用 AIAgentPlatform 前必须完成 BOSS PolicyDecision=allow");
         }
-        if (execution.companyId() == null || execution.actorId() == null) {
+        if (execution.tenantId() == null || execution.actorId() == null) {
             throw new IllegalStateException("AIAgentPlatform ExecutionContext 必须包含 company_id 与 actor_id");
         }
         Map<String, Object> context = Map.of(
                 "request_id", execution.requestId(),
                 "trace_id", execution.traceId(),
-                "company_id", execution.companyId(),
+                "company_id", execution.tenantId(),
                 "actor_id", execution.actorId(),
                 "business_task_id", execution.businessTaskId(),
                 "idempotency_key", execution.idempotencyKey(),
@@ -156,12 +156,12 @@ public class HttpAiPlatformClient implements AiPlatformClient {
 
     @Override
     public RouteDecision routeMessage(RouteAgentCommand command) {
-        if (command.companyId() == null || command.actorId() == null) {
+        if (command.tenantId() == null || command.actorId() == null) {
             throw new IllegalStateException("agent-routes 必须提供 BOSS company_id 与 actor_id");
         }
         Map<String, Object> body = Map.of(
                 "context", Map.of("request_id", command.requestId(), "trace_id", command.traceId(),
-                        "company_id", command.companyId(), "actor_id", command.actorId(),
+                        "company_id", command.tenantId(), "actor_id", command.actorId(),
                         "business_task_id", command.businessTaskId(), "locale", "zh-CN",
                         "timezone", "Asia/Shanghai", "contract_version", "v1"),
                 "message", command.message(),

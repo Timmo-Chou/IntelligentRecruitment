@@ -1,15 +1,25 @@
 # Recruitment SaaS 对接 BOSS 实施契约
 
-版本：v1.1（2026-09-07）
-状态：代码对接基线已落地；部署凭证、BOSS 能力/价格配置和端到端联调仍是上线前置条件。
+版本：v2.0（2026-09-15）
+状态：开发环境实现基线；Recruitment 企业 Tenant 直接对应企业，不存在 Company 中间层。
 
 ## 1. 目标与边界
 
-Recruitment SaaS（IntelligentRecruitment）保持独立的业务系统、后端和数据库；BOSS 是统一的身份、组织、权限、能力授权与计量控制面。
+Recruitment SaaS（IntelligentRecruitment）保持独立的业务系统、后端和数据库；BOSS 是统一的身份、租户、成员席位、权限、套餐、积分、能力授权与计量控制面。
 
-本次对接目标是让 Recruitment SaaS 以 BOSS 的用户、租户和公司为准入依据，并将需计费的 AI 使用量可靠回传至 BOSS。招聘业务对象仍归 Recruitment SaaS 所有：职位、候选人、简历原文及解析结果、面试、招聘任务、JD 草稿、聊天内容和 AI 执行明细。
+本次对接目标是让 Recruitment SaaS 以 BOSS 的用户和产品租户为准入依据，并将需计费的 AI 使用量可靠回传至 BOSS。招聘业务对象仍归 Recruitment SaaS 所有：职位、候选人、简历原文及解析结果、面试、招聘任务、JD 草稿、聊天内容和 AI 执行明细。
 
 不在本次范围：把招聘业务数据迁入 BOSS、让浏览器持有 BOSS 服务端密钥、或继续以 Recruitment SaaS 自有 Workspace 作为跨系统授权边界。
+
+### 当前确认的业务约束
+
+- 招聘产品中一个企业就是一个 `ENTERPRISE` Tenant；个人使用是一个用户对应一个 `PERSONAL` Tenant。用户可以加入多个企业 Tenant。
+- 企业 Owner 唯一且默认不占席位；成员加入企业即自动占用席位。Owner 需要使用招聘功能时，在企业成员管理中为自己开通一个已购买席位。
+- 套餐、套餐内积分、单购积分包、账单和使用量均挂在 Tenant；积分按所有席位共享，按用户记录消耗，采用 FEFO。
+- 已生效套餐保存权益快照；新套餐规则只影响新 Trial、新合同和新积分包，平台可对既有 Tenant 增加或关闭权益覆盖。
+- 企业数据池是成员数据的只读副本；成员只能修改自己的源数据，修改后自动同步副本。共享关闭后企业池和同步入口对所有人不可见。
+- 企业注册、Trial 发放、合同订单、套餐开通和积分调整均由 BOSS 控制面完成；企业首次购买/续费走合同与运营开通，个人线上支付独立处理。
+- 开发环境没有历史数据，不执行 `Company`、旧套餐、旧余额或旧订单迁移，直接使用新的数据库基线。
 
 ## 2. 目标架构
 
@@ -29,7 +39,7 @@ Recruitment SaaS Backend（BFF + 业务服务）
 
 - 浏览器只调用 Recruitment SaaS；不得直接调用 BOSS Internal OpenAPI，也不得获得 `client_secret`。
 - Recruitment BFF 保存和刷新 BOSS 的机器访问令牌；令牌、密钥和 Authorization 请求头不得写入日志、前端、监控标签或错误消息。
-- BOSS 是身份、公司状态、租户状态、成员权限、能力和商业授权的最终来源；Recruitment SaaS 仅保存可重建的本地投影和业务侧索引。
+- BOSS 是身份、租户状态、成员席位、权限、能力和商业授权的最终来源；Recruitment SaaS 仅保存可重建的本地投影和业务侧索引。
 - BOSS 对活跃成员自动授予只读基础访问权限；需要成员管理、资料写入等管理能力时，仍通过 BOSS 自定义角色授权。
 - Recruitment SaaS 自己负责业务对象级的数据隔离，并在每次受保护的操作前向 BOSS 取得授权结论或使用其短时缓存。
 
@@ -40,9 +50,9 @@ Recruitment SaaS Backend（BFF + 业务服务）
 | 编号 | BOSS 契约/配置项 | 当前处理 | 原因 |
 | --- | --- | --- |
 | B-01 | 登录/刷新响应包含 `user_id`；`GET /api/v1/me` 返回当前 BOSS 用户。 | 已由 BOSS 实现；接入方必须使用。 | Recruitment 无法仅凭 opaque access token 建立用户映射。 |
-| B-02 | `GET /api/v1/me/contexts` 返回当前用户可用的 Tenant/Company、状态和 Company Owner 标识。 | 已由 BOSS 实现；接入方必须使用。 | 请求必须确定 BOSS 上下文，且不能猜测公司归属。 |
-| B-03 | `GET /internal/v1/companies/{companyId}/context` 返回已授权 Company 的 Tenant/Company 状态快照。 | 已由 BOSS 实现；用于对账和事件恢复。 | 事件采用至少一次投递，消费方需要从丢失或失败事件恢复。 |
-| B-04 | 已配置 `INTERNAL_SERVICE` API Client、有效 Contract、Client 与 Contract 的 Tenant scope、能力授权和价格/额度。 | 上线前由 BOSS 平台配置并在沙箱验证。 | 否则 OAuth、授权、配额或 usage-events 会被拒绝。 |
+| B-02 | `GET /api/v1/me/contexts` 返回当前用户可用的 Recruitment Tenant、状态、角色、Owner 和席位标识。 | 已由 BOSS 实现；接入方必须使用。 | 请求必须确定 BOSS 上下文，且不能猜测企业归属。 |
+| B-03 | `GET /internal/v1/tenants/{tenantId}/context` 返回已授权 Tenant 状态快照。 | 由 BOSS 内部契约提供。 | 事件采用至少一次投递，消费方需要从丢失或失败事件恢复。 |
+| B-04 | 已配置服务间调用凭证、有效套餐/积分规则、Tenant 权益和 AI 能力授权。 | 上线前由 BOSS 平台配置并在沙箱验证。 | 否则授权、配额或 usage-events 会被拒绝。 |
 | B-05 | 已配置 Outbox Relay 的 Recruitment 回调 URL 与事件 Bearer token。 | 上线前由双方配置、连通并演练。 | 未配置目标 URL 时，BOSS 会保留 PENDING 事件，不会自动送达。 |
 
 在 B-04、B-05 完成实际环境配置与联调前，不得将 BOSS 身份作为生产唯一登录来源。
@@ -59,12 +69,15 @@ Recruitment SaaS Backend（BFF + 业务服务）
 
 ### 4.1 标识规则
 
-- BOSS UUID 是跨系统主标识：`boss_user_id`、`tenant_id`、`company_id`。
-- 初次迁移可在人工核验后按手机号辅助匹配；迁移完成后绝不以手机号、邮箱或姓名作为 API 关联键，也不自动合并账号。
+- BOSS UUID 是跨系统主标识：`boss_user_id`、`tenant_id`。
+- 招聘业务请求只允许传递 BOSS `tenant_id` 与 `user_id`；不得创建、猜测或拼接 `company_id`。
+- 本开发环境没有历史数据，不执行按手机号的迁移匹配，也不自动合并账号。
 - Recruitment SaaS 生成的 `execution_id`、`usage_event_id`、`reservation_key` 是其业务幂等键；它们不得被重用。
 - 时间使用 RFC 3339 UTC；金额使用最小货币单位（minor units）。
 
-### 4.2 Recruitment SaaS 本地模型调整（已落地）
+### 4.2 Recruitment SaaS 本地模型调整（当前基线）
+
+> 本项目没有历史迁移任务。下表中的旧 `Company`/`workspace_id` 兼容描述已失效；新代码和新数据库基线必须使用 BOSS `tenant_id`。本地招聘表只保存业务数据及其 Tenant 归属，不得把旧兼容列当作组织或授权事实源。
 
 Recruitment 已完成增量迁移和投影表创建；投影可重建，不能用于绕过 BOSS 授权：
 

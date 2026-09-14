@@ -34,12 +34,12 @@ public class PlatformCompanyController {
         return service.listCompanies(search, status, page, pageSize);
     }
 
-    @GetMapping("/companies/{companyId}")
+    @GetMapping("/companies/{tenantId}")
     PlatformCompanyService.CompanyDetail getCompanyDetail(
             @RequestHeader("X-Platform-Admin-Key") String key,
-            @PathVariable UUID companyId) {
+            @PathVariable UUID tenantId) {
         PlatformAdminInfo admin = guard.authenticate(key);
         guard.requirePermission(admin, "company:read");
-        return service.getCompanyDetail(companyId);
+        return service.getCompanyDetail(tenantId);
     }
 }

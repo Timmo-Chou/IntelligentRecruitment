@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Bot, BriefcaseBusiness, ChevronRight, LayoutDashboard, Library, MoreHorizontal, Pencil, Plus, Settings, Sparkles, Trash2, Users } from "lucide-react";
+import { Bell, Bot, BriefcaseBusiness, ChevronRight, LayoutDashboard, Library, MoreHorizontal, Pencil, Plus, Settings, Sparkles, Trash2, Users, Building2 } from "lucide-react";
 import Link from "next/link";
 import React, { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -11,7 +11,7 @@ import { useWorkspace } from "@/lib/workspace-context";
 import { deleteTask, fetchTasks, renameTask, type TaskSummary } from "@/lib/recruitment-api";
 import { AIChatDialog } from "../ai-assistant/ai-chat-dialog";
 
-const navItems = [
+const baseNavItems = [
   ["概览", LayoutDashboard, "/"], ["智能招聘", Sparkles, "/recruitment"],
   ["职位库", BriefcaseBusiness, "/jobs"], ["人才库", Users, "/candidates"], ["面试题库", Library, "/interviews"], ["设置", Settings, "/settings"],
 ] as const;
@@ -187,9 +187,21 @@ function TaskDialog({ title, busy, error, onClose, children }: { title: string; 
 
 export function AppShell({ children, activeItem = "概览", pageHeader }: { children: ReactNode; activeItem?: string; pageHeader?: ReactNode }) {
   const router=useRouter(); const pathname=usePathname();
+  const { workspace, loading } = useWorkspace();
   // AI咨询助手开关
   const [aiOpen, setAiOpen] = useState(false);
-  useEffect(()=>{if(pathname==="/onboarding"||pathname==="/login")return; apiFetch<unknown[]>("/companies").then(items=>{if(!items.length)router.replace("/onboarding");}).catch(()=>{});},[pathname,router]);
+  useEffect(()=>{if(pathname==="/onboarding"||pathname==="/login"||loading)return; if(!workspace)router.replace("/onboarding");},[pathname,router,loading,workspace]);
+  // An enterprise Owner has organization visibility without automatically having a paid seat.
+  // Until the Owner grants themselves a seat, seat-gated recruitment modules stay hidden.
+  // Treat an omitted field as legacy test/SSR context; BOSS always returns an
+  // explicit boolean for live sessions, where false hides seat-gated modules.
+  const seatGatedNav = workspace?.type === "PERSONAL" || workspace?.seatAssigned !== false;
+  const visibleBaseNav = seatGatedNav ? baseNavItems : [baseNavItems[0], baseNavItems[5]] as const;
+  const navItems = workspace?.type === "ENTERPRISE" && workspace.owner
+    ? seatGatedNav
+      ? [...baseNavItems.slice(0, 5), ["企业管理", Building2, "/enterprise-management"], baseNavItems[5]] as const
+      : [baseNavItems[0], ["企业管理", Building2, "/enterprise-management"], baseNavItems[5]] as const
+    : visibleBaseNav;
   return <div className="min-h-screen bg-[#f7fbff] text-[#10285b]">
     <header className="app-header sticky top-0 z-40 flex h-[66px] items-center justify-between border-b border-[#dbe9f8] bg-white px-6 lg:px-8">
       <div className="flex items-center gap-3 text-[21px] font-bold tracking-tight text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>iFoundX 智能招聘工作台</div>

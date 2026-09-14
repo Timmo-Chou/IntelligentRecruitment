@@ -196,14 +196,14 @@ public class TicketService {
         jdbc.update("""
                 INSERT INTO support_tickets (id, ticket_number, creator_user_id, creator_name, company_id, title, category, priority, status, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
-                """, ticketId, ticketNumber, creatorUserId, displayName, userInfo.companyId(),
+                """, ticketId, ticketNumber, creatorUserId, displayName, userInfo.tenantId(),
                 required(title, "工单标题不能为空"), required(category, "工单分类不能为空"),
                 required(priority, "优先级不能为空"), timestamp(now), timestamp(now));
 
         // 插入第一条消息
         addMessageInternal(ticketId, "USER", creatorUserId, displayName, required(body, "工单内容不能为空"), now);
 
-        return new TicketRow(ticketId, ticketNumber, creatorUserId, displayName, userInfo.companyId(),
+        return new TicketRow(ticketId, ticketNumber, creatorUserId, displayName, userInfo.tenantId(),
                 userInfo.companyName(), title, category, priority,
                 "OPEN", null, null, now, now);
     }
@@ -408,7 +408,7 @@ public class TicketService {
             String ticketNumber,
             UUID creatorUserId,
             String creatorName,
-            UUID companyId,
+            UUID tenantId,
             String companyName,
             String title,
             String category,
@@ -425,7 +425,7 @@ public class TicketService {
      */
     private record UserInfo(
             String displayName,
-            UUID companyId,
+            UUID tenantId,
             String companyName
     ) {}
 

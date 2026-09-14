@@ -25,7 +25,7 @@ import com.intelligentrecruitment.recruitment.application.JdDraftGenerator.JdDra
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
 import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.WorkspaceScope;
+import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.TenantScope;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -98,18 +98,18 @@ public class RecruitmentService {
     }
 
     /** JD 生成单价：BOSS 是唯一价格来源。 */
-    private long resolveJdPriceMinor(UUID companyId) {
-        return billing.quoteUnitPrice(companyId, "JD_GENERATION");
+    private long resolveJdPriceMinor(UUID tenantId) {
+        return billing.quoteUnitPrice(tenantId, "JD_GENERATION");
     }
 
     /** 简历解析单价：BOSS 是唯一价格来源。 */
-    private long resolveResumePriceMinor(UUID companyId) {
-        return billing.quoteUnitPrice(companyId, "RESUME_PARSE");
+    private long resolveResumePriceMinor(UUID tenantId) {
+        return billing.quoteUnitPrice(tenantId, "RESUME_PARSE");
     }
 
     @Transactional
     public TaskDetail createTask(UUID userId, UUID workspaceId, String idempotencyKey, CreateTaskInput input) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         String key = requiredIdempotencyKey(idempotencyKey);
         if (input == null) throw validation("招聘任务不能为空");
         String title = required(input.title(), "招聘任务名称不能为空", 200);
@@ -137,14 +137,14 @@ public class RecruitmentService {
                 (id,company_id,workspace_id,title,initial_requirement,status,current_stage,idempotency_key,
                  request_hash,feature_type,linked_job_id,linked_candidate_id,created_by,created_at,updated_at)
                 VALUES (?,?,?, ?,?,'ACTIVE','COLLECTING_REQUIREMENTS',?, ?,?,?,?, ?,?,?)
-                """, taskId, scope.companyId(), workspaceId, title, requirement, key, requestHash,
+                """, taskId, scope.tenantId(), workspaceId, title, requirement, key, requestHash,
                 featureType.isBlank() ? null : featureType, linkedJobId, linkedCandidateId, userId,
                 timestamp(now), timestamp(now));
         jdbc.update("""
                 INSERT INTO conversations
                 (id,company_id,workspace_id,recruitment_task_id,status,created_at,updated_at)
                 VALUES (?,?,?,?, 'ACTIVE',?,?)
-                """, conversationId, scope.companyId(), workspaceId, taskId, timestamp(now), timestamp(now));
+                """, conversationId, scope.tenantId(), workspaceId, taskId, timestamp(now), timestamp(now));
         insertMessage(scope, conversationId, "USER", requirement, "REQUIREMENT_CHAT", userId, now);
         audit(userId, scope, "RECRUITMENT_TASK_CREATED", "RECRUITMENT_TASK", taskId);
         return detailScoped(workspaceId, taskId);
@@ -187,7 +187,7 @@ public class RecruitmentService {
 
     @Transactional
     public TaskSummary renameTask(UUID userId, UUID workspaceId, UUID taskId, RenameTaskInput input) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         taskForUpdate(workspaceId, taskId);
         String title = required(input == null ? null : input.title(), "招聘任务名称不能为空", 200);
         jdbc.update("UPDATE recruitment_tasks SET title=?,updated_at=? WHERE id=? AND workspace_id=?",
@@ -198,7 +198,7 @@ public class RecruitmentService {
 
     @Transactional
     public void deleteTask(UUID userId, UUID workspaceId, UUID taskId) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         taskForUpdate(workspaceId, taskId);
         Integer jobCount = jdbc.queryForObject("SELECT COUNT(*) FROM jobs WHERE recruitment_task_id=? AND workspace_id=?",
                 Integer.class, taskId, workspaceId);
@@ -253,13 +253,13 @@ public class RecruitmentService {
 
     @Transactional
     public TaskDetail addMessage(UUID userId, UUID workspaceId, UUID taskId, MessageInput input) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         TaskRow task = taskForUpdate(workspaceId, taskId);
         String content = required(input == null ? null : input.content(), "消息不能为空", 20_000);
         Instant now = Instant.now();
         insertMessage(scope, task.conversationId(), "USER", content, "REQUIREMENT_CHAT", userId, now);
         ConversationAgentCommand command = new ConversationAgentCommand(workspaceId.toString(),
-                scope.companyId() == null ? null : scope.companyId().toString(), userId.toString(), taskId.toString(),
+                scope.tenantId() == null ? null : scope.tenantId().toString(), userId.toString(), taskId.toString(),
                 conversationContext(task.conversationId(), workspaceId), jdDraftContext(workspaceId, taskId, input.jdDraftId()));
         String reply;
         try {
@@ -289,7 +289,7 @@ public class RecruitmentService {
      * business authorization and cannot create a billable run.
      */
     public RouteDecision routeMessage(UUID userId, UUID workspaceId, UUID taskId, RouteMessageInput input) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         Integer taskCount = jdbc.queryForObject("SELECT COUNT(*) FROM recruitment_tasks WHERE id=? AND workspace_id=?",
                 Integer.class, taskId, workspaceId);
         if (taskCount == null || taskCount == 0) throw taskNotFound();
@@ -297,7 +297,7 @@ public class RecruitmentService {
         String requestId = MDC.get("request_id");
         if (requestId == null || requestId.isBlank()) requestId = UUID.randomUUID().toString();
         return aiPlatform.routeMessage(new RouteAgentCommand(requestId, requestId, workspaceId.toString(),
-                scope.companyId() == null ? null : scope.companyId().toString(), userId.toString(), taskId.toString(),
+                scope.tenantId() == null ? null : scope.tenantId().toString(), userId.toString(), taskId.toString(),
                 message, List.of(FlowCapability.REQUIREMENT_CHAT, FlowCapability.RECRUITMENT_QA,
                         FlowCapability.JD_GENERATION, FlowCapability.RESUME_PARSING,
                         FlowCapability.SCREENING_PLAN_GENERATION, FlowCapability.CANDIDATE_SCREENING,
@@ -309,7 +309,7 @@ public class RecruitmentService {
     @Transactional
     public TaskDetail generateJd(UUID userId, UUID workspaceId, UUID taskId, String idempotencyKey,
                                  GenerateJdInput input) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         TaskRow task = taskForUpdate(workspaceId, taskId);
         String key = requiredIdempotencyKey(idempotencyKey);
         String payloadHash = hash(input);
@@ -329,7 +329,7 @@ public class RecruitmentService {
         updateLegacyDefaultTaskTitle(task, requirement, now);
         long availableAmountMinor = billing.view(userId, workspaceId).availableAmountMinor();
         PolicyDecision policyDecision = flowCoordinator.evaluateAuthoritative(FlowCapability.JD_GENERATION, scope, userId,
-                resolveJdPriceMinor(scope.companyId()), null, true);
+                resolveJdPriceMinor(scope.tenantId()), null, true);
         ExecutionContext executionContext = flowCoordinator.createExecutionContext(policyDecision, taskId, key,
                 "jd-run:" + runId, List.of(new ExecutionContext.InputVersion("conversation_summary",
                 taskId.toString(), "frozen", payloadHash)), false);
@@ -339,8 +339,8 @@ public class RecruitmentService {
                  idempotency_key,input_hash,pricing_version,estimated_amount_minor,created_by,created_at,
                  input_payload,policy_decision,execution_context)
                 VALUES (?,?,?,?, 'JD_GENERATION','QUEUED',0,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
-                """, runId, scope.companyId(), workspaceId, taskId, attempt, key, payloadHash,
-                JD_PRICING_VERSION, resolveJdPriceMinor(scope.companyId()), userId, timestamp(now), protectedPayload(Map.of(
+                """, runId, scope.tenantId(), workspaceId, taskId, attempt, key, payloadHash,
+                JD_PRICING_VERSION, resolveJdPriceMinor(scope.tenantId()), userId, timestamp(now), protectedPayload(Map.of(
                         "requirement", requirement,
                         "title", nullable(value(input, GenerateJdInput::title)),
                         "companyName", nullable(value(input, GenerateJdInput::companyName)),
@@ -351,14 +351,14 @@ public class RecruitmentService {
                         "skills", nullable(value(input, GenerateJdInput::skills)))), json(policyDecision),
                 json(executionContext));
         String billingReference = "jd-run:" + runId;
-        billing.reserve(userId, workspaceId, billingReference, resolveJdPriceMinor(scope.companyId()));
+        billing.reserve(userId, workspaceId, billingReference, resolveJdPriceMinor(scope.tenantId()));
         jdbc.update("""
                 INSERT INTO outbox_events
                 (id,aggregate_type,aggregate_id,event_type,payload,status,attempts,next_attempt_at,created_at)
                 VALUES (?,'AI_RUN',?,'JD_RUN_REQUESTED',?::jsonb,'PENDING',0,?,?)
                 """, UUID.randomUUID(), runId.toString(), json(Map.of("run_id", runId.toString())),
                 timestamp(now), timestamp(now));
-        appendRunEvent(new RunExecution(runId, scope.companyId(), workspaceId, taskId, userId, task.conversationId(),
+        appendRunEvent(new RunExecution(runId, scope.tenantId(), workspaceId, taskId, userId, task.conversationId(),
                 key, "QUEUED", 0, null, json(Map.of()), json(executionContext)), "status",
                 Map.of("status", "QUEUED", "progress", 0));
         jdbc.update("UPDATE recruitment_tasks SET current_stage='JD_GENERATING',updated_at=? WHERE id=?",
@@ -391,10 +391,10 @@ public class RecruitmentService {
         Map<String, String> input = stringMap(run.inputPayload());
         if ("QUEUED".equals(run.status())) {
             Map<String, Object> aiInput = payloadMap(run.inputPayload());
-            aiInput.put("source_documents", sourceFiles.listForGeneration(run.workspaceId(), run.taskId()).stream()
+            aiInput.put("source_documents", sourceFiles.listForGeneration(run.tenantId(), run.taskId()).stream()
                     .map(file -> Map.<String, Object>of("filename", file.filename(), "text", file.extractedText())).toList());
-            AiTask aiTask = aiPlatform.startTask(new StartAiTaskCommand(run.workspaceId().toString(),
-                    run.companyId() == null ? null : run.companyId().toString(), run.createdBy().toString(),
+            AiTask aiTask = aiPlatform.startTask(new StartAiTaskCommand(run.tenantId().toString(),
+                    run.tenantId() == null ? null : run.tenantId().toString(), run.createdBy().toString(),
                     run.taskId().toString(), run.idempotencyKey(), AiCapability.JD_GENERATION, aiInput,
                     executionContext(run.executionContext())), delta -> emitJdDelta(run.id(), delta));
             jdbc.update("UPDATE ai_runs SET status='RUNNING',progress=15,provider_task_id=? WHERE id=?",
@@ -438,12 +438,12 @@ public class RecruitmentService {
         RunExecution run = runExecution(runId, true);
         if (!"RUNNING".equals(run.status())) return;
         JdDraftContent draft = structuredResultMapper.toDraft(aiPlatform.getStructuredResult(run.providerTaskId(), run.createdBy().toString()));
-        WorkspaceScope scope = new WorkspaceScope(run.workspaceId(), run.companyId(), null, null, null);
+        TenantScope scope = new TenantScope(run.tenantId(), null, null, null);
         upsertDraft(scope, run.taskId(), run.id(), run.createdBy(), draft);
         Instant completed = Instant.now();
-        billing.settleSystem(run.workspaceId(), "jd-run:" + run.id(), resolveJdPriceMinor(run.companyId()));
+        billing.settleSystem(run.tenantId(), "jd-run:" + run.id(), resolveJdPriceMinor(run.tenantId()));
         jdbc.update("UPDATE ai_runs SET status='COMPLETED',progress=100,settled_amount_minor=?,completed_at=? WHERE id=?",
-                resolveJdPriceMinor(run.companyId()), timestamp(completed), run.id());
+                resolveJdPriceMinor(run.tenantId()), timestamp(completed), run.id());
         insertMessage(scope, run.conversationId(), "ASSISTANT",
                 "JD 草稿已生成。请检查职责、任职要求和待确认项，确认后再进入职位库。",
                 "JD_GENERATION", null, completed);
@@ -484,7 +484,7 @@ public class RecruitmentService {
 
     @Transactional
     public TaskDetail updateDraft(UUID userId, UUID workspaceId, UUID taskId, UpdateDraftInput input) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         TaskRow task = taskForUpdate(workspaceId, taskId);
         if (input == null) throw validation("JD 草稿不能为空");
         String warnings = json(input.warnings() == null ? List.of() : input.warnings());
@@ -511,7 +511,7 @@ public class RecruitmentService {
 
     @Transactional
     public JobService.JobView confirmDraft(UUID userId, UUID workspaceId, UUID taskId, UUID draftId) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         TaskRow task = taskForUpdate(workspaceId, taskId);
         List<JdDraftView> drafts = draftRows(workspaceId, taskId);
         if (drafts.isEmpty()) throw new ApiException("JD_DRAFT_NOT_FOUND", "请先生成 JD 草稿", HttpStatus.CONFLICT);
@@ -647,7 +647,7 @@ public class RecruitmentService {
      *  若已存在同 revision 草稿则更新内容与时间，不存在则以 revision+1 插入新版本。 */
     @Transactional
     public TaskDetail updateResumeParseDraft(UUID userId, UUID workspaceId, UUID taskId, UpdateResumeParseDraftInput input) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         taskForUpdate(workspaceId, taskId);
         if (input == null) throw validation("解析草稿内容不能为空");
         String content = required(input.content(), "请保存解析结果", 500_000);
@@ -671,7 +671,7 @@ public class RecruitmentService {
                     INSERT INTO resume_parse_drafts
                     (id,company_id,workspace_id,recruitment_task_id,revision,content,status,created_by,created_at,updated_at)
                     VALUES (?,?,?,?,?,?, 'DRAFT',?,?,?)
-                    """, UUID.randomUUID(), scope.companyId(), workspaceId, taskId, nextRevision, pii.encrypt(content),
+                    """, UUID.randomUUID(), scope.tenantId(), workspaceId, taskId, nextRevision, pii.encrypt(content),
                     userId, timestamp(now), timestamp(now));
         }
         if (updated == 0) throw new ApiException("RESUME_PARSE_DRAFT_NOT_FOUND", "简历解析草稿不存在，无法更新", HttpStatus.CONFLICT);
@@ -687,7 +687,7 @@ public class RecruitmentService {
      */
     @Transactional
     public TaskDetail confirmResumeParse(UUID userId, UUID workspaceId, UUID taskId) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         TaskRow task = taskForUpdate(workspaceId, taskId);
         List<ResumeParseDraftView> drafts = resumeParseDraftRows(workspaceId, taskId);
         ResumeParseDraftView draft = drafts.stream().findFirst()
@@ -728,7 +728,7 @@ public class RecruitmentService {
     @Transactional
     public TaskDetail generateResumeParse(UUID userId, UUID workspaceId, UUID taskId, String idempotencyKey,
                                           GenerateResumeParseInput input) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         TaskRow task = taskForUpdate(workspaceId, taskId);
         String key = requiredIdempotencyKey(idempotencyKey);
         // 构造输入 payload：resumes + job（如果有 linked_job_id）
@@ -830,7 +830,7 @@ public class RecruitmentService {
         Instant now = Instant.now();
         long availableAmountMinor = billing.view(userId, workspaceId).availableAmountMinor();
         PolicyDecision policyDecision = flowCoordinator.evaluateAuthoritative(FlowCapability.RESUME_PARSING, scope, userId,
-                resolveResumePriceMinor(scope.companyId()), null, true);
+                resolveResumePriceMinor(scope.tenantId()), null, true);
         ExecutionContext executionContext = flowCoordinator.createExecutionContext(policyDecision, taskId, key,
                 "resume-parse:" + runId, List.of(new ExecutionContext.InputVersion("resume_payload",
                         taskId.toString(), "frozen", payloadHash)), false);
@@ -840,18 +840,18 @@ public class RecruitmentService {
                  idempotency_key,input_hash,pricing_version,estimated_amount_minor,created_by,created_at,
                  input_payload,policy_decision,execution_context)
                 VALUES (?,?,?,?, 'RESUME_PARSING','QUEUED',0,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
-                """, runId, scope.companyId(), workspaceId, taskId, attempt, key, payloadHash,
-                RESUME_PARSING_PRICING_VERSION, resolveResumePriceMinor(scope.companyId()), userId, timestamp(now), protectedPayload(payload),
+                """, runId, scope.tenantId(), workspaceId, taskId, attempt, key, payloadHash,
+                RESUME_PARSING_PRICING_VERSION, resolveResumePriceMinor(scope.tenantId()), userId, timestamp(now), protectedPayload(payload),
                 json(policyDecision), json(executionContext));
         String billingReference = "resume-parse:" + runId;
-        billing.reserve(userId, workspaceId, billingReference, resolveResumePriceMinor(scope.companyId()));
+        billing.reserve(userId, workspaceId, billingReference, resolveResumePriceMinor(scope.tenantId()));
         jdbc.update("""
                 INSERT INTO outbox_events
                 (id,aggregate_type,aggregate_id,event_type,payload,status,attempts,next_attempt_at,created_at)
                 VALUES (?,'AI_RUN',?,'RESUME_PARSE_RUN_REQUESTED',?::jsonb,'PENDING',0,?,?)
                 """, UUID.randomUUID(), runId.toString(), json(Map.of("run_id", runId.toString())),
                 timestamp(now), timestamp(now));
-        appendRunEvent(new RunExecution(runId, scope.companyId(), workspaceId, taskId, userId, task.conversationId(),
+        appendRunEvent(new RunExecution(runId, scope.tenantId(), workspaceId, taskId, userId, task.conversationId(),
                 key, "QUEUED", 0, null, json(payload), json(executionContext)), "status",
                 Map.of("status", "QUEUED", "progress", 0));
         jdbc.update("UPDATE recruitment_tasks SET current_stage='RESUME_PARSING',updated_at=? WHERE id=?",
@@ -869,7 +869,7 @@ public class RecruitmentService {
     @Transactional
     public TaskDetail generateInterviewKit(UUID userId, UUID workspaceId, UUID taskId, String idempotencyKey,
                                            GenerateInterviewKitInput input) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         TaskRow task = taskForUpdate(workspaceId, taskId);
         String key = requiredIdempotencyKey(idempotencyKey);
         // 查 linked_job_id + linked_candidate_id（从创建任务时写入）
@@ -921,9 +921,9 @@ public class RecruitmentService {
                  idempotency_key,input_hash,pricing_version,estimated_amount_minor,created_by,created_at,
                  input_payload,policy_decision,execution_context)
                 VALUES (?,?,?,?, 'INTERVIEW_KIT_GENERATION','RUNNING',10,1,?,?,0,0,?,?,?::jsonb,?::jsonb,?::jsonb)
-                """, runId, scope.companyId(), workspaceId, taskId, key, payloadHash, userId, timestamp(now),
+                """, runId, scope.tenantId(), workspaceId, taskId, key, payloadHash, userId, timestamp(now),
                 protectedPayload(payload), json(policyDecision), json(executionContext));
-        appendRunEvent(new RunExecution(runId, scope.companyId(), workspaceId, taskId, userId, task.conversationId(),
+        appendRunEvent(new RunExecution(runId, scope.tenantId(), workspaceId, taskId, userId, task.conversationId(),
                 key, "RUNNING", 10, null, json(payload), json(executionContext)), "status",
                 Map.of("status", "RUNNING", "progress", 10));
         jdbc.update("UPDATE recruitment_tasks SET current_stage='INTERVIEW_KIT_GENERATING',updated_at=? WHERE id=?",
@@ -939,7 +939,7 @@ public class RecruitmentService {
                     WHERE id=?
                     """, "INTERVIEW_KIT_FAILED", optional(exception.getMessage(), 1000),
                     timestamp(Instant.now()), runId);
-            appendRunEvent(new RunExecution(runId, scope.companyId(), workspaceId, taskId, userId, task.conversationId(),
+            appendRunEvent(new RunExecution(runId, scope.tenantId(), workspaceId, taskId, userId, task.conversationId(),
                     key, "FAILED", 100, null, json(payload), json(executionContext)), "status",
                     Map.of("status", "FAILED", "progress", 100, "message", optional(exception.getMessage(), 500)));
             throw exception;
@@ -961,7 +961,7 @@ public class RecruitmentService {
         jdbc.update("""
                 UPDATE ai_runs SET status='COMPLETED',progress=100,completed_at=? WHERE id=?
                 """, timestamp(Instant.now()), runId);
-        appendRunEvent(new RunExecution(runId, scope.companyId(), workspaceId, taskId, userId, task.conversationId(),
+        appendRunEvent(new RunExecution(runId, scope.tenantId(), workspaceId, taskId, userId, task.conversationId(),
                 key, "COMPLETED", 100, null, json(payload), json(executionContext)), "status",
                 Map.of("status", "COMPLETED", "progress", 100, "kitId", kit.id().toString()));
         audit(userId, scope, "INTERVIEW_KIT_GENERATED", "AI_RUN", runId);
@@ -991,8 +991,8 @@ public class RecruitmentService {
         if (!List.of("QUEUED", "RUNNING").contains(run.status())) return false;
         if ("QUEUED".equals(run.status())) {
             Map<String, Object> aiInput = payloadMap(run.inputPayload());
-            AiTask aiTask = aiPlatform.startTask(new StartAiTaskCommand(run.workspaceId().toString(),
-                    run.companyId() == null ? null : run.companyId().toString(), run.createdBy().toString(),
+            AiTask aiTask = aiPlatform.startTask(new StartAiTaskCommand(run.tenantId().toString(),
+                    run.tenantId() == null ? null : run.tenantId().toString(), run.createdBy().toString(),
                     run.taskId().toString(), run.idempotencyKey(), AiCapability.RESUME_PARSING, aiInput,
                     executionContext(run.executionContext())), delta -> emitResumeParseDelta(run.id(), delta));
             jdbc.update("UPDATE ai_runs SET status='RUNNING',progress=15,provider_task_id=? WHERE id=?",
@@ -1040,22 +1040,22 @@ public class RecruitmentService {
             failResumeParseRun(run, "AI_SCHEMA_INVALID", "AI 简历解析未返回有效内容，请重试");
             return;
         }
-        WorkspaceScope scope = new WorkspaceScope(run.workspaceId(), run.companyId(), null, null, null);
+        TenantScope scope = new TenantScope(run.tenantId(), null, null, null);
         Instant completed = Instant.now();
         // version 插入：有草稿则生成下一版，否则 V1
         Integer currentMax = jdbc.queryForObject("""
                 SELECT COALESCE(MAX(revision),0) FROM resume_parse_drafts WHERE recruitment_task_id=? AND workspace_id=?
-                """, Integer.class, run.taskId(), run.workspaceId());
+                """, Integer.class, run.taskId(), run.tenantId());
         int nextRevision = (currentMax == null ? 0 : currentMax) + 1;
         jdbc.update("""
                 INSERT INTO resume_parse_drafts
                 (id,company_id,workspace_id,recruitment_task_id,source_ai_run_id,revision,content,status,created_by,created_at,updated_at)
                 VALUES (?,?,?,?,?,?,?,'DRAFT',?,?,?)
-                """, UUID.randomUUID(), scope.companyId(), scope.workspaceId(), run.taskId(), run.id(),
+                """, UUID.randomUUID(), scope.tenantId(), scope.tenantId(), run.taskId(), run.id(),
                 nextRevision, pii.encrypt(markdown), run.createdBy(), timestamp(completed), timestamp(completed));
-        billing.settleSystem(run.workspaceId(), "resume-parse:" + run.id(), resolveResumePriceMinor(run.companyId()));
+        billing.settleSystem(run.tenantId(), "resume-parse:" + run.id(), resolveResumePriceMinor(run.tenantId()));
         jdbc.update("UPDATE ai_runs SET status='COMPLETED',progress=100,settled_amount_minor=?,completed_at=? WHERE id=?",
-                resolveResumePriceMinor(run.companyId()), timestamp(completed), run.id());
+                resolveResumePriceMinor(run.tenantId()), timestamp(completed), run.id());
         insertMessage(scope, run.conversationId(), "ASSISTANT",
                 "简历解析已完成，结果已写入左侧「解析结果」文本框，你可以直接编辑并保存版本。"
                         + (run.taskId().version() > 0 ? "" : ""),
@@ -1085,12 +1085,12 @@ public class RecruitmentService {
 
     private void failResumeParseRun(RunExecution run, String code, String detail) {
         Instant completed = Instant.now();
-        billing.settleSystem(run.workspaceId(), "resume-parse:" + run.id(), 0);
+        billing.settleSystem(run.tenantId(), "resume-parse:" + run.id(), 0);
         String message = "WORKER".equals(code) ? "简历解析任务执行失败，请重试" : detail;
         jdbc.update("""
                 UPDATE ai_runs SET status='FAILED',progress=100,error_code=?,error_message=?,completed_at=? WHERE id=?
                 """, code, message, timestamp(completed), run.id());
-        WorkspaceScope scope = new WorkspaceScope(run.workspaceId(), run.companyId(), null, null, null);
+        TenantScope scope = new TenantScope(run.tenantId(), null, null, null);
         insertMessage(scope, run.conversationId(), "SYSTEM", "简历解析失败：" + message, "RESUME_PARSING", null, completed);
         appendRunEvent(run, "failed", Map.of("status", "FAILED", "progress", 100, "error_code", code, "error_message", message));
     }
@@ -1129,7 +1129,7 @@ public class RecruitmentService {
         return message.isBlank() ? "已根据你的最新要求更新当前 JD 草稿，请查看左侧内容。" : message;
     }
 
-    private void upsertDraft(WorkspaceScope scope, UUID taskId, UUID runId, UUID userId, JdDraftContent draft) {
+    private void upsertDraft(TenantScope scope, UUID taskId, UUID runId, UUID userId, JdDraftContent draft) {
         Instant now = Instant.now();
         jdbc.update("""
                 INSERT INTO jd_drafts
@@ -1137,38 +1137,38 @@ public class RecruitmentService {
                  location,experience_level,education,job_type,salary_range,responsibilities,requirements,skills,nice_to_haves,benefits,talent_profile,
                  warnings,status,updated_by,created_at,updated_at)
                 VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, 'DRAFT', ?, ?, ?)
-                """, UUID.randomUUID(), scope.companyId(), scope.workspaceId(), taskId, runId, draft.title(),
+                """, UUID.randomUUID(), scope.tenantId(), scope.tenantId(), taskId, runId, draft.title(),
                 draft.companyName(), draft.location(), draft.experienceLevel(), draft.education(), draft.jobType(), draft.salaryRange(),
                 draft.responsibilities(), draft.requirements(), draft.skills(), draft.niceToHaves(), draft.benefits(), draft.talentProfile(),
                 json(draft.warnings()), userId, timestamp(now), timestamp(now));
     }
 
-    private void updateDraftInPlace(WorkspaceScope scope, UUID taskId, UUID draftId, UUID userId, JdDraftContent draft) {
+    private void updateDraftInPlace(TenantScope scope, UUID taskId, UUID draftId, UUID userId, JdDraftContent draft) {
         int updated = jdbc.update("""
                 UPDATE jd_drafts SET status=CASE WHEN status='CONFIRMED' THEN 'DRAFT' ELSE status END,title=?,company_name=?,location=?,experience_level=?,education=?,job_type=?,salary_range=?,
                  responsibilities=?,requirements=?,skills=?,nice_to_haves=?,benefits=?,talent_profile=?,warnings=?::jsonb,updated_by=?,updated_at=?
                 WHERE id=? AND recruitment_task_id=? AND workspace_id=? AND status IN ('DRAFT','CONFIRMED')
                 """, draft.title(), draft.companyName(), draft.location(), draft.experienceLevel(), draft.education(),
                 draft.jobType(), draft.salaryRange(), draft.responsibilities(), draft.requirements(), draft.skills(), draft.niceToHaves(), draft.benefits(), draft.talentProfile(),
-                json(draft.warnings()), userId, timestamp(Instant.now()), draftId, taskId, scope.workspaceId());
+                json(draft.warnings()), userId, timestamp(Instant.now()), draftId, taskId, scope.tenantId());
         if (updated == 0) throw new ApiException("JD_DRAFT_NOT_FOUND", "当前 JD 不存在，无法更新", HttpStatus.CONFLICT);
     }
 
-    private void insertAdditionalDraft(WorkspaceScope scope, UUID taskId, UUID userId, JdDraftContent draft) {
+    private void insertAdditionalDraft(TenantScope scope, UUID taskId, UUID userId, JdDraftContent draft) {
         Instant now = Instant.now();
         jdbc.update("""
                 INSERT INTO jd_drafts (id,company_id,workspace_id,recruitment_task_id,revision,title,company_name,
                   location,experience_level,education,job_type,salary_range,responsibilities,requirements,skills,nice_to_haves,benefits,talent_profile,
                   warnings,status,updated_by,created_at,updated_at)
                 VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, 'DRAFT', ?, ?, ?)
-                """, UUID.randomUUID(), scope.companyId(), scope.workspaceId(), taskId, draft.title(), draft.companyName(),
+                """, UUID.randomUUID(), scope.tenantId(), scope.tenantId(), taskId, draft.title(), draft.companyName(),
                 draft.location(), draft.experienceLevel(), draft.education(), draft.jobType(), draft.salaryRange(), draft.responsibilities(),
                 draft.requirements(), draft.skills(), draft.niceToHaves(), draft.benefits(), draft.talentProfile(), json(draft.warnings()), userId,
                 timestamp(now), timestamp(now));
     }
 
 
-    private void insertMessage(WorkspaceScope scope, UUID conversationId, String role, String content,
+    private void insertMessage(TenantScope scope, UUID conversationId, String role, String content,
                                String capability, UUID createdBy, Instant now) {
         jdbc.queryForObject("SELECT id FROM conversations WHERE id=? FOR UPDATE", UUID.class, conversationId);
         Integer sequence = jdbc.queryForObject("""
@@ -1178,7 +1178,7 @@ public class RecruitmentService {
                 INSERT INTO messages
                 (id,company_id,workspace_id,conversation_id,role,content,capability,sequence_number,created_by,created_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?)
-                """, UUID.randomUUID(), scope.companyId(), scope.workspaceId(), conversationId, role, pii.encrypt(content),
+                """, UUID.randomUUID(), scope.tenantId(), scope.tenantId(), conversationId, role, pii.encrypt(content),
                 capability, sequence == null ? 1 : sequence, createdBy, timestamp(now));
         jdbc.update("UPDATE conversations SET updated_at=? WHERE id=?", timestamp(now), conversationId);
     }
@@ -1209,11 +1209,11 @@ public class RecruitmentService {
     private void failJdRun(RunExecution run, String code, String detail) {
         String message = "WORKER".equals(code) ? "JD 生成任务执行失败，请重试" : detail;
         Instant completed = Instant.now();
-        billing.settleSystem(run.workspaceId(), "jd-run:" + run.id(), 0);
+        billing.settleSystem(run.tenantId(), "jd-run:" + run.id(), 0);
         jdbc.update("""
                 UPDATE ai_runs SET status='FAILED',progress=100,error_code=?,error_message=?,completed_at=? WHERE id=?
                 """, code, message, timestamp(completed), run.id());
-        WorkspaceScope scope = new WorkspaceScope(run.workspaceId(), run.companyId(), null, null, null);
+        TenantScope scope = new TenantScope(run.tenantId(), null, null, null);
         insertMessage(scope, run.conversationId(), "ASSISTANT", message, "JD_GENERATION", null, completed);
         jdbc.update("UPDATE recruitment_tasks SET current_stage='JD_GENERATION_FAILED',updated_at=? WHERE id=?",
                 timestamp(completed), run.taskId());
@@ -1227,7 +1227,7 @@ public class RecruitmentService {
                 INSERT INTO jd_run_events
                 (run_id,company_id,workspace_id,recruitment_task_id,event_type,data,created_at)
                 VALUES (?,?,?,?,?,?::jsonb,?)
-                """, run.id(), run.companyId(), run.workspaceId(), run.taskId(), eventType, json(data),
+                """, run.id(), run.tenantId(), run.tenantId(), run.taskId(), eventType, json(data),
                 timestamp(Instant.now()));
     }
 
@@ -1278,12 +1278,12 @@ public class RecruitmentService {
         return attempt == null ? 1 : attempt;
     }
 
-    private void audit(UUID actor, WorkspaceScope scope, String action, String resourceType, UUID resourceId) {
+    private void audit(UUID actor, TenantScope scope, String action, String resourceType, UUID resourceId) {
         jdbc.update("""
                 INSERT INTO audit_logs
                 (id,actor_user_id,company_id,workspace_id,action,resource_type,resource_id,created_at)
                 VALUES (?,?,?,?,?,?,?,?)
-                """, UUID.randomUUID(), actor, scope.companyId(), scope.workspaceId(), action, resourceType,
+                """, UUID.randomUUID(), actor, scope.tenantId(), scope.tenantId(), action, resourceType,
                 resourceId.toString(), timestamp(Instant.now()));
     }
 
@@ -1374,7 +1374,7 @@ public class RecruitmentService {
 
     public record GenerateInterviewKitInput(Integer questionCount) { }
 
-    public record TaskSummary(UUID id, UUID companyId, UUID workspaceId, String title, String status,
+    public record TaskSummary(UUID id, UUID tenantId, UUID workspaceId, String title, String status,
                               String currentStage, String featureType, UUID linkedJobId, UUID linkedCandidateId,
                               UUID jobId, String jobTitle, UUID createdBy,
                               Instant createdAt, Instant updatedAt) { }
@@ -1444,7 +1444,7 @@ public class RecruitmentService {
 
     private record TaskRow(UUID id, String title, String initialRequirement, UUID conversationId) { }
 
-    private record RunExecution(UUID id, UUID companyId, UUID workspaceId, UUID taskId, UUID createdBy,
+    private record RunExecution(UUID id, UUID tenantId, UUID workspaceId, UUID taskId, UUID createdBy,
                                 UUID conversationId, String idempotencyKey, String status, int progress,
                                 String providerTaskId, String inputPayload, String executionContext) { }
 }

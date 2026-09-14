@@ -4,7 +4,7 @@ import com.intelligentrecruitment.agentflow.domain.ExecutionContext;
 import com.intelligentrecruitment.agentflow.domain.FlowCapability;
 import com.intelligentrecruitment.agentflow.domain.PolicyDecision;
 import com.intelligentrecruitment.shared.error.ApiException;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.WorkspaceScope;
+import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.TenantScope;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -23,7 +23,7 @@ public class RecruitmentFlowCoordinator {
     public static final String POLICY_VERSION = "recruitment-flow-v1";
     private static final String CURRENCY = "CNY";
 
-    public PolicyDecision evaluate(FlowCapability capability, WorkspaceScope scope, UUID actorId,
+    public PolicyDecision evaluate(FlowCapability capability, TenantScope scope, UUID actorId,
                                    long availableAmountMinor, long estimatedAmountMinor, UUID quoteId,
                                    boolean userConfirmed) {
         if (availableAmountMinor < estimatedAmountMinor) {
@@ -35,7 +35,7 @@ public class RecruitmentFlowCoordinator {
     }
 
     /** Production path: BOSS atomically evaluates package and wallet assets. */
-    public PolicyDecision evaluateAuthoritative(FlowCapability capability, WorkspaceScope scope, UUID actorId,
+    public PolicyDecision evaluateAuthoritative(FlowCapability capability, TenantScope scope, UUID actorId,
                                                 long estimatedAmountMinor, UUID quoteId, boolean userConfirmed) {
         // Balance authority is BOSS: package entitlements may cover the request even
         // when the monetary wallet is empty. The atomic BOSS reservation decides
@@ -61,19 +61,19 @@ public class RecruitmentFlowCoordinator {
         String requestId = MDC.get("request_id");
         if (requestId == null || requestId.isBlank()) requestId = UUID.randomUUID().toString();
         return new ExecutionContext(UUID.randomUUID(), null, requestId, requestId,
-                policyDecision.workspaceId(), policyDecision.companyId(), policyDecision.actorId(), businessTaskId,
+                policyDecision.workspaceId(), policyDecision.workspaceId(), policyDecision.actorId(), businessTaskId,
                 idempotencyKey, policyDecision.capability(), businessOperationRef,
                 List.copyOf(inputVersions), policyDecision,
                 new ExecutionContext.DataHandling(containsPii, "ephemeral", false), now);
     }
 
-    private PolicyDecision decision(FlowCapability capability, WorkspaceScope scope, UUID actorId,
+    private PolicyDecision decision(FlowCapability capability, TenantScope scope, UUID actorId,
                                     PolicyDecision.Decision outcome, List<PolicyDecision.ReasonCode> reasons,
                                     UUID quoteId, long estimatedAmountMinor, Instant confirmedAt) {
         PolicyDecision.Confirmation confirmation = new PolicyDecision.Confirmation(quoteId,
                 estimatedAmountMinor, CURRENCY, confirmedAt, confirmedAt == null ? null : actorId);
-        return new PolicyDecision(UUID.randomUUID(), capability, outcome, reasons, scope.workspaceId(),
-                scope.companyId(), actorId, confirmation, POLICY_VERSION, Instant.now());
+        return new PolicyDecision(UUID.randomUUID(), capability, outcome, reasons, scope.tenantId(),
+                scope.tenantId(), actorId, confirmation, POLICY_VERSION, Instant.now());
     }
 
     private ApiException denied(PolicyDecision decision) {

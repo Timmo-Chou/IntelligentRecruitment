@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.WorkspaceScope;
+import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.TenantScope;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -76,7 +76,7 @@ public class JobService {
 
     @Transactional
     public JobView create(UUID userId, UUID workspaceId, JobInput input) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         UUID jobId = UUID.randomUUID();
         Instant now = Instant.now();
         JobInput clean = clean(input);
@@ -85,7 +85,7 @@ public class JobService {
                 (id,company_id,workspace_id,title,company_name,location,salary_range,description,requirements,skills,
                  experience_level,education,job_type,nice_to_haves,benefits,status,source,talent_profile,warnings,created_by,created_at,updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT','MANUAL','', '[]'::jsonb, ?, ?, ?)
-                """, jobId, scope.companyId(), workspaceId, clean.title(), clean.companyName(), clean.location(),
+                """, jobId, scope.tenantId(), workspaceId, clean.title(), clean.companyName(), clean.location(),
                 clean.salaryRange(), clean.description(), clean.requirements(), clean.skills(), clean.experienceLevel(), clean.education(),
                 clean.jobType(), clean.niceToHaves(), clean.benefits(), userId, timestamp(now), timestamp(now));
         UUID versionId = saveSnapshot(scope, jobId, 1, clean, "手工创建职位", userId, now, null);
@@ -97,7 +97,7 @@ public class JobService {
     @Transactional
     public JobView createFromConfirmedJd(UUID userId, UUID workspaceId, UUID recruitmentTaskId, UUID jdDraftId, UUID sourceAiRunId,
                                          JobInput input, String talentProfile, String warningsJson) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         JobInput clean = clean(input);
         String cleanProfile = optional(talentProfile, 10_000);
         String safeWarnings = warningsJson == null || warningsJson.isBlank() ? "[]" : warningsJson;
@@ -118,7 +118,7 @@ public class JobService {
                  experience_level,education,job_type,nice_to_haves,benefits,status,source,recruitment_task_id,jd_draft_id,talent_profile,warnings,
                  created_by,created_at,updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT','AI_GENERATED', ?, ?, ?, ?::jsonb, ?, ?, ?)
-                """, jobId, scope.companyId(), workspaceId, clean.title(), clean.companyName(), clean.location(),
+                """, jobId, scope.tenantId(), workspaceId, clean.title(), clean.companyName(), clean.location(),
                 clean.salaryRange(), clean.description(), clean.requirements(), clean.skills(), clean.experienceLevel(), clean.education(),
                 clean.jobType(), clean.niceToHaves(), clean.benefits(), recruitmentTaskId, jdDraftId, cleanProfile, safeWarnings, userId, timestamp(now), timestamp(now));
         ConfirmedJdSnapshot snapshot = new ConfirmedJdSnapshot(clean, cleanProfile, safeWarnings);
@@ -130,7 +130,7 @@ public class JobService {
 
     @Transactional
     public JobView update(UUID userId, UUID workspaceId, UUID jobId, JobInput input) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         JobView existing = getScoped(workspaceId, jobId);
         JobInput clean = clean(input);
         Instant now = Instant.now();
@@ -161,7 +161,7 @@ public class JobService {
 
     @Transactional
     public JobView updateStatus(UUID userId, UUID workspaceId, UUID jobId, String status) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         String normalized = normalizedStatus(status);
         JobView existing = getScoped(workspaceId, jobId);
         if ("ACTIVE".equals(normalized)) requireReadyForPublication(existing);
@@ -176,7 +176,7 @@ public class JobService {
 
     @Transactional
     public void delete(UUID userId, UUID workspaceId, UUID jobId) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         int updated = jdbc.update("""
                 UPDATE jobs SET status='ARCHIVED',lock_version=lock_version+1,updated_at=?
                 WHERE id=? AND workspace_id=? AND status<>'ARCHIVED'
@@ -187,7 +187,7 @@ public class JobService {
 
     @Transactional
     public void batchUpdateStatus(UUID userId, UUID workspaceId, List<UUID> jobIds, String status) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         String normalized = normalizedStatus(status);
         for (UUID jobId : safeIds(jobIds)) {
             jdbc.update("""
@@ -200,7 +200,7 @@ public class JobService {
 
     @Transactional
     public void batchDelete(UUID userId, UUID workspaceId, List<UUID> jobIds) {
-        WorkspaceScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         for (UUID jobId : safeIds(jobIds)) {
             jdbc.update("""
                     UPDATE jobs SET status='ARCHIVED',lock_version=lock_version+1,updated_at=?
@@ -230,7 +230,7 @@ public class JobService {
         return rows.getFirst();
     }
 
-    private UUID saveSnapshot(WorkspaceScope scope, UUID jobId, int version, Object input, String summary,
+    private UUID saveSnapshot(TenantScope scope, UUID jobId, int version, Object input, String summary,
                               UUID userId, Instant now, UUID sourceAiRunId) {
         try {
             UUID versionId = UUID.randomUUID();
@@ -239,7 +239,7 @@ public class JobService {
                     (id,company_id,workspace_id,job_id,version_number,status,snapshot,change_summary,
                      source_ai_run_id,created_by,confirmed_at,created_at)
                     VALUES (?,?,?,?,?,'CONFIRMED',?::jsonb,?,?,?,?,?)
-                    """, versionId, scope.companyId(), scope.workspaceId(), jobId, version,
+                    """, versionId, scope.tenantId(), scope.tenantId(), jobId, version,
                     objectMapper.writeValueAsString(input), summary, sourceAiRunId, userId,
                     timestamp(now), timestamp(now));
             return versionId;
@@ -254,12 +254,12 @@ public class JobService {
         return value(max) + 1;
     }
 
-    private void audit(UUID actor, WorkspaceScope scope, String action, UUID resourceId) {
+    private void audit(UUID actor, TenantScope scope, String action, UUID resourceId) {
         jdbc.update("""
                 INSERT INTO audit_logs
                 (id,actor_user_id,company_id,workspace_id,action,resource_type,resource_id,created_at)
                 VALUES (?,?,?,?,?,'JOB',?,?)
-                """, UUID.randomUUID(), actor, scope.companyId(), scope.workspaceId(), action,
+                """, UUID.randomUUID(), actor, scope.tenantId(), scope.tenantId(), action,
                 resourceId.toString(), timestamp(Instant.now()));
     }
 
@@ -363,7 +363,7 @@ public class JobService {
                            String education, String jobType, String niceToHaves, String benefits) {
     }
 
-    public record JobView(UUID id, UUID companyId, UUID workspaceId, String title, String companyName,
+    public record JobView(UUID id, UUID tenantId, UUID workspaceId, String title, String companyName,
                           String location, String salaryRange, String description, String requirements, String skills,
                           String experienceLevel, String education, String jobType, String niceToHaves, String benefits, String status, String source,
                           UUID currentVersionId, long lockVersion, String talentProfile, String warnings,

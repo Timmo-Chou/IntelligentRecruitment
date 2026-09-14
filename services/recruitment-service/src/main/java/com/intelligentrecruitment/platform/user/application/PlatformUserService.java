@@ -32,7 +32,7 @@ public class PlatformUserService {
             List<CompanyMembership> companies, List<WorkspaceMembership> workspaces,
             String createdAt) {}
 
-    public record CompanyMembership(String companyId, String companyName, String role, String status) {}
+    public record CompanyMembership(String tenantId, String companyName, String role, String status) {}
 
     public record WorkspaceMembership(String workspaceId, String workspaceName, String role, String status) {}
 

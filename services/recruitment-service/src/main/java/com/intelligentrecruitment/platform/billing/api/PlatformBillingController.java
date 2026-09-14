@@ -39,15 +39,15 @@ public class PlatformBillingController {
 
     /**
      * 平台管理端查看指定企业的余额视图。
-     * 统一走 BOSS companyWallet（已无 workspace 概念，传入的 companyId 即 companyId）。
+     * 统一走 BOSS companyWallet（已无 workspace 概念，传入的 tenantId 即 tenantId）。
      */
-    @GetMapping("/companies/{companyId}/billing")
-    public AdminBillingView workspaceBilling(@PathVariable UUID companyId,
+    @GetMapping("/companies/{tenantId}/billing")
+    public AdminBillingView workspaceBilling(@PathVariable UUID tenantId,
                                              @RequestHeader("X-Platform-Admin-Key") String key) {
         PlatformAdminInfo admin = guard.authenticate(key);
         guard.requirePermission(admin, "billing:read");
 
-        JsonNode wallet = boss.internalCompanyWallet(companyId);
+        JsonNode wallet = boss.internalCompanyWallet(tenantId);
 
         long availableAmountMinor = wallet.path("total_micro").asLong(0) / 10000;
         long reservedAmountMinor = (wallet.path("reserved_gift_micro").asLong(0)
@@ -59,10 +59,10 @@ public class PlatformBillingController {
 
     /**
      * 平台管理端查看账本流水。
-     * 调用 BOSS companyStatements（传入的 companyId 即 companyId）。
+     * 调用 BOSS companyStatements（传入的 tenantId 即 tenantId）。
      */
     @GetMapping("/billing")
-    public LedgerPage billingLedger(@RequestParam UUID companyId,
+    public LedgerPage billingLedger(@RequestParam UUID tenantId,
                                     @RequestParam(defaultValue = "100") int pageSize,
                                     @RequestParam(defaultValue = "1") int page,
                                     @RequestHeader("X-Platform-Admin-Key") String key) {
@@ -72,7 +72,7 @@ public class PlatformBillingController {
         List<LedgerItem> items = new ArrayList<>();
         long total = 0;
 
-        JsonNode statements = boss.internalCompanyStatements(companyId);
+        JsonNode statements = boss.internalCompanyStatements(tenantId);
         // BOSS statements 可能是数组或带 items 的分页对象
         JsonNode array = statements.isArray() ? statements : statements.path("items");
         if (array.isArray()) {
@@ -89,8 +89,8 @@ public class PlatformBillingController {
      * 平台管理端余额调整。
      * 当前 BOSS 未提供内部调整接口，返回 501 提示运营人员通过 BOSS 后台操作。
      */
-    @PostMapping("/companies/{companyId}/billing/adjustments")
-    public AdjustmentResult adjustBalance(@PathVariable UUID companyId,
+    @PostMapping("/companies/{tenantId}/billing/adjustments")
+    public AdjustmentResult adjustBalance(@PathVariable UUID tenantId,
                                           @Valid @RequestBody AdjustmentRequest request,
                                           @RequestHeader("X-Platform-Admin-Key") String key) {
         PlatformAdminInfo admin = guard.authenticate(key);

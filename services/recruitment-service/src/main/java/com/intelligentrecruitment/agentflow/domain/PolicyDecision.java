@@ -13,7 +13,7 @@ public record PolicyDecision(
         Decision decision,
         @JsonProperty("reason_codes") List<ReasonCode> reasonCodes,
         @JsonProperty("workspace_id") UUID workspaceId,
-        @JsonProperty("company_id") UUID companyId,
+        @JsonProperty("tenant_id") UUID tenantId,
         @JsonProperty("actor_id") UUID actorId,
         Confirmation confirmation,
         @JsonProperty("policy_version") String policyVersion,

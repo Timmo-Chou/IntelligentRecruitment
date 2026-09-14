@@ -53,7 +53,7 @@ export function InterviewWorkspace({
       const versions = await fetchJobVersions(workspaceId, job.id);
       const latest = versions[0];
       if (!latest) throw new Error("所选 JD 暂无可用版本，请先在职位库保存 JD。");
-      const result = await apiFetch<InterviewKit>(`/companies/${workspaceId}/interview-kits`, {
+      const result = await apiFetch<InterviewKit>(`/tenants/${workspaceId}/interview-kits`, {
         method: "POST", body: JSON.stringify({ candidateId: candidate.id, jobVersionId: latest.id, questionCount: 8 }),
       });
       setKit(result); setMessage("已根据所选 JD 和人才生成可编辑题包。");
@@ -70,7 +70,7 @@ export function InterviewWorkspace({
     if (!kit) return;
     setSaving(true); setMessage("");
     try {
-      const result = await apiFetch<InterviewKit>(`/companies/${workspaceId}/interview-kits/${kit.id}`, { method: "PUT", body: JSON.stringify(kit.questions) });
+      const result = await apiFetch<InterviewKit>(`/tenants/${workspaceId}/interview-kits/${kit.id}`, { method: "PUT", body: JSON.stringify(kit.questions) });
       setKit(result); setMessage("题目草稿已保存。");
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "保存失败"); }
     finally { setSaving(false); }
@@ -80,7 +80,7 @@ export function InterviewWorkspace({
     if (!kit) return;
     setSaving(true); setMessage("");
     try {
-      const result = await apiFetch<InterviewKit>(`/companies/${workspaceId}/interview-kits/${kit.id}/confirm`, { method: "POST" });
+      const result = await apiFetch<InterviewKit>(`/tenants/${workspaceId}/interview-kits/${kit.id}/confirm`, { method: "POST" });
       setKit(result); setMessage("面试题已发布并保存至面试题库。");
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "发布失败"); }
     finally { setSaving(false); }

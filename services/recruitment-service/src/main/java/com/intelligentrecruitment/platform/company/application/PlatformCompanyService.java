@@ -24,12 +24,12 @@ public class PlatformCompanyService {
     }
 
     public record CompanySummary(
-            String companyId, String companyName, String shortName,
+            String tenantId, String companyName, String shortName,
             String verificationStatus, String managementStatus,
             int memberCount, String createdAt) {}
 
     public record CompanyDetail(
-            String companyId, String legalName, String displayName,
+            String tenantId, String legalName, String displayName,
             String creditCodeMasked, String verificationStatus, String managementStatus,
             String ownerUserId, String ownerDisplayName,
             String licenseOriginalFilename,   // 营业执照原始文件名
@@ -86,7 +86,7 @@ public class PlatformCompanyService {
         return new PagedResult<>(items, total != null ? total : 0, page, pageSize);
     }
 
-    public CompanyDetail getCompanyDetail(UUID companyId) {
+    public CompanyDetail getCompanyDetail(UUID tenantId) {
         var company = jdbc.query(
                 "SELECT c.id, c.legal_name, c.display_name, c.credit_code_masked, c.license_reference, " +
                 "c.verification_status, c.management_status, c.owner_user_id, c.created_at, " +
@@ -104,7 +104,7 @@ public class PlatformCompanyService {
                     final String ownerDisplayName = rs.getString("owner_name");
                     final String createdAt = rs.getTimestamp("created_at").toInstant().toString();
                 },
-                companyId
+                tenantId
         );
         if (company.isEmpty()) {
             throw new ApiException("NOT_FOUND", "企业不存在", HttpStatus.NOT_FOUND);
@@ -118,7 +118,7 @@ public class PlatformCompanyService {
                 (rs, n) -> new MemberSummary(
                         rs.getString("user_id"), rs.getString("display_name"),
                         rs.getString("role"), rs.getString("status")),
-                companyId
+                tenantId
         );
 
         List<WorkspaceSummary> workspaces = jdbc.query(
@@ -128,7 +128,7 @@ public class PlatformCompanyService {
                 (rs, n) -> new WorkspaceSummary(
                         rs.getString("id"), rs.getString("name"),
                         rs.getString("status"), rs.getInt("member_count")),
-                companyId
+                tenantId
         );
 
         return new CompanyDetail(c.id, c.legalName, c.displayName, c.creditCodeMasked,
