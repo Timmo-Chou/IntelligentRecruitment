@@ -8,11 +8,12 @@ import { useWorkspace } from "@/lib/workspace-context";
 
 type Me = { userId: string; displayName?: string; maskedPhone?: string };
 type Company = { companyId: string; legalName: string; companyStatus: string; tenantStatus: string };
+type Wallet = { total_micro: number; gift_micro: number; recharge_micro: number; packages?: Array<{ package_snapshot?: { name?: string }; expires_at?: string }> };
 
 /** Account flyout: the primary menu stays on the right while its account submenu opens to the left. */
 export function SessionSummary() {
   const [me, setMe] = useState<Me | null>(null);
-  const [balance, setBalance] = useState<number | null>(null);
+  const [wallet, setWallet] = useState<Wallet | null>(null);
   const [companyName, setCompanyName] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [switchOpen, setSwitchOpen] = useState(false);
@@ -25,17 +26,16 @@ export function SessionSummary() {
         const [user, companies] = await Promise.all([apiFetch<Me>("/me"), apiFetch<Company[]>("/companies")]);
         if (!active) return;
         setMe(user); setCompanyName(companies[0]?.legalName ?? null);
-        const selected = companies.find(item => item.companyStatus === "ACTIVE" && item.tenantStatus === "ACTIVE") ?? null;
-        if (selected) {
-          const bill = await apiFetch<{ balance_minor: number }>(`/companies/${selected.companyId}/billing`);
-          if (active) setBalance(bill.balance_minor);
-        }
+        if (!workspace) return;
+        const endpoint = workspace.type === "PERSONAL" ? `/tenants/${workspace.id}/billing` : `/companies/${workspace.companyId ?? workspace.id}/billing`;
+        const bill = await apiFetch<Wallet>(endpoint);
+        if (active) setWallet(bill);
       } catch (error) {
         if (active && error instanceof ApiError && error.status === 401) window.location.replace("/login");
       }
     })();
     return () => { active = false; };
-  }, []);
+  }, [workspace]);
 
   async function logout() {
     try { await apiFetch("/auth/logout", { method: "POST" }); }
@@ -43,8 +43,9 @@ export function SessionSummary() {
   }
 
   const displayName = workspace?.type === "PERSONAL" ? "个人账号" : workspace?.name ?? companyName ?? me?.displayName ?? "招聘用户";
+  const currentPackage = wallet?.packages?.find(item => !item.expires_at || new Date(item.expires_at) > new Date());
   return <div className="flex items-center gap-3 text-xs text-[#405781]">
-    <Link href="/billing" className="top-pill flex font-semibold text-[#07945f]">{balance === null ? "额度 --" : `¥${(balance / 100).toFixed(2)}`} <ChevronDown size={14}/></Link>
+    <details className="relative"><summary className="top-pill flex cursor-pointer list-none font-semibold text-[#07945f]">{wallet === null ? "额度 --" : `¥${(wallet.total_micro / 1_000_000).toFixed(2)}`} <ChevronDown size={14}/></summary><div className="absolute right-0 z-50 mt-2 w-52 rounded-xl border border-[#d8dee8] bg-white p-3 text-xs shadow-[0_16px_36px_rgba(28,47,76,0.18)]"><p className="m-0 flex justify-between"><span>赠送余额</span><strong>¥{((wallet?.gift_micro ?? 0) / 1_000_000).toFixed(2)}</strong></p><p className="mb-0 mt-2 flex justify-between"><span>充值余额</span><strong>¥{((wallet?.recharge_micro ?? 0) / 1_000_000).toFixed(2)}</strong></p><p className="mb-0 mt-3 border-t border-[#e4edf7] pt-2 text-[#7187a8]">套餐：{currentPackage?.package_snapshot?.name ?? "未购买"}</p><Link href="/billing" className="mt-2 block text-[#2467ca]">查看额度与账单</Link></div></details>
     <div className="relative hidden border-l border-[#d9e6f3] pl-3 md:block">
       <button type="button" aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => { setMenuOpen(value => !value); setSwitchOpen(false); }} className="flex items-center gap-2 text-left">
         <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-[#dff7f4] to-[#b7d5ff] text-[#0d57aa]"><UserRound size={18}/></span>

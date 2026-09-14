@@ -7,7 +7,6 @@ import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api-client";
 import { SessionSummary } from "./session-summary";
-import { WorkspaceSwitcher } from "./workspace-switcher";
 import { useWorkspace } from "@/lib/workspace-context";
 import { deleteTask, fetchTasks, renameTask, type TaskSummary } from "@/lib/recruitment-api";
 import { AIChatDialog } from "../ai-assistant/ai-chat-dialog";
@@ -190,13 +189,12 @@ export function AppShell({ children, activeItem = "概览", pageHeader }: { chil
   const router=useRouter(); const pathname=usePathname();
   // AI咨询助手开关
   const [aiOpen, setAiOpen] = useState(false);
-  useEffect(()=>{if(pathname==="/onboarding"||pathname==="/login")return; apiFetch<unknown[]>("/workspaces").then(items=>{if(!items.length)router.replace("/onboarding");}).catch(()=>{});},[pathname,router]);
+  useEffect(()=>{if(pathname==="/onboarding"||pathname==="/login")return; apiFetch<unknown[]>("/companies").then(items=>{if(!items.length)router.replace("/onboarding");}).catch(()=>{});},[pathname,router]);
   return <div className="min-h-screen bg-[#f7fbff] text-[#10285b]">
     <header className="app-header sticky top-0 z-40 flex h-[66px] items-center justify-between border-b border-[#dbe9f8] bg-white px-6 lg:px-8">
-      <div className="flex items-center gap-3 text-[21px] font-bold tracking-tight text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>漫舟·昭语 智能招聘工作台</div>
+      <div className="flex items-center gap-3 text-[21px] font-bold tracking-tight text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>iFoundX 智能招聘工作台</div>
       <div className="flex items-center gap-2">
         <NotificationBell />
-        <WorkspaceSwitcher />
         <SessionSummary/>
       </div>
     </header>

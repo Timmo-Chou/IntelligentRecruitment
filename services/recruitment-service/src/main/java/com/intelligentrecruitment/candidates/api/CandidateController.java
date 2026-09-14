@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/companies/{workspaceId}/candidates")
+@RequestMapping("/api/v1/companies/{companyId}/candidates")
 public class CandidateController {
 
     private final CandidateService candidates;
@@ -24,26 +24,26 @@ public class CandidateController {
     }
 
     @PostMapping(value = "/resumes", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    CandidateService.CandidateDetail upload(@PathVariable UUID workspaceId,
+    CandidateService.CandidateDetail upload(@PathVariable UUID companyId,
                                             @RequestPart("file") MultipartFile file,
                                             Authentication authentication) {
-        return candidates.upload(CurrentUser.id(authentication), workspaceId, file);
+        return candidates.upload(CurrentUser.id(authentication), companyId, file);
     }
 
     @PostMapping
-    CandidateService.CandidateDetail create(@PathVariable UUID workspaceId,
+    CandidateService.CandidateDetail create(@PathVariable UUID companyId,
                                             @RequestBody CandidateService.ManualTalentInput input,
                                             Authentication authentication) {
-        return candidates.createManual(CurrentUser.id(authentication), workspaceId, input);
+        return candidates.createManual(CurrentUser.id(authentication), companyId, input);
     }
 
     @GetMapping("/stats")
-    CandidateService.CandidateStats stats(@PathVariable UUID workspaceId, Authentication authentication) {
-        return candidates.stats(CurrentUser.id(authentication), workspaceId);
+    CandidateService.CandidateStats stats(@PathVariable UUID companyId, Authentication authentication) {
+        return candidates.stats(CurrentUser.id(authentication), companyId);
     }
 
     @GetMapping
-    CandidateService.CandidateListResult list(@PathVariable UUID workspaceId,
+    CandidateService.CandidateListResult list(@PathVariable UUID companyId,
                                               @RequestParam(required = false) String search,
                                               @RequestParam(required = false) String status,
                                               @RequestParam(required = false) String segment,
@@ -62,34 +62,34 @@ public class CandidateController {
                                               @RequestParam(defaultValue = "1") int page,
                                               @RequestParam(defaultValue = "20") int pageSize,
                                               Authentication authentication) {
-        return candidates.list(CurrentUser.id(authentication), workspaceId,
+        return candidates.list(CurrentUser.id(authentication), companyId,
                 new CandidateService.CandidateListQuery(
                         search, status, segment, minMatchScore, industry, city, tags, yearsMin, yearsMax,
                         education, source, activity, talentStatus, createdFrom, createdTo, page, pageSize));
     }
 
     @GetMapping("/{candidateId}")
-    CandidateService.CandidateDetail get(@PathVariable UUID workspaceId, @PathVariable UUID candidateId,
+    CandidateService.CandidateDetail get(@PathVariable UUID companyId, @PathVariable UUID candidateId,
                                          Authentication authentication) {
-        return candidates.get(CurrentUser.id(authentication), workspaceId, candidateId);
+        return candidates.get(CurrentUser.id(authentication), companyId, candidateId);
     }
 
     @PostMapping("/{candidateId}/reveal")
-    CandidateService.RevealedPii reveal(@PathVariable UUID workspaceId, @PathVariable UUID candidateId,
+    CandidateService.RevealedPii reveal(@PathVariable UUID companyId, @PathVariable UUID candidateId,
                                         Authentication authentication) {
-        return candidates.reveal(CurrentUser.id(authentication), workspaceId, candidateId);
+        return candidates.reveal(CurrentUser.id(authentication), companyId, candidateId);
     }
 
     @PostMapping("/{candidateId}/parse-retries")
-    CandidateService.CandidateDetail retry(@PathVariable UUID workspaceId, @PathVariable UUID candidateId,
+    CandidateService.CandidateDetail retry(@PathVariable UUID companyId, @PathVariable UUID candidateId,
                                            Authentication authentication) {
-        return candidates.retryParse(CurrentUser.id(authentication), workspaceId, candidateId);
+        return candidates.retryParse(CurrentUser.id(authentication), companyId, candidateId);
     }
 
     @GetMapping("/{candidateId}/resume-file")
-    ResponseEntity<byte[]> download(@PathVariable UUID workspaceId, @PathVariable UUID candidateId,
+    ResponseEntity<byte[]> download(@PathVariable UUID companyId, @PathVariable UUID candidateId,
                                     Authentication authentication) {
-        CandidateService.DownloadedResume file = candidates.download(CurrentUser.id(authentication), workspaceId, candidateId);
+        CandidateService.DownloadedResume file = candidates.download(CurrentUser.id(authentication), companyId, candidateId);
         return ResponseEntity.ok().contentType(MediaType.parseMediaType(file.mediaType()))
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
                         .filename(file.filename(), StandardCharsets.UTF_8).build().toString())
@@ -97,18 +97,18 @@ public class CandidateController {
     }
 
     @PatchMapping("/{candidateId}/tags")
-    CandidateService.CandidateDetail updateTags(@PathVariable UUID workspaceId,
+    CandidateService.CandidateDetail updateTags(@PathVariable UUID companyId,
                                                 @PathVariable UUID candidateId,
                                                 @RequestBody TagsUpdateRequest request,
                                                 Authentication authentication) {
-        return candidates.updateTags(CurrentUser.id(authentication), workspaceId, candidateId,
+        return candidates.updateTags(CurrentUser.id(authentication), companyId, candidateId,
                 request == null ? java.util.List.of() : request.tags());
     }
 
     @DeleteMapping("/{candidateId}")
-    ResponseEntity<Void> delete(@PathVariable UUID workspaceId, @PathVariable UUID candidateId,
+    ResponseEntity<Void> delete(@PathVariable UUID companyId, @PathVariable UUID candidateId,
                                 Authentication authentication) {
-        candidates.delete(CurrentUser.id(authentication), workspaceId, candidateId);
+        candidates.delete(CurrentUser.id(authentication), companyId, candidateId);
         return ResponseEntity.noContent().build();
     }
 

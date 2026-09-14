@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { adminApiFetch, bossAdminApiFetch, bossAdminFileFetch } from "@/lib/admin-api-client";
+import { adminApiFetch } from "@/lib/admin-api-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -29,7 +29,6 @@ type ReviewDetail = {
   displayName?: string;
   businessLicense?: string;        // 原始展示：文件名或旧编号
   businessLicensePreviewUrl?: string | null; // 营业执照预签名预览 URL（新数据），null 表示不可预览
-  businessLicensePreviewable?: boolean;
   creditCodeMasked?: string;
   requestType?: string;
   firstWorkspaceName?: string;
@@ -50,14 +49,12 @@ type PersonalDetail = {
 
 // 后端返回的企业认证详情
 type CompanyDetail = {
-  id: string;
-  legalName: string;
-  creditCode: string;
-  contactName: string;
-  licenseReference: string;
-  licenseFilename?: string | null;
-  status: string;
-  rejectionMessage?: string | null;
+  id: string; applicantUserId: string; legalName: string;
+  displayName: string; requestType: string; status: string;
+  creditCodeMasked: string; licenseReference: string;
+  licenseOriginalFilename: string;  // 还原的原始文件名
+  licensePreviewUrl: string | null; // 预览 URL，旧数据可能为 null
+  firstWorkspaceName: string; applicantDisplayName: string | null;
   createdAt: string;
 };
 
@@ -89,17 +86,17 @@ function mapToReviewDetail(raw: unknown, type: string): ReviewDetail {
     const d = raw as CompanyDetail;
     return {
       id: d.id, type: "company", status: d.status,
-      targetName: d.legalName,
-      submitterName: d.contactName || "BOSS 用户",
+      targetName: d.legalName || d.displayName,
+      submitterName: d.applicantDisplayName ?? d.applicantUserId,
       createdAt: d.createdAt,
       companyName: d.legalName,
-      businessLicense: d.licenseFilename || d.licenseReference,
-      businessLicensePreviewUrl: null,
-      businessLicensePreviewable: true,
-      creditCodeMasked: d.creditCode,
-      requestType: "CREATE",
-      applicantDisplayName: d.contactName || "BOSS 用户",
-      message: d.rejectionMessage ?? undefined,
+      displayName: d.displayName,
+      businessLicense: d.licenseOriginalFilename || d.licenseReference,
+      businessLicensePreviewUrl: d.licensePreviewUrl ?? null,
+      creditCodeMasked: d.creditCodeMasked,
+      requestType: d.requestType,
+      firstWorkspaceName: d.firstWorkspaceName,
+      applicantDisplayName: d.applicantDisplayName ?? d.applicantUserId,
     };
   }
   // membership
@@ -127,8 +124,6 @@ export default function ReviewDetailPage() {
   const [personalUserId, setPersonalUserId] = useState<string | null>(null);
   // 营业执照预览弹窗
   const [showLicensePreview, setShowLicensePreview] = useState(false);
-  const [licensePreviewUrl, setLicensePreviewUrl] = useState<string | null>(null);
-  const [licensePreviewContentType, setLicensePreviewContentType] = useState<string | null>(null);
   // ESC 关闭预览
   useEffect(() => {
     if (!showLicensePreview) return;
@@ -140,7 +135,7 @@ export default function ReviewDetailPage() {
   // 根据类型确定后端 API 路径
   function getDetailEndpoint(): string {
     if (type === "personal") return `/platform/reviews/personal/${id}`;
-    if (type === "company") return `/platform/company-verifications/${id}`;
+    if (type === "company") return `/platform/reviews/company-verifications/${id}`;
     return `/platform/reviews/membership-applications/${id}`;
   }
 
@@ -149,14 +144,16 @@ export default function ReviewDetailPage() {
       const uid = personalUserId || id;
       return `/platform/personal-verifications/${uid}/${action === "APPROVE" ? "approve" : "reject"}`;
     }
-    if (type === "company") return `/platform/company-verifications/${id}/decision`;
+    if (type === "company") {
+      return `/platform/company-verifications/${id}/${action === "APPROVE" ? "approve" : "reject"}`;
+    }
     return `/platform/company-membership-applications/${id}/${action === "APPROVE" ? "approve" : "reject"}`;
   }
 
   const { data: review, isLoading } = useQuery({
     queryKey: ["review", type, id],
     queryFn: async () => {
-      const rawData = await (type === "company" ? bossAdminApiFetch : adminApiFetch)<Record<string, unknown>>(getDetailEndpoint());
+      const rawData = await adminApiFetch<Record<string, unknown>>(getDetailEndpoint());
       // 保存个人认证的 userId 用于审批
       if (type === "personal" && rawData.userId) {
         setPersonalUserId(rawData.userId as string);
@@ -169,14 +166,13 @@ export default function ReviewDetailPage() {
   const processMutation = useMutation({
     mutationFn: async (action: "APPROVE" | "REJECT") => {
       const endpoint = getProcessEndpoint(action);
-      const body = type === "company"
-        ? { approve: action === "APPROVE", reasonCode: action === "REJECT" ? "PLATFORM_REJECTED" : "", message: action === "REJECT" ? reason : "" }
-        : action === "APPROVE"
-          ? { reviewer: "平台管理员" }
-          : { reviewer: "平台管理员", reason };
-      return (type === "company" ? bossAdminApiFetch : adminApiFetch)(endpoint, {
+      return adminApiFetch(endpoint, {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify(
+          action === "APPROVE"
+            ? { reviewer: "平台管理员" }
+            : { reviewer: "平台管理员", reason },
+        ),
       });
     },
     onSuccess: () => {
@@ -185,20 +181,6 @@ export default function ReviewDetailPage() {
     onError: (err: Error) => {
       alert("操作失败：" + err.message);
     },
-  });
-
-  const licensePreviewMutation = useMutation({
-    mutationFn: async () => {
-      const blob = await bossAdminFileFetch(`/platform/company-verifications/${id}/license-file`);
-      return { url: URL.createObjectURL(blob), contentType: blob.type };
-    },
-    onSuccess: ({ url, contentType }) => {
-      if (licensePreviewUrl) URL.revokeObjectURL(licensePreviewUrl);
-      setLicensePreviewUrl(url);
-      setLicensePreviewContentType(contentType);
-      setShowLicensePreview(true);
-    },
-    onError: (err: Error) => alert("营业执照加载失败：" + err.message),
   });
 
   function getTypeLabel(t: string) {
@@ -220,7 +202,7 @@ export default function ReviewDetailPage() {
   }
 
   function getStatusBadge(status: string) {
-    if (status === "PENDING" || status === "PENDING_REVIEW") return <Badge variant="warning">待审核</Badge>;
+    if (status === "PENDING") return <Badge variant="warning">待审核</Badge>;
     if (status === "APPROVED" || status === "VERIFIED") return <Badge variant="success">已通过</Badge>;
     if (status === "REJECTED") return <Badge variant="danger">已拒绝</Badge>;
     return <Badge>{status}</Badge>;
@@ -352,16 +334,15 @@ export default function ReviewDetailPage() {
                 <FileText className="mt-0.5 h-4 w-4 text-slate-400" />
                 <div>
                   <span className="text-slate-400">营业执照</span>
-                  {review.businessLicensePreviewUrl || review.businessLicensePreviewable ? (
+                  {review.businessLicensePreviewUrl ? (
                     <button
                       type="button"
-                      onClick={() => review.businessLicensePreviewUrl ? setShowLicensePreview(true) : licensePreviewMutation.mutate()}
-                      disabled={licensePreviewMutation.isPending}
+                      onClick={() => setShowLicensePreview(true)}
                       className="mt-0.5 inline-flex items-center gap-1 font-medium text-blue-600 hover:text-blue-800 hover:underline"
                     >
                       <Eye className="h-4 w-4" />
                       {review.businessLicense}
-                      <span className="text-xs text-slate-500">（{licensePreviewMutation.isPending ? "加载中…" : "点击预览"}）</span>
+                      <span className="text-xs text-slate-500">（点击预览）</span>
                     </button>
                   ) : (
                     <p className="mt-0.5 font-medium text-slate-700">{review.businessLicense}
@@ -422,7 +403,7 @@ export default function ReviewDetailPage() {
       </section>
 
       {/* 审批操作 */}
-      {(review.status === "PENDING" || review.status === "PENDING_REVIEW") && (
+      {review.status === "PENDING" && (
         <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="mb-4 flex items-center gap-2 text-base font-bold text-slate-700">
             <Shield className="h-5 w-5 text-blue-500" />
@@ -485,7 +466,7 @@ export default function ReviewDetailPage() {
       )}
 
       {/* 营业执照预览弹窗 */}
-      {showLicensePreview && (licensePreviewUrl || review.businessLicensePreviewUrl) && (
+      {showLicensePreview && review.businessLicensePreviewUrl && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
           onClick={() => setShowLicensePreview(false)}
@@ -514,15 +495,15 @@ export default function ReviewDetailPage() {
               </button>
             </div>
             <div className="flex-1 overflow-auto bg-slate-50 p-4">
-              {isImageFile(licensePreviewUrl ?? review.businessLicensePreviewUrl!, review.businessLicense, licensePreviewContentType) ? (
+              {isImageFile(review.businessLicensePreviewUrl, review.businessLicense) ? (
                 <img
-                  src={licensePreviewUrl ?? review.businessLicensePreviewUrl!}
+                  src={review.businessLicensePreviewUrl}
                   alt={review.businessLicense ?? "营业执照"}
                   className="mx-auto max-h-full max-w-full rounded-lg border border-slate-200 bg-white shadow"
                 />
-              ) : isPdfFile(licensePreviewUrl ?? review.businessLicensePreviewUrl!, review.businessLicense, licensePreviewContentType) ? (
+              ) : isPdfFile(review.businessLicensePreviewUrl, review.businessLicense) ? (
                 <iframe
-                  src={licensePreviewUrl ?? review.businessLicensePreviewUrl!}
+                  src={review.businessLicensePreviewUrl}
                   title={review.businessLicense ?? "营业执照 PDF"}
                   className="h-full min-h-[65vh] w-full rounded-lg border border-slate-200 bg-white"
                 />
@@ -531,7 +512,7 @@ export default function ReviewDetailPage() {
                 <div className="space-y-3 text-center">
                   <p className="text-sm text-slate-500">浏览器无法直接预览该文件类型，请点击下方链接查看：</p>
                   <a
-                    href={licensePreviewUrl ?? review.businessLicensePreviewUrl!}
+                    href={review.businessLicensePreviewUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
@@ -549,13 +530,11 @@ export default function ReviewDetailPage() {
 }
 
 // ---------- 工具函数 ----------
-function isImageFile(url: string, filename?: string, contentType?: string | null): boolean {
-  if (contentType?.startsWith("image/")) return true;
+function isImageFile(url: string, filename?: string): boolean {
   const probe = (filename || "").toLowerCase() + " " + url.toLowerCase();
   return /\.(jpg|jpeg|png|webp|gif|bmp)(\?|$)/.test(probe);
 }
-function isPdfFile(url: string, filename?: string, contentType?: string | null): boolean {
-  if (contentType === "application/pdf") return true;
+function isPdfFile(url: string, filename?: string): boolean {
   const probe = (filename || "").toLowerCase() + " " + url.toLowerCase();
   return probe.includes(".pdf") || /application\/pdf/.test(probe);
 }

@@ -1,19 +1,30 @@
 openapi: 3.1.0
 info:
-  title: AI Platform Contract for Intelligent Recruitment
-  version: 0.3.0-draft
+  title: AIAgentPlatform Contract
+  version: 1.0.0
   description: >-
-    Development contract used by the recruitment business service and its mock
-    adapter. Partner review is required before v1.0.0.
+    AIAgentPlatform（AI 执行面）对外与对内契约 v1.0。
+    对内路径 `/api/v1/*` 供招聘 SaaS 等内部服务调用（带 BOSS 机器令牌）。
+    开放路径 `/ai/v1/*` 供 API Gateway 转发第三方调用（外部主体上下文）。
+    所有写操作必须携带 `Idempotency-Key` 与 `X-Request-Id`。
+    错误信封统一为 `{ code, message, request_id }`，错误码与 BOSS 对齐。
 servers:
-  - url: https://ai-platform.example.invalid/api/v1
+  - url: https://ai-agent-platform.internal/api/v1
+    description: 对内服务面（招聘 SaaS 直连）
+  - url: https://api.example.com/ai/v1
+    description: 开放面（经 API Gateway 转发第三方）
+security:
+  - BearerAuth: []
 paths:
   /agent-routes:
     post:
       operationId: routeAgentMessage
       description: >-
-        Returns a non-authoritative routing recommendation for free-form user text.
-        The response cannot authorize execution, data access, or billing.
+        返回非权威路由建议。响应不能授权执行、数据访问或计费。
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/RequestId"
       requestBody:
         required: true
         content:
@@ -34,19 +45,20 @@ paths:
                     enum: [requirement_chat, recruitment_qa, jd_generation, resume_parsing, screening_plan_generation, candidate_screening, candidate_sourcing, job_distribution, candidate_outreach, interview_kit_generation, task_assistance]
       responses:
         "200":
-          description: Routing recommendation
+          description: 路由建议
           content:
             application/json:
               schema: { $ref: "./schemas/route-decision-v2.schema.json" }
         default: { $ref: "#/components/responses/Error" }
+
   /capability-executions:
     post:
       operationId: createCapabilityExecution
       description: >-
-        Starts one already-authorized capability execution. The business service must
-        supply an ExecutionContext whose PolicyDecision is allow.
+        启动一个已授权的能力执行。业务方必须提供 PolicyDecision=allow 的 ExecutionContext。
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
       requestBody:
         required: true
         content:
@@ -54,11 +66,12 @@ paths:
             schema: { $ref: "./schemas/execution-context.schema.json" }
       responses:
         "202":
-          description: Capability execution accepted
+          description: 执行已受理
           content:
             application/json:
               schema: { $ref: "./schemas/task.schema.json" }
         default: { $ref: "#/components/responses/Error" }
+
   /tasks/{aiTaskId}:
     get:
       operationId: getAiTask
@@ -67,13 +80,15 @@ paths:
           in: path
           required: true
           schema: { type: string }
+        - $ref: "#/components/parameters/RequestId"
       responses:
         "200":
-          description: Current task state
+          description: 当前任务状态
           content:
             application/json:
               schema: { $ref: "./schemas/task.schema.json" }
         default: { $ref: "#/components/responses/Error" }
+
   /tasks/{aiTaskId}/result:
     get:
       operationId: getAiTaskResult
@@ -82,13 +97,15 @@ paths:
           in: path
           required: true
           schema: { type: string }
+        - $ref: "#/components/parameters/RequestId"
       responses:
         "200":
-          description: Final or latest structured result for the task
+          description: 最终或最新结构化结果
           content:
             application/json:
               schema: { $ref: "./schemas/structured-result.schema.json" }
         default: { $ref: "#/components/responses/Error" }
+
   /tasks/{aiTaskId}/cancel:
     post:
       operationId: cancelAiTask
@@ -98,18 +115,21 @@ paths:
           required: true
           schema: { type: string }
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
       responses:
         "202":
-          description: Cancellation accepted or resolved
+          description: 取消已受理或已解决
           content:
             application/json:
               schema: { $ref: "./schemas/task.schema.json" }
         default: { $ref: "#/components/responses/Error" }
+
   /jd-generations:
     post:
       operationId: createJdGeneration
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
       requestBody:
         required: true
         content:
@@ -122,16 +142,18 @@ paths:
                 requirement: { type: object, additionalProperties: true }
       responses:
         "202":
-          description: Generation accepted
+          description: 生成已受理
           content:
             application/json:
               schema: { $ref: "./schemas/task.schema.json" }
         default: { $ref: "#/components/responses/Error" }
+
   /resume-parse-tasks:
     post:
       operationId: createResumeParseTask
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
       requestBody:
         required: true
         content:
@@ -147,16 +169,18 @@ paths:
                   items: { $ref: "./schemas/file-reference.schema.json" }
       responses:
         "202":
-          description: Parse task accepted
+          description: 解析任务已受理
           content:
             application/json:
               schema: { $ref: "./schemas/task.schema.json" }
         default: { $ref: "#/components/responses/Error" }
+
   /screening-tasks:
     post:
       operationId: createScreeningTask
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
       requestBody:
         required: true
         content:
@@ -179,16 +203,18 @@ paths:
                       resume_parse_version_ref: { type: string }
       responses:
         "202":
-          description: Screening task accepted
+          description: 筛选任务已受理
           content:
             application/json:
               schema: { $ref: "./schemas/task.schema.json" }
         default: { $ref: "#/components/responses/Error" }
+
   /interview-kit-tasks:
     post:
       operationId: createInterviewKitTask
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
       requestBody:
         required: true
         content:
@@ -209,16 +235,283 @@ paths:
                       candidate_ref: { type: string }
                       resume_parse_version_ref: { type: string }
                       screening_result_ref: { type: string }
+      responses:
+        "202":
+          description: 面试题任务已受理
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ===================== 开放面 /ai/v1/*（经 API Gateway 转发）=====================
+  # 开放面与对内面能力一致，但请求上下文使用 external_company_id / external_user_id，
+  # 由 Gateway 解析凭证后注入可信主体。AI Platform 不信任调用方自报的 tenant/company。
+
+  /ai/v1/jd-generations:
+    post:
+      operationId: openCreateJdGeneration
+      description: 第三方经网关调用 JD 生成。
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [external_company_id, external_user_id, requirement]
+              properties:
+                external_company_id: { type: string, minLength: 1 }
+                external_user_id: { type: string, minLength: 1 }
+                requirement: { type: object, additionalProperties: true }
+      responses:
+        "202":
+          description: 生成已受理
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /ai/v1/resume-parse-tasks:
+    post:
+      operationId: openCreateResumeParseTask
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [external_company_id, external_user_id, files]
+              properties:
+                external_company_id: { type: string, minLength: 1 }
+                external_user_id: { type: string, minLength: 1 }
+                files:
+                  type: array
+                  minItems: 1
+                  items: { $ref: "./schemas/file-reference.schema.json" }
+      responses:
+        "202":
+          description: 解析任务已受理
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /ai/v1/screening-tasks:
+    post:
+      operationId: openCreateScreeningTask
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [external_company_id, external_user_id, job_version_ref, screening_plan_version_ref, candidates]
+              properties:
+                external_company_id: { type: string, minLength: 1 }
+                external_user_id: { type: string, minLength: 1 }
+                job_version_ref: { type: string }
+                screening_plan_version_ref: { type: string }
+                candidates:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [candidate_ref, resume_parse_version_ref]
+                    properties:
+                      candidate_ref: { type: string }
+                      resume_parse_version_ref: { type: string }
+      responses:
+        "202":
+          description: 筛选任务已受理
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /ai/v1/tasks/{aiTaskId}:
+    get:
+      operationId: openGetAiTask
+      parameters:
+        - name: aiTaskId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: 当前任务状态
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /ai/v1/tasks/{aiTaskId}/result:
+    get:
+      operationId: openGetAiTaskResult
+      parameters:
+        - name: aiTaskId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: 最终或最新结构化结果
+          content:
+            application/json:
+              schema: { $ref: "./schemas/structured-result.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /ai/v1/tasks/{aiTaskId}/cancel:
+    post:
+      operationId: openCancelAiTask
+      parameters:
+        - name: aiTaskId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "202":
+          description: 取消已受理或已解决
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /ai/v1/candidate-screenings:
+    post:
+      operationId: openCreateCandidateScreening
+      description: 启动单个候选人的简历筛选（P2 新增）
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job, resume]
+              properties:
+                job: { type: object, description: 职位快照 }
+                resume: { type: object, description: 候选人简历文本 }
+                screening_plan: { type: object, description: 筛选方案（可选） }
+      responses:
+        "202":
+          description: 筛选任务已受理
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /ai/v1/interview-kits:
+    post:
+      operationId: openCreateInterviewKit
+      description: 生成面试题包（P2 新增）
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [job, candidate]
+              properties:
+                job: { type: object, description: 职位快照 }
+                candidate: { type: object, description: 候选人快照 }
+                requested_count: { type: integer, minimum: 4, maximum: 20, default: 8 }
+      responses:
+        "202":
+          description: 面试出题任务已受理
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /ai/v1/conversation-routes:
+    post:
+      operationId: openCreateConversationRoute
+      description: 对话意图路由（P2 新增）
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string, minLength: 1 }
+                allowed_capabilities:
+                  type: array
+                  items: { type: string }
+      responses:
+        "202":
+          description: 路由任务已受理
+          content:
+            application/json:
+              schema: { $ref: "./schemas/task.schema.json" }
+        default: { $ref: "#/components/responses/Error" }
+
 components:
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
       in: header
       required: true
+      description: 幂等键，8-200 字符。同一 api_client + operation + key 返回同一受理结果。
       schema: { type: string, minLength: 8, maxLength: 200 }
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: false
+      description: 调用方追踪 ID；缺失时由服务端生成并回写响应头。
+      schema: { type: string, minLength: 1, maxLength: 200 }
   responses:
     Error:
-      description: Typed AI Platform error
+      description: 统一错误信封
       content:
         application/json:
           schema: { $ref: "./schemas/error.schema.json" }
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        对内面使用 BOSS 签发的机器令牌（INTERNAL_SERVICE client）。
+        开放面由 API Gateway 校验第三方 OAuth 凭证后，以可信内部主体转发。
+
+# ===================== 回调（Webhook）签名规范 =====================
+# AIAgentPlatform 在任务状态变更时，向业务方注册的回调地址 POST 推送 webhook-event。
+# 签名算法：HMAC-SHA256(webhook_signing_secret, timestamp + "." + body)，
+# 头部：X-Webhook-Signature: t=<timestamp>,s=<hex_signature>
+# 时间窗口：5 分钟（300 秒），超时的回调应被拒绝。
+webhooks:
+  taskStatusChanged:
+    post:
+      operationId: onTaskStatusChanged
+      description: 任务状态变更回调（started/progress/completed/failed/cancelled 等）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "./schemas/webhook-event.schema.json" }
+      responses:
+        "200":
+          description: 业务方已接收。AIAgentPlatform 对非 2xx 会重试（指数退避，最多 5 次）。
+

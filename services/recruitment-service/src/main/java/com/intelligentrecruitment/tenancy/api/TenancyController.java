@@ -26,11 +26,24 @@ public class TenancyController {
     private final BossControlPlaneClient boss;
     public TenancyController(BossControlPlaneClient boss) { this.boss = boss; }
 
+    /**
+     * 返回当前用户的企业列表。
+     * 前端期望字段：id、displayName、legalName、creditCodeMasked、verificationStatus、role。
+     * - displayName 用 legalName 代替（BOSS 无 displayName）
+     * - creditCodeMasked 返回空字符串（BOSS 不返回）
+     * - verificationStatus = companyStatus
+     * - role = companyOwner ? "COMPANY_OWNER" : "COMPANY_MEMBER"
+     */
     @GetMapping
-    List<CompanyContext> companies(Authentication authentication) {
+    List<Company> companies(Authentication authentication) {
         return boss.contexts(CurrentUser.bossAccessToken(authentication)).companies().stream()
-                .map(item -> new CompanyContext(item.companyId(), item.tenantId(), item.legalName(), item.entityType(),
-                        item.companyStatus(), item.tenantStatus(), item.companyOwner()))
+                .map(item -> new Company(
+                        item.companyId(),
+                        item.legalName(),
+                        item.legalName(),
+                        "",
+                        item.companyStatus(),
+                        item.companyOwner() ? "COMPANY_OWNER" : "COMPANY_MEMBER"))
                 .toList();
     }
 
@@ -59,10 +72,17 @@ public class TenancyController {
         return new LicenseDocument(result.reference(), result.filename(), result.contentType(), result.sizeBytes());
     }
 
+    /**
+     * 搜索企业。
+     * 前端期望字段：id、displayName、legalName、verificationStatus、memberCount。
+     * BOSS 不返回 displayName 和 verificationStatus，displayName 用 legalName 代替，
+     * verificationStatus 默认为 VERIFIED（能被搜索到的企业均已通过认证）。
+     */
     @GetMapping("/search")
     List<CompanySearchResult> search(@RequestParam("q") String query, Authentication authentication) {
         return boss.searchCompanies(CurrentUser.bossAccessToken(authentication), query).stream()
-                .map(item -> new CompanySearchResult(item.companyId(), item.legalName(), item.memberCount())).toList();
+                .map(item -> new CompanySearchResult(item.companyId(), item.legalName(), item.legalName(),
+                        "VERIFIED", item.memberCount())).toList();
     }
 
     @PostMapping("/{companyId}/membership-applications")
@@ -119,11 +139,17 @@ public class TenancyController {
                                       @NotBlank String contactPhone) { }
     public record RegistrationResponse(UUID tenantId, UUID companyId, UUID verificationRequestId, String status) { }
     public record LicenseDocument(String reference, String filename, String contentType, long sizeBytes) { }
+
+    /** 企业列表响应体：前端设置页使用 */
+    public record Company(UUID id, String displayName, String legalName, String creditCodeMasked,
+                          String verificationStatus, String role) { }
     public record CompanyContext(UUID companyId, UUID tenantId, String legalName, String entityType,
                                  String companyStatus, String tenantStatus, boolean companyOwner) { }
     public record TenantContext(UUID tenantId, String tenantType, String tenantName, String tenantStatus) { }
     public record Contexts(UUID userId, List<TenantContext> tenants, List<CompanyContext> companies) { }
-    public record CompanySearchResult(UUID companyId, String legalName, int memberCount) { }
+    /** 企业搜索结果：前端加入企业页使用 */
+    public record CompanySearchResult(UUID id, String displayName, String legalName,
+                                      String verificationStatus, int memberCount) { }
     public record PendingRegistration(UUID verificationRequestId, UUID companyId, String legalName,
                                       String status, java.time.Instant createdAt) { }
     public record RecentOrgUnit(@jakarta.validation.constraints.NotNull UUID orgUnitId) { }

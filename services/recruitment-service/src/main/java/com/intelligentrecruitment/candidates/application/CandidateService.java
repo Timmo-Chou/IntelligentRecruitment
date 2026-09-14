@@ -3,14 +3,7 @@ package com.intelligentrecruitment.candidates.application;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.intelligentrecruitment.agentflow.domain.ExecutionContext;
-import com.intelligentrecruitment.agentflow.domain.FlowCapability;
 import com.intelligentrecruitment.aiplatform.application.AiPlatformClient;
-import com.intelligentrecruitment.aiplatform.application.StartAiTaskCommand;
-import com.intelligentrecruitment.aiplatform.domain.AiCapability;
-import com.intelligentrecruitment.aiplatform.domain.AiTask;
-import com.intelligentrecruitment.aiplatform.domain.AiTaskStatus;
-import com.intelligentrecruitment.agentflow.domain.StructuredResult;
 import com.intelligentrecruitment.candidates.infrastructure.ResumeObjectStorage;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
@@ -743,25 +736,7 @@ public class CandidateService {
 
     private void parseAndSave(UUID userId, WorkspaceScope scope, UUID candidateId, UUID resumeFileId,
                               String filename, String rawText, int version) {
-        ParsedResume parsed;
-        try {
-            parsed = parseWithDeepSeek(scope, userId, candidateId, filename, rawText);
-        } catch (RuntimeException exception) {
-            String code = exception instanceof ApiException api ? api.code() : "AI_PROVIDER_UNAVAILABLE";
-            // 连简历原文都没有（如纯图片 PDF），无法兜底：标记失败，等待重新上传或解析
-            if (rawText == null || rawText.isBlank()) {
-                jdbc.update("UPDATE resume_files SET status='PARSE_FAILED',error_code=?,updated_at=? WHERE id=? AND workspace_id=?",
-                        code, timestamp(Instant.now()), resumeFileId, scope.workspaceId());
-                return;
-            }
-            // 降级兜底：AI 不可用/超时时，用本地已抽取的简历原文建立解析版本，
-            // 保证候选人能进入人才库与简历筛选（筛选 AI 直接读取简历原文），结构化字段稍后可重新解析补全
-            String safeName = filenameDisplayName(filename);
-            parsed = new ParsedResume(safeName, "", "", "简历原文已入库，AI 结构化待完善", 0, "待确认",
-                    List.of(), List.of(), List.of(), rawText,
-                    List.of("AI 解析暂不可用（" + code + "），已保存简历原文；可稍后在人才库点击「重新解析」补全结构化信息"),
-                    rawText);
-        }
+        ParsedResume parsed = parseWithDeepSeek(scope, userId, candidateId, filename, rawText);
         Instant now = Instant.now();
         saveParseVersion(scope, candidateId, resumeFileId, version, parsed, now);
         Map<String, Object> profile = uploadProfile(parsed);
@@ -779,33 +754,9 @@ public class CandidateService {
     }
 
     private ParsedResume parseWithDeepSeek(WorkspaceScope scope, UUID userId, UUID candidateId, String filename, String rawText) {
-        String key = "candidate-resume-parse:" + candidateId + ":" + UUID.randomUUID();
-        ExecutionContext context = new ExecutionContext(UUID.randomUUID(), null, key, key, scope.workspaceId(),
-                scope.companyId(), userId, candidateId, key, FlowCapability.RESUME_PARSING, key, List.of(), null,
-                new ExecutionContext.DataHandling(true, "ephemeral", false), Instant.now());
-        AiTask task = aiPlatform.startTask(new StartAiTaskCommand(scope.workspaceId().toString(),
-                scope.companyId() == null ? null : scope.companyId().toString(),
-                userId.toString(), candidateId.toString(), key, AiCapability.RESUME_PARSING,
-                Map.of("resumes", List.of(Map.of("filename", filename, "text", rawText, "source", "candidate_library")),
-                        "job", Map.of()), context));
-        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
-        while (System.nanoTime() < deadline) {
-            AiTask current = aiPlatform.getTask(task.aiTaskId());
-            if (current.status() == AiTaskStatus.COMPLETED) {
-                StructuredResult result = aiPlatform.getStructuredResult(task.aiTaskId());
-                String markdown = String.valueOf(result.data().getOrDefault("markdown", "")).trim();
-                if (markdown.isBlank()) throw new ApiException("AI_SCHEMA_INVALID", "DeepSeek 未返回有效简历解析结果", HttpStatus.BAD_GATEWAY);
-                return parsedFromAi(filename, rawText, markdown, stringList(result.data().get("warnings")));
-            }
-            if (current.status() == AiTaskStatus.FAILED || current.status() == AiTaskStatus.CANCELLED) {
-                throw new ApiException("AI_PROVIDER_UNAVAILABLE", "DeepSeek 简历解析失败", HttpStatus.BAD_GATEWAY);
-            }
-            try { Thread.sleep(100); } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                throw new ApiException("AI_TIMEOUT", "DeepSeek 简历解析被中断", HttpStatus.GATEWAY_TIMEOUT);
-            }
-        }
-        throw new ApiException("AI_TIMEOUT", "DeepSeek 简历解析超时，请重试", HttpStatus.GATEWAY_TIMEOUT);
+        throw new ApiException("POLICY_REQUIRED",
+                "候选人上传不能直接触发 AI 简历解析；请通过携带 BOSS 授权和 PolicyDecision 的招聘流程发起",
+                HttpStatus.CONFLICT);
     }
 
     private ParsedResume parsedFromAi(String filename, String rawText, String markdown, List<String> warnings) {

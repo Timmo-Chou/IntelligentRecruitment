@@ -31,6 +31,15 @@ public class RecruitmentFlowCoordinator {
                     List.of(PolicyDecision.ReasonCode.INSUFFICIENT_BALANCE), quoteId,
                     estimatedAmountMinor, null);
         }
+        return evaluateAuthoritative(capability, scope, actorId, estimatedAmountMinor, quoteId, userConfirmed);
+    }
+
+    /** Production path: BOSS atomically evaluates package and wallet assets. */
+    public PolicyDecision evaluateAuthoritative(FlowCapability capability, WorkspaceScope scope, UUID actorId,
+                                                long estimatedAmountMinor, UUID quoteId, boolean userConfirmed) {
+        // Balance authority is BOSS: package entitlements may cover the request even
+        // when the monetary wallet is empty. The atomic BOSS reservation decides
+        // whether execution can proceed, so do not reject on a local balance snapshot.
         if (!userConfirmed) {
             return decision(capability, scope, actorId, PolicyDecision.Decision.REQUIRE_USER_CONFIRMATION,
                     List.of(PolicyDecision.ReasonCode.AUTHORIZED,

@@ -282,8 +282,8 @@ public class ScreeningService {
         UUID runId = UUID.randomUUID();
         Instant now = Instant.now();
         long availableAmountMinor = billing.view(userId, scope.workspaceId()).availableAmountMinor();
-        PolicyDecision policyDecision = flowCoordinator.evaluate(FlowCapability.CANDIDATE_SCREENING, scope, userId,
-                availableAmountMinor, quote.estimatedAmountMinor(), quote.id(), true);
+        PolicyDecision policyDecision = flowCoordinator.evaluateAuthoritative(FlowCapability.CANDIDATE_SCREENING, scope, userId,
+                quote.estimatedAmountMinor(), quote.id(), true);
         List<ExecutionContext.InputVersion> inputVersions = new ArrayList<>();
         inputVersions.add(new ExecutionContext.InputVersion("job_version", jobVersionId.toString(), "frozen", null));
         inputVersions.add(new ExecutionContext.InputVersion("screening_plan_version", planVersionId.toString(), "frozen", null));
@@ -409,17 +409,17 @@ public class ScreeningService {
                 jdbc.update("UPDATE screening_run_items SET status='PROCESSING',provider_task_id=?,updated_at=? WHERE id=?",
                         aiTask.aiTaskId(), timestamp(now), item.id());
                 if (aiTask.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.COMPLETED) {
-                    persistAiResult(run, item, aiPlatform.getStructuredResult(aiTask.aiTaskId()), now);
+                    persistAiResult(run, item, aiPlatform.getStructuredResult(aiTask.aiTaskId(), run.createdBy().toString()), now);
                 }
             } catch (RuntimeException exception) { failItem(item, exception, now); }
         } else {
             try {
-                var aiTask = item.providerTaskId() == null ? null : aiPlatform.getTask(item.providerTaskId());
+                var aiTask = item.providerTaskId() == null ? null : aiPlatform.getTask(item.providerTaskId(), run.createdBy().toString());
                 if (aiTask == null || aiTask.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.FAILED
                         || aiTask.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.CANCELLED) {
                     failItem(item, new ApiException("AI_PROVIDER_UNAVAILABLE", "AI Platform 未返回可用结果", HttpStatus.BAD_GATEWAY), now);
                 } else if (aiTask.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.COMPLETED) {
-                    persistAiResult(run, item, aiPlatform.getStructuredResult(aiTask.aiTaskId()), now);
+                    persistAiResult(run, item, aiPlatform.getStructuredResult(aiTask.aiTaskId(), run.createdBy().toString()), now);
                 } else {
                     return false;
                 }
@@ -529,12 +529,12 @@ public class ScreeningService {
         if (!"RUNNING".equals(row.status())) {
             throw new ApiException("SCREENING_RUN_TERMINAL", "筛选任务已结束，不能取消", HttpStatus.CONFLICT);
         }
-        if (row.providerTaskId() != null) aiPlatform.cancelTask(row.providerTaskId(), requiredKey(idempotencyKey));
+        if (row.providerTaskId() != null) aiPlatform.cancelTask(row.providerTaskId(), requiredKey(idempotencyKey), userId.toString());
         jdbc.query("""
                 SELECT provider_task_id FROM screening_run_items
                 WHERE run_id=? AND workspace_id=? AND status='PROCESSING' AND provider_task_id IS NOT NULL
                 """, (rs, n) -> rs.getString(1), runId, workspaceId)
-                .forEach(taskId -> aiPlatform.cancelTask(taskId, requiredKey(idempotencyKey)));
+                .forEach(taskId -> aiPlatform.cancelTask(taskId, requiredKey(idempotencyKey), userId.toString()));
         Integer succeeded = jdbc.queryForObject("""
                 SELECT count(*) FROM screening_run_items WHERE run_id=? AND workspace_id=? AND status='SUCCEEDED'
                 """, Integer.class, runId, workspaceId);

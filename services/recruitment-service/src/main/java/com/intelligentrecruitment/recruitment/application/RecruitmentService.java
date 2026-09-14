@@ -328,8 +328,8 @@ public class RecruitmentService {
         Instant now = Instant.now();
         updateLegacyDefaultTaskTitle(task, requirement, now);
         long availableAmountMinor = billing.view(userId, workspaceId).availableAmountMinor();
-        PolicyDecision policyDecision = flowCoordinator.evaluate(FlowCapability.JD_GENERATION, scope, userId,
-                availableAmountMinor, resolveJdPriceMinor(scope.companyId()), null, true);
+        PolicyDecision policyDecision = flowCoordinator.evaluateAuthoritative(FlowCapability.JD_GENERATION, scope, userId,
+                resolveJdPriceMinor(scope.companyId()), null, true);
         ExecutionContext executionContext = flowCoordinator.createExecutionContext(policyDecision, taskId, key,
                 "jd-run:" + runId, List.of(new ExecutionContext.InputVersion("conversation_summary",
                 taskId.toString(), "frozen", payloadHash)), false);
@@ -417,7 +417,7 @@ public class RecruitmentService {
     public void finalizeJdRunIfReady(UUID runId) {
         RunExecution run = runExecution(runId, true);
         if (!"RUNNING".equals(run.status()) || run.providerTaskId() == null) return;
-        AiTask task = aiPlatform.getTask(run.providerTaskId());
+        AiTask task = aiPlatform.getTask(run.providerTaskId(), run.createdBy().toString());
         if (task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.FAILED
                 || task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.CANCELLED) {
             String errorCode = task.errorCode() == null ? "AI_PROVIDER_UNAVAILABLE" : task.errorCode();
@@ -437,7 +437,7 @@ public class RecruitmentService {
     public void finalizeJdRun(UUID runId) {
         RunExecution run = runExecution(runId, true);
         if (!"RUNNING".equals(run.status())) return;
-        JdDraftContent draft = structuredResultMapper.toDraft(aiPlatform.getStructuredResult(run.providerTaskId()));
+        JdDraftContent draft = structuredResultMapper.toDraft(aiPlatform.getStructuredResult(run.providerTaskId(), run.createdBy().toString()));
         WorkspaceScope scope = new WorkspaceScope(run.workspaceId(), run.companyId(), null, null, null);
         upsertDraft(scope, run.taskId(), run.id(), run.createdBy(), draft);
         Instant completed = Instant.now();
@@ -829,8 +829,8 @@ public class RecruitmentService {
         int attempt = nextAttempt(taskId);
         Instant now = Instant.now();
         long availableAmountMinor = billing.view(userId, workspaceId).availableAmountMinor();
-        PolicyDecision policyDecision = flowCoordinator.evaluate(FlowCapability.RESUME_PARSING, scope, userId,
-                availableAmountMinor, resolveResumePriceMinor(scope.companyId()), null, true);
+        PolicyDecision policyDecision = flowCoordinator.evaluateAuthoritative(FlowCapability.RESUME_PARSING, scope, userId,
+                resolveResumePriceMinor(scope.companyId()), null, true);
         ExecutionContext executionContext = flowCoordinator.createExecutionContext(policyDecision, taskId, key,
                 "resume-parse:" + runId, List.of(new ExecutionContext.InputVersion("resume_payload",
                         taskId.toString(), "frozen", payloadHash)), false);
@@ -910,8 +910,8 @@ public class RecruitmentService {
         UUID runId = UUID.randomUUID();
         Instant now = Instant.now();
         long availableAmountMinor = billing.view(userId, workspaceId).availableAmountMinor();
-        PolicyDecision policyDecision = flowCoordinator.evaluate(FlowCapability.INTERVIEW_KIT_GENERATION, scope, userId,
-                availableAmountMinor, 0L, null, true);
+        PolicyDecision policyDecision = flowCoordinator.evaluateAuthoritative(FlowCapability.INTERVIEW_KIT_GENERATION, scope, userId,
+                0L, null, true);
         ExecutionContext executionContext = flowCoordinator.createExecutionContext(policyDecision, taskId, key,
                 "interview-kit:" + runId, List.of(new ExecutionContext.InputVersion("interview_kit_input",
                         taskId.toString(), "frozen", payloadHash)), false);
@@ -1020,7 +1020,7 @@ public class RecruitmentService {
     public void finalizeResumeParseRunIfReady(UUID runId) {
         RunExecution run = runExecution(runId, true);
         if (!"RUNNING".equals(run.status()) || run.providerTaskId() == null) return;
-        AiTask task = aiPlatform.getTask(run.providerTaskId());
+        AiTask task = aiPlatform.getTask(run.providerTaskId(), run.createdBy().toString());
         if (task.status() == AiTaskStatus.FAILED || task.status() == AiTaskStatus.CANCELLED) {
             failResumeParseRun(run, "AI_PROVIDER_UNAVAILABLE", "AI 简历解析失败，请重试");
             return;
@@ -1032,7 +1032,7 @@ public class RecruitmentService {
     public void finalizeResumeParseRun(UUID runId) {
         RunExecution run = runExecution(runId, true);
         if (!"RUNNING".equals(run.status())) return;
-        StructuredResult result = aiPlatform.getStructuredResult(run.providerTaskId());
+        StructuredResult result = aiPlatform.getStructuredResult(run.providerTaskId(), run.createdBy().toString());
         Map<String, Object> data = result.data();
         Object markdownObj = data.get("markdown");
         String markdown = markdownObj == null ? "" : String.valueOf(markdownObj).trim();

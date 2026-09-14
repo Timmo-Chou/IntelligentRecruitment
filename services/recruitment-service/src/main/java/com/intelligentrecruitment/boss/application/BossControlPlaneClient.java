@@ -204,7 +204,15 @@ public class BossControlPlaneClient {
     }
 
     public JsonNode companyWallet(String accessToken, UUID companyId) {
-        return request("GET", "/api/v1/companies/" + companyId + "/wallet", accessToken, null, null).body();
+        return request("GET", "/api/v1/companies/" + companyId + "/wallet-v2", accessToken, null, null).body();
+    }
+
+    public JsonNode tenantWallet(String accessToken, UUID tenantId) {
+        return request("GET", "/api/v1/tenants/" + tenantId + "/wallet", accessToken, null, null).body();
+    }
+
+    public JsonNode tenantPackages(String accessToken, UUID tenantId) {
+        return request("GET", "/api/v1/tenants/" + tenantId + "/packages", accessToken, null, null).body();
     }
 
     public JsonNode companyStatements(String accessToken, UUID companyId) {
@@ -227,6 +235,28 @@ public class BossControlPlaneClient {
 
     public JsonNode companyGovernance(String accessToken, UUID companyId, String resource) {
         return request("GET", "/api/v1/companies/" + companyId + "/" + resource, accessToken, null, null).body();
+    }
+
+    // ==================== 平台管理端内部调用（使用机器令牌） ====================
+
+    /** 平台管理端读取企业钱包，使用机器令牌而非用户令牌。 */
+    public JsonNode internalCompanyWallet(UUID companyId) {
+        return internal("GET", "/internal/v1/companies/" + companyId + "/wallet-v2", null);
+    }
+
+    /** 平台管理端读取企业账本流水，使用机器令牌而非用户令牌。 */
+    public JsonNode internalCompanyStatements(UUID companyId) {
+        return internal("GET", "/internal/v1/companies/" + companyId + "/statements", null);
+    }
+
+    /** 平台管理端读取企业上下文快照（tenant/company 状态），使用机器令牌。 */
+    public JsonNode internalCompanyContext(UUID companyId) {
+        return internal("GET", "/internal/v1/companies/" + companyId + "/context", null);
+    }
+
+    /** 平台管理端读取个人租户钱包，使用机器令牌。 */
+    public JsonNode internalTenantWallet(UUID tenantId) {
+        return internal("GET", "/internal/v1/tenants/" + tenantId + "/wallet", null);
     }
 
     public JsonNode accessibleOrgUnits(String accessToken, UUID companyId) {
@@ -254,15 +284,15 @@ public class BossControlPlaneClient {
     public long quoteUnitPrice(UUID companyId, String capability) {
         return internal("POST", "/internal/v1/billing/quote", "{\"companyId\":\""
                 + companyId + "\",\"capability\":" + quoted(capability) + "}")
-                .path("unit_price_minor").asLong(-1);
+                .path("unit_price_micro").asLong(-1);
     }
 
-    public void reserve(UUID companyId, String reservationKey, long estimatedAmountMinor) {
+    public void reserve(UUID companyId, String capability, String reservationKey, long requestedUnits, long estimatedAmountMicro) {
         JsonNode result = internal("POST", "/internal/v1/billing/reservations", "{\"companyId\":\""
-                + companyId + "\",\"reservationKey\":" + quoted(reservationKey)
-                + ",\"estimatedAmountMinor\":" + estimatedAmountMinor + "}");
+                + companyId + "\",\"capability\":" + quoted(capability) + ",\"reservationKey\":" + quoted(reservationKey)
+                + ",\"requestedUnits\":" + requestedUnits + ",\"estimatedAmountMicro\":" + estimatedAmountMicro + "}");
         if (!result.path("reserved").asBoolean(false)) {
-            throw new ApiException("INSUFFICIENT_BALANCE", "BOSS 余额不足", HttpStatus.PAYMENT_REQUIRED);
+            throw new ApiException(result.path("reason_code").asText("COMPANY_ASSET_INSUFFICIENT"), "套餐权益或余额不足，请充值", HttpStatus.PAYMENT_REQUIRED);
         }
     }
 
@@ -303,6 +333,11 @@ public class BossControlPlaneClient {
 
     private String machineAccessToken() {
         return machineIdentity().value();
+    }
+
+    /** 供受信任的下游内部服务调用携带 BOSS OAuth machine token；不得暴露给浏览器。 */
+    public String internalAccessToken() {
+        return machineAccessToken();
     }
 
     private MachineIdentity machineIdentity() {

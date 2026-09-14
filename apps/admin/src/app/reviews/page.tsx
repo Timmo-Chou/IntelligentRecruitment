@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { adminApiFetch, bossAdminApiFetch } from "@/lib/admin-api-client";
+import { adminApiFetch } from "@/lib/admin-api-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -21,11 +21,11 @@ type PersonalReviewItem = {
 // 企业认证审核项
 type CompanyReviewItem = {
   id: string;
-  applicantUserId?: string;
+  applicantUserId: string;
   legalName: string;
-  displayName?: string;
-  requestType?: string;
-  status?: string;
+  displayName: string;
+  requestType: string;
+  status: string;
   createdAt: string;
 };
 
@@ -46,8 +46,6 @@ type PageResponse<T> = {
   size: number;
 };
 
-type ReviewItem = PersonalReviewItem | CompanyReviewItem | MembershipReviewItem;
-
 type StatusTab = "PENDING" | "HISTORY";
 
 const statusTabs: { key: StatusTab; label: string; param: string }[] = [
@@ -57,7 +55,7 @@ const statusTabs: { key: StatusTab; label: string; param: string }[] = [
 
 const tabs = [
   { key: "PERSONAL", label: "个人认证", endpoint: "/platform/reviews/personal" },
-  { key: "COMPANY", label: "企业认证", endpoint: "/platform/company-verifications" },
+  { key: "COMPANY", label: "企业认证", endpoint: "/platform/reviews/company-verifications" },
   { key: "MEMBERSHIP", label: "成员申请", endpoint: "/platform/reviews/membership-applications" },
 ] as const;
 
@@ -67,14 +65,12 @@ export default function ReviewsPage() {
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["key"]>("PERSONAL");
   const [page, setPage] = useState(1);
   const [statusTab, setStatusTab] = useState<StatusTab>("PENDING");
-  const [successMessage, setSuccessMessage] = useState("");
 
   const currentTab = tabs.find((t) => t.key === activeTab)!;
   const currentStatusTab = statusTabs.find((t) => t.key === statusTab)!;
-  const reviewQueryKey = ["reviews", activeTab, statusTab, page] as const;
 
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: reviewQueryKey,
+  const { data, isLoading } = useQuery({
+    queryKey: ["reviews", activeTab, statusTab, page],
     queryFn: async () => {
       const params = new URLSearchParams();
       params.set("page", String(page));
@@ -85,7 +81,7 @@ export default function ReviewsPage() {
       if (activeTab === "PERSONAL") {
         return adminApiFetch<PageResponse<PersonalReviewItem>>(url);
       } else if (activeTab === "COMPANY") {
-        return bossAdminApiFetch<PageResponse<CompanyReviewItem>>(url);
+        return adminApiFetch<PageResponse<CompanyReviewItem>>(url);
       } else {
         return adminApiFetch<PageResponse<MembershipReviewItem>>(url);
       }
@@ -114,27 +110,21 @@ export default function ReviewsPage() {
         const uid = userId || id;
         endpoint = `/platform/personal-verifications/${uid}/${action === "APPROVE" ? "approve" : "reject"}`;
       } else if (activeTab === "COMPANY") {
-        endpoint = `/platform/company-verifications/${id}/decision`;
+        endpoint = `/platform/company-verifications/${id}/${action === "APPROVE" ? "approve" : "reject"}`;
       } else {
         endpoint = `/platform/company-membership-applications/${id}/${action === "APPROVE" ? "approve" : "reject"}`;
       }
-      const body = activeTab === "COMPANY"
-        ? { approve: action === "APPROVE", reasonCode: action === "REJECT" ? "PLATFORM_REJECTED" : "", message: reason ?? "" }
-        : action === "APPROVE" ? { reviewer: "平台管理员" } : { reviewer: "平台管理员", reason: reason ?? "" };
-      return (activeTab === "COMPANY" ? bossAdminApiFetch : adminApiFetch)(endpoint, {
+      return adminApiFetch(endpoint, {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify(
+          action === "APPROVE"
+            ? { reviewer: "平台管理员" }
+            : { reviewer: "平台管理员", reason: reason ?? "" },
+        ),
       });
     },
-    onSuccess: (_, variables) => {
-      // The decision has already been accepted by BOSS.  Update this page locally instead of
-      // immediately issuing a second network request that can incorrectly mask a successful review.
-      queryClient.setQueryData<PageResponse<ReviewItem>>(reviewQueryKey, (current) => current && {
-        ...current,
-        items: current.items.filter((item) => item.id !== variables.id),
-        total: Math.max(0, current.total - 1),
-      });
-      setSuccessMessage(variables.action === "APPROVE" ? "审核已通过" : "审核已拒绝");
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["reviews"] });
     },
     onError: (err: Error) => {
       alert("操作失败：" + err.message);
@@ -142,7 +132,7 @@ export default function ReviewsPage() {
   });
 
   function getStatusBadge(status: string) {
-    if (status === "PENDING" || status === "PENDING_REVIEW") return <Badge variant="warning">待审核</Badge>;
+    if (status === "PENDING") return <Badge variant="warning">待审核</Badge>;
     if (status === "APPROVED" || status === "VERIFIED") return <Badge variant="success">已通过</Badge>;
     if (status === "REJECTED") return <Badge variant="danger">已拒绝</Badge>;
     return <Badge>{status}</Badge>;
@@ -156,7 +146,7 @@ export default function ReviewsPage() {
     }
     if (activeTab === "COMPANY") {
       const c = item as CompanyReviewItem;
-      return c.legalName ?? c.displayName ?? "未命名企业";
+      return c.legalName || c.displayName;
     }
     const m = item as MembershipReviewItem;
     return m.companyName || m.companyId;
@@ -167,14 +157,14 @@ export default function ReviewsPage() {
       return (item as PersonalReviewItem).userDisplayName ?? (item as PersonalReviewItem).userId;
     }
     if (activeTab === "COMPANY") {
-      return (item as CompanyReviewItem).applicantUserId ?? "BOSS 用户";
+      return (item as CompanyReviewItem).applicantUserId;
     }
     return (item as MembershipReviewItem).applicantUserId;
   }
 
   function getItemStatus(item: PersonalReviewItem | CompanyReviewItem | MembershipReviewItem): string {
     if (activeTab === "PERSONAL") return (item as PersonalReviewItem).verificationStatus;
-    if (activeTab === "COMPANY") return (item as CompanyReviewItem).status ?? "PENDING_REVIEW";
+    if (activeTab === "COMPANY") return (item as CompanyReviewItem).status;
     return (item as MembershipReviewItem).status;
   }
 
@@ -189,7 +179,6 @@ export default function ReviewsPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-800">审核中心</h1>
         <p className="mt-1 text-sm text-slate-500">处理个人认证、企业认证和成员申请</p>
-        {successMessage && <p className="mt-2 text-sm font-medium text-emerald-600">{successMessage}</p>}
       </div>
 
       {/* Tab 切换 */}
@@ -198,7 +187,7 @@ export default function ReviewsPage() {
           {tabs.map((tab) => (
             <button
               key={tab.key}
-              onClick={() => { setActiveTab(tab.key); setStatusTab("PENDING"); setPage(1); setSuccessMessage(""); }}
+              onClick={() => { setActiveTab(tab.key); setStatusTab("PENDING"); setPage(1); }}
               className={`px-5 py-3 text-sm font-semibold transition ${
                 activeTab === tab.key
                   ? "border-b-2 border-blue-600 text-blue-600"
@@ -231,10 +220,6 @@ export default function ReviewsPage() {
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-slate-400">加载中…</div>
-        ) : isError ? (
-          <div className="p-8 text-center text-sm text-red-600">
-            审核数据加载失败：{(error as Error).message}
-          </div>
         ) : items.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-400">
             {statusTab === "PENDING" ? "暂无待审核项" : "暂无已审核记录"}

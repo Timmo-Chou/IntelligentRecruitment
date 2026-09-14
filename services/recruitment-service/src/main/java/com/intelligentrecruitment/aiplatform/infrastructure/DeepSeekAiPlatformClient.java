@@ -86,12 +86,12 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
                                     @Value("${app.ai-platform.deepseek.api-key:}") String apiKey,
                                     @Value("${app.ai-platform.deepseek.model:deepseek-v4-flash}") String model,
                                     @Value("${app.ai-platform.deepseek.allow-external-data:false}") boolean allowExternalData,
-                                    @Value("${app.ai-platform.deepseek.jd-prompt-resource:classpath:prompts/jd-generation-v1.txt}") Resource jdPromptResource,
-                                    @Value("${app.ai-platform.deepseek.conversation-prompt-resource:classpath:prompts/recruitment-conversation-v1.txt}") Resource conversationPromptResource,
-                                    @Value("${app.ai-platform.deepseek.jd-in-place-revision-prompt-resource:classpath:prompts/jd-in-place-revision-v1.txt}") Resource jdInPlaceRevisionPromptResource,
-                                    @Value("${app.ai-platform.deepseek.candidate-screening-prompt-resource:classpath:prompts/candidate-screening-v1.txt}") Resource candidateScreeningPromptResource,
-                                    @Value("${app.ai-platform.deepseek.resume-parsing-prompt-resource:classpath:prompts/resume-parsing-v1.txt}") Resource resumeParsingPromptResource,
-                                    @Value("${app.ai-platform.deepseek.interview-question-prompt-resource:classpath:prompts/interview-question-v1.txt}") Resource interviewQuestionPromptResource) {
+                                    @Value("${app.ai-platform.deepseek.jd-prompt-resource:classpath:prompts/jd-generation-v1.md}") Resource jdPromptResource,
+                                    @Value("${app.ai-platform.deepseek.conversation-prompt-resource:classpath:prompts/recruitment-conversation-v1.md}") Resource conversationPromptResource,
+                                    @Value("${app.ai-platform.deepseek.jd-in-place-revision-prompt-resource:classpath:prompts/jd-in-place-revision-v1.md}") Resource jdInPlaceRevisionPromptResource,
+                                    @Value("${app.ai-platform.deepseek.candidate-screening-prompt-resource:classpath:prompts/candidate-screening-v1.md}") Resource candidateScreeningPromptResource,
+                                    @Value("${app.ai-platform.deepseek.resume-parsing-prompt-resource:classpath:prompts/resume-parsing-v1.md}") Resource resumeParsingPromptResource,
+                                    @Value("${app.ai-platform.deepseek.interview-question-prompt-resource:classpath:prompts/interview-question-v1.md}") Resource interviewQuestionPromptResource) {
         this.client = builder.baseUrl(baseUrl).build();
         this.streamingClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
         this.baseUrl = baseUrl.replaceFirst("/+$", "");
@@ -152,15 +152,15 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
     }
 
     @Override
-    public AiTask getTask(String aiTaskId) {
+    public AiTask getTask(String aiTaskId, String actorId) {
         AiTask task = tasks.get(aiTaskId);
         if (task == null) throw taskNotFound();
         return task;
     }
 
     @Override
-    public AiTask cancelTask(String aiTaskId, String idempotencyKey) {
-        AiTask current = getTask(aiTaskId);
+    public AiTask cancelTask(String aiTaskId, String idempotencyKey, String actorId) {
+        AiTask current = getTask(aiTaskId, actorId);
         if (current.status() == AiTaskStatus.COMPLETED || current.status() == AiTaskStatus.FAILED) return current;
         AiTask cancelled = new AiTask(current.aiTaskId(), current.businessTaskId(), current.capability(),
                 AiTaskStatus.CANCELLED, current.completed(), current.total(), current.percent(), current.acceptedAt(),
@@ -219,7 +219,7 @@ public class DeepSeekAiPlatformClient implements AiPlatformClient {
     }
 
     @Override
-    public StructuredResult getStructuredResult(String aiTaskId) {
+    public StructuredResult getStructuredResult(String aiTaskId, String actorId) {
         StructuredResult result = results.get(aiTaskId);
         if (result == null) throw taskNotFound();
         return result;

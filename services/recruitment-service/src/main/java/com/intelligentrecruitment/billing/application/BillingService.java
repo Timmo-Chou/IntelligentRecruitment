@@ -27,20 +27,24 @@ public class BillingService {
     public BillingView view(UUID userId, UUID companyId) {
         var wallet = boss.companyWallet(BossRequestContext.accessToken(userId), companyId);
         return new BillingView(companyId, wallet.path("currency").asText("CNY"),
-                wallet.path("balance_minor").asLong(0), wallet.path("reserved_minor").asLong(0),
+                wallet.path("gift_micro").asLong(0), wallet.path("recharge_micro").asLong(0),
+                wallet.path("reserved_gift_micro").asLong(0), wallet.path("reserved_recharge_micro").asLong(0),
                 true, List.of(), List.of(), 0);
     }
 
     /** Checks BOSS capability/price and reserves against the BOSS wallet. */
     @Transactional
-    public ReservationView reserve(UUID userId, UUID companyId, String businessReference, long amountMinor) {
+    public ReservationView reserve(UUID userId, UUID companyId, String businessReference, long amountMicro) {
         String reference = requiredReference(businessReference);
-        if (amountMinor <= 0) throw new ApiException("INVALID_AMOUNT", "冻结金额必须大于0", HttpStatus.BAD_REQUEST);
+        if (amountMicro < 0) throw new ApiException("INVALID_AMOUNT", "冻结金额不能小于0", HttpStatus.BAD_REQUEST);
+        String capability = capabilityFor(reference);
         if (!boss.quotaCheck(companyId, capabilityFor(reference))) {
             throw new ApiException("CAPABILITY_NOT_ENABLED", "BOSS 未开通该 AI 能力", HttpStatus.UNPROCESSABLE_ENTITY);
         }
-        boss.reserve(companyId, reference, amountMinor);
-        return reservation(companyId, reference, "RESERVED", amountMinor, 0);
+        long unitPriceMicro = quoteUnitPrice(companyId, capability);
+        long requestedUnits = unitPriceMicro <= 0 ? 1 : Math.max(1, divideCeil(amountMicro, unitPriceMicro));
+        boss.reserve(companyId, capability, reference, requestedUnits, amountMicro);
+        return reservation(companyId, reference, "RESERVED", amountMicro, 0);
     }
 
     public ReservationView settle(UUID userId, UUID companyId, String businessReference, long actualAmountMinor) {
@@ -91,9 +95,16 @@ public class BillingService {
         return value.trim();
     }
 
-    public record BillingView(UUID workspaceId, String currency, long availableAmountMinor,
-                              long reservedAmountMinor, boolean canViewLedger,
-                              List<Object> creditLots, List<Object> ledger, long todaySpentAmountMinor) { }
+    private static long divideCeil(long value, long divisor) { return value == 0 ? 0 : ((value - 1) / divisor) + 1; }
+
+    public record BillingView(UUID workspaceId, String currency, long giftAmountMicro,
+                              long rechargeAmountMicro, long reservedGiftAmountMicro, long reservedRechargeAmountMicro, boolean canViewLedger,
+                              List<Object> creditLots, List<Object> ledger, long todaySpentAmountMinor) {
+        public long availableAmountMicro() { return giftAmountMicro + rechargeAmountMicro; }
+        /** Temporary source-compatible alias; values are micro-CNY, not cents. */
+        @Deprecated public long availableAmountMinor() { return availableAmountMicro(); }
+        public long reservedAmountMicro() { return reservedGiftAmountMicro + reservedRechargeAmountMicro; }
+    }
     public record ReservationView(UUID id, String status, long reservedAmountMinor,
                                   long settledAmountMinor, long releasedAmountMinor) { }
 }

@@ -176,7 +176,6 @@ export default function RecruitmentPage() {
         extra.linkedCandidateId = selectedCandidate?.id ?? null;
       } else if (selectedFeature === "CANDIDATE_SCREENING") {
         extra.linkedJobId = selectedScreeningJob?.id ?? null;
-        extra.linkedCandidateId = selectedCandidate?.id ?? null;
       } else if (selectedFeature === "INTERVIEW_KIT") {
         extra.linkedJobId = selectedScreeningJob?.id ?? null;
         extra.linkedCandidateId = selectedCandidate?.id ?? null;
@@ -193,10 +192,8 @@ export default function RecruitmentPage() {
               : "请解析我上传的简历，提取关键信息（基本信息、工作经历、项目经历、教育背景、技能、亮点与风险等）。"))
           : selectedFeature === "CANDIDATE_SCREENING"
             ? (selectedScreeningJob
-              ? `请根据职位"${selectedScreeningJob.title}"的要求，对${selectedCandidate ? `人才库「${selectedCandidate.displayNameMasked}」` : "上传的简历"}进行筛选和匹配分析。`
-              : (selectedCandidate
-                ? `请对人才库「${selectedCandidate.displayNameMasked}」的简历进行筛选和匹配分析。`
-                : "请根据上传的简历与职位，进行匹配筛选。"))
+              ? `请根据职位"${selectedScreeningJob.title}"的要求，对上传的简历进行筛选和匹配分析。`
+              : "请根据上传的简历与职位，进行匹配筛选。")
             : selectedFeature === "INTERVIEW_KIT"
               ? `请基于职位「${selectedScreeningJob?.title ?? ""}」与人才「${selectedCandidate?.displayNameMasked ?? ""}」生成结构化面试题，并支持后续对话调整。`
             : newRequirement
@@ -684,7 +681,7 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
   const canSubmit = () => {
     if (busy) return false;
     if (selectedFeature === "RESUME_PARSING") return Boolean(requirement.trim() || uploadedFiles.length > 0 || selectedCandidate);
-    if (selectedFeature === "CANDIDATE_SCREENING") return Boolean(requirement.trim() || uploadedFiles.length > 0 || selectedScreeningJob || selectedCandidate);
+    if (selectedFeature === "CANDIDATE_SCREENING") return Boolean(requirement.trim() || uploadedFiles.length > 0 || selectedScreeningJob);
     if (selectedFeature === "INTERVIEW_KIT") return Boolean(selectedScreeningJob && selectedCandidate);
     return Boolean(requirement.trim() || uploadedFiles.length > 0);
   };
@@ -913,8 +910,8 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
                 <FolderOpen size={15} /> 选择职位（职位库）
               </button>
             )}
-            {/* AI简历筛选 / 简历解析 / AI 面试出题：均可从人才库单选人才 */}
-            {(selectedFeature === "CANDIDATE_SCREENING" || selectedFeature === "RESUME_PARSING" || selectedFeature === "INTERVIEW_KIT") && (
+            {/* 简历解析 / AI 面试出题：均可从人才库单选人才 */}
+            {(selectedFeature === "RESUME_PARSING" || selectedFeature === "INTERVIEW_KIT") && (
               selectedCandidate ? (
                 <div className="flex items-center gap-2 rounded-lg border border-[#cfe4f5] bg-[#f8fbf3] px-3 py-2">
                   <UsersRound className="text-[#15b6b3]" size={15} />
@@ -949,27 +946,6 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
                 </button>
               )
             )}
-          </div>
-        )}
-
-        {/* JD生成：输入框上方的三种生成方式（横向紧凑卡片） */}
-        {agent === "RECRUITMENT_ASSISTANT" && selectedFeature === "JD_GENERATION" && (
-          <div className="mb-3 grid grid-cols-1 gap-2 border-b border-[#edf1f5] pb-3 sm:grid-cols-3">
-            <button type="button" onClick={() => { setJdGenerationSource("TEMPLATE"); handleUseTemplate(); }} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition ${jdGenerationSource === "TEMPLATE" ? "border-[#15b6b3] bg-[#f0fbf8]" : "border-[#e0e8f0] hover:bg-[#f8fbff]"}`}>
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#eef5ff] text-[#176ce5]"><Copy size={15}/></span>
-              <span className="min-w-0"><span className="block text-xs font-bold text-[#203b68]">参考JD模版</span><span className="mt-0.5 block text-[10px] text-[#7083a1]">填入完整模版示例</span></span>
-              {jdGenerationSource === "TEMPLATE" && <CheckCircle2 className="ml-auto shrink-0 text-[#0a9a66]" size={14}/>}
-            </button>
-            <button type="button" onClick={() => { setJdGenerationSource("JOB_LIBRARY"); void handleOpenJobPicker(); }} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition ${jdGenerationSource === "JOB_LIBRARY" ? "border-[#15b6b3] bg-[#f0fbf8]" : "border-[#e0e8f0] hover:bg-[#f8fbff]"}`}>
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#f2fbf6] text-[#0f996a]"><FolderOpen size={15}/></span>
-              <span className="min-w-0"><span className="block text-xs font-bold text-[#203b68]">从职位库复制</span><span className="mt-0.5 block text-[10px] text-[#7083a1]">参考已有职位</span></span>
-              {jdGenerationSource === "JOB_LIBRARY" && <CheckCircle2 className="ml-auto shrink-0 text-[#0a9a66]" size={14}/>}
-            </button>
-            <button type="button" onClick={() => { setJdGenerationSource("UPLOAD"); handleUploadClick(); }} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left transition ${jdGenerationSource === "UPLOAD" ? "border-[#15b6b3] bg-[#f0fbf8]" : "border-[#e0e8f0] hover:bg-[#f8fbff]"}`}>
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#fff6ee] text-[#df7d2b]"><Upload size={15}/></span>
-              <span className="min-w-0"><span className="block text-xs font-bold text-[#203b68]">根据上传文件</span><span className="mt-0.5 block text-[10px] text-[#7083a1]">PDF/Word/TXT</span></span>
-              {jdGenerationSource === "UPLOAD" && <CheckCircle2 className="ml-auto shrink-0 text-[#0a9a66]" size={14}/>}
-            </button>
           </div>
         )}
 
@@ -1030,6 +1006,12 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
           </div>
         </div>
       </div>
+
+      {agent === "RECRUITMENT_ASSISTANT" && selectedFeature === "JD_GENERATION" && <div className="mt-3 divide-y divide-[#e6edf5]">
+        <button type="button" onClick={() => { setJdGenerationSource("TEMPLATE"); handleUseTemplate(); }} className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${jdGenerationSource === "TEMPLATE" ? "bg-[#f0fbf8]" : "hover:bg-[#f8fbff]"}`}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#eef5ff] text-[#176ce5]"><Copy size={17}/></span><span className="min-w-0"><span className="block text-sm font-bold text-[#203b68]">参考 JD 模版生成</span><span className="mt-0.5 block text-xs text-[#7083a1]">一键填入完整模版示例，可在此基础上直接修改</span></span>{jdGenerationSource === "TEMPLATE" && <CheckCircle2 className="ml-auto shrink-0 text-[#0a9a66]" size={18}/>}</button>
+        <button type="button" onClick={() => { setJdGenerationSource("JOB_LIBRARY"); void handleOpenJobPicker(); }} className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${jdGenerationSource === "JOB_LIBRARY" ? "bg-[#f0fbf8]" : "hover:bg-[#f8fbff]"}`}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#f2fbf6] text-[#0f996a]"><FolderOpen size={17}/></span><span className="min-w-0"><span className="block text-sm font-bold text-[#203b68]">从职位库复制生成</span><span className="mt-0.5 block text-xs text-[#7083a1]">参考职位库中已有职位，编辑新的 JD 内容</span></span>{jdGenerationSource === "JOB_LIBRARY" && <CheckCircle2 className="ml-auto shrink-0 text-[#0a9a66]" size={18}/>}</button>
+        <button type="button" onClick={() => { setJdGenerationSource("UPLOAD"); handleUploadClick(); }} className={`flex w-full items-center gap-3 px-4 py-3 text-left transition ${jdGenerationSource === "UPLOAD" ? "bg-[#f0fbf8]" : "hover:bg-[#f8fbff]"}`}><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[#fff6ee] text-[#df7d2b]"><Upload size={17}/></span><span className="min-w-0"><span className="block text-sm font-bold text-[#203b68]">根据上传文件生成</span><span className="mt-0.5 block text-xs text-[#7083a1]">根据本地 PDF、Word、TXT 文档内容生成 JD</span></span>{jdGenerationSource === "UPLOAD" && <CheckCircle2 className="ml-auto shrink-0 text-[#0a9a66]" size={18}/>}</button>
+      </div>}
 
       {/* 隐藏的文件上传 input */}
       <input

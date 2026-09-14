@@ -35,6 +35,8 @@ public class BossBillingController {
         JsonNode statements = boss.companyStatements(token, companyId);
         Map<String, Object> result = json.convertValue(wallet, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() { });
         result.put("statements", json.convertValue(statements, new com.fasterxml.jackson.core.type.TypeReference<Object>() { }));
+        result.put("availableAmountMicro", wallet.path("total_micro").asLong(0));
+        result.put("reservedAmountMicro", wallet.path("reserved_gift_micro").asLong(0) + wallet.path("reserved_recharge_micro").asLong(0));
         return result;
     }
 

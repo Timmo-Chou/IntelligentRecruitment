@@ -8,7 +8,7 @@ import { apiFetch } from "@/lib/api-client";
 import { useEffect, useState } from "react";
 
 type JobStats = { total: number; active: number; closed: number; draft: number };
-type BillingStats = { availableAmountMinor: number; todaySpentAmountMinor?: number };
+type BillingStats = { availableAmountMicro: number; todaySpentAmountMinor?: number };
 
 export default function OverviewPage() {
   const {workspaceId}=useWorkspace();
@@ -23,7 +23,7 @@ export default function OverviewPage() {
       apiFetch<JobStats>(`/companies/${workspaceId}/jobs/stats`).catch(()=>({total:0,active:0,closed:0,draft:0}))
     ]).then(([tasks,billing,jobs])=>{
       setTasksData(tasks);
-      setBalance(billing.availableAmountMinor);
+      setBalance(billing.availableAmountMicro);
       setTodaySpent(typeof billing.todaySpentAmountMinor==="number"?billing.todaySpentAmountMinor:null);
       setJobStats(jobs);
     }).catch(()=>{});
@@ -93,7 +93,7 @@ export default function OverviewPage() {
         <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-[#247aff] to-[#17bd91] text-white"><FileSearch size={22}/></span>
         <h2 className="mb-0 mt-4 text-lg font-bold text-[#102d64]">从一个招聘需求开始</h2><p className="mt-2 text-sm leading-6 text-[#60799f]">AI 协助生成 JD、解析简历、准备筛选方案和面试题；关键业务结果均由招聘人员确认。</p>
         <Link href="/recruitment" className="primary-button mt-4 w-full">进入智能招聘工作台 <ArrowRight size={15}/></Link>
-        <div className="mt-5 rounded-lg border border-[#dbe8f5] bg-white/80 p-3 text-xs leading-5 text-[#60799f]">当前 Workspace 可用余额：{balance===null?"加载中…":`¥${(balance/100).toFixed(2)}`}<br/>收费任务执行前会展示费用估算。</div>
+        <div className="mt-5 rounded-lg border border-[#dbe8f5] bg-white/80 p-3 text-xs leading-5 text-[#60799f]">当前 Workspace 可用余额：{balance===null?"加载中…":`¥${(balance/1_000_000).toFixed(2)}`}<br/>收费任务执行前会展示费用估算。</div>
       </aside>
     </div>
   </AppShell>;

@@ -1,7 +1,7 @@
 "use client";
 
-import { AlertCircle, BriefcaseBusiness, CircleDollarSign, File, Loader2, Pencil, Save, Upload, Eye, X, Sparkles, ExternalLink, User, UserPlus, CheckCircle2, Download, AlertTriangle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { AlertCircle, Award, BarChart3, BriefcaseBusiness, ChevronDown, ChevronUp, CircleDollarSign, ClipboardCheck, File, FileText, Loader2, Pencil, Save, ShieldAlert, Sparkles, Upload, Eye, X, ExternalLink, User, UserPlus, CheckCircle2, Download, AlertTriangle } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ApiError } from "@/lib/api-client";
 import { fetchJobs, type Job } from "@/lib/job-api";
@@ -19,7 +19,7 @@ import { renderAsync as renderDocxAsync } from "docx-preview";
  * AI简历解析承接页面（左侧主体，嵌入式，类似JdEditor与ScreeningWorkspace的组合）
  *  - 顶部：职位信息卡片（如linkedJobId有值，只读不可修改）
  *  - 中部：原始简历文件列表，点击可预览
- *  - 底部：解析结果大文本框（可编辑保存）
+ *  - 底部：结构化解析阅读视图；需要人工修订时再切换到编辑模式
  * 右侧 AI招聘助手 由外层布局负责。
  */
 export function ResumeParsingWorkspace({
@@ -45,6 +45,11 @@ export function ResumeParsingWorkspace({
   // 解析草稿：可编辑副本
   const [draftContent, setDraftContent] = useState("");
   const [draftDirty, setDraftDirty] = useState(false);
+  // 默认以结构化阅读视图呈现，避免招聘人员在首屏面对整段 Markdown
+  const [editingResult, setEditingResult] = useState(false);
+  const [showFullReport, setShowFullReport] = useState(false);
+  const [showEvidence, setShowEvidence] = useState(false);
+  const [expandedDimension, setExpandedDimension] = useState<string | null>(null);
   // 预览弹窗
   const [preview, setPreview] = useState<ResumeSourceFile | null>(null);
   // 预览文件的预签名URL（iframe / docx fetch 用）
@@ -77,6 +82,7 @@ export function ResumeParsingWorkspace({
     const current: ResumeParseDraft | null = detail.resumeParseDraft;
     setDraftContent(current?.content ?? "");
     setDraftDirty(false);
+    setEditingResult(false);
     return () => { cancelled = true; };
   }, [workspaceId, detail.task.linkedJobId, detail.task.id, detail.resumeParseDraft?.id, detail.resumeParseDraft?.revision, detail.resumeParseDraft?.updatedAt]);
 
@@ -254,6 +260,7 @@ export function ResumeParsingWorkspace({
   const progress = detail.latestAiRun?.progress ?? 0;
   // 已发布到人才库：草稿已 CONFIRMED，或任务本就关联了人才库人才（含从人才库选择解析 / 已发布）
   const published = detail.resumeParseDraft?.status === "CONFIRMED" || Boolean(detail.task.linkedCandidateId);
+  const presentation = buildResumePresentation(draftContent);
 
   if (workspaceLoading) return <Loading text="正在加载工作空间..."/>;
   if (!workspaceId) return <Loading text="请先进入一个可访问的工作空间"/>;
@@ -431,30 +438,100 @@ export function ResumeParsingWorkspace({
           </section>
         )}
 
-        {/* 3. 解析结果大文本框（同 JdEditor 的大文本风格） */}
+        {/* 3. 结构化解析结果：保留原始 Markdown 兼容编辑，但默认不再以大文本框占据首屏 */}
         <section>
-          <div className="flex items-center justify-between">
-            <h3 className="section-title">解析结果</h3>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="section-title mb-0">人才分析</h3>
+              <p className="mb-0 mt-1 text-[11px] text-[#7085a4]">从简历内容提炼的招聘判断；点击下方模块可查看详细分析。</p>
+            </div>
             <div className="flex items-center gap-2">
               {running && <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1676d2]"><Loader2 className="animate-spin" size={12}/>AI 解析中…稍后结果将自动填入</span>}
               {draftDirty && <span className="text-[11px] text-[#c45b1f]">已修改，记得保存</span>}
               {!draftDirty && detail.resumeParseDraft && <span className="text-[11px] text-[#7085a4]">版本 V{detail.resumeParseDraft.revision} · {formatDate(detail.resumeParseDraft.updatedAt)}</span>}
+              {draftContent.trim() && !editingResult && (
+                <button type="button" className="outline-button inline-flex items-center gap-1.5 text-xs" onClick={() => setEditingResult(true)}>
+                  <Pencil size={13}/>编辑完整报告
+                </button>
+              )}
             </div>
           </div>
-          <div className="mt-3">
-            <textarea
-              value={draftContent}
-              onChange={(event) => { setDraftContent(event.target.value); setDraftDirty(true); }}
-              onBlur={() => void 0}
-              placeholder={running ? "AI 正在解析简历内容，请稍候…" : "AI 解析结果将展示在此，你可以直接手动编辑或补充，修改后点击『保存草稿』保存版本。"}
-              className="min-h-[380px] w-full resize-y rounded-xl border border-[#d4e0ee] bg-white px-4 py-3 text-[14px] leading-7 text-[#26466f] outline-none transition focus:border-[#3d83e8] focus:ring-2 focus:ring-[#eaf2ff]"
-              maxLength={200_000}
-            />
-            <div className="mt-2 flex items-center justify-between text-[11px] text-[#7085a4]">
-              <span><Pencil size={11} className="mr-1 inline"/> 手动编辑后点击"保存草稿"确认修改，每次保存生成新版本。</span>
-              <span>{draftContent.length} / 200000</span>
+
+          {!draftContent.trim() ? (
+            <div className="mt-3 grid min-h-[280px] place-items-center rounded-xl border border-dashed border-[#cfdfef] bg-[#f8fbff] p-6 text-center">
+              <div>
+                <Sparkles className="mx-auto text-[#176ce5]" size={26}/>
+                <p className="mb-0 mt-3 text-sm font-semibold text-[#36527f]">{running ? "AI 正在生成结构化简历分析" : "等待简历解析结果"}</p>
+                <p className="mb-0 mt-1 text-xs leading-5 text-[#7185a3]">解析完成后，这里会展示人才概览、优势风险与六维分析。</p>
+              </div>
             </div>
-          </div>
+          ) : editingResult ? (
+            <div className="mt-3">
+              <div className="mb-2 flex items-center justify-between rounded-lg border border-[#d7e8fa] bg-[#f3f8ff] px-3 py-2 text-[11px] text-[#52729a]">
+                <span>正在编辑完整 Markdown 报告；保存后将生成新的解析版本。</span>
+                <button type="button" className="font-semibold text-[#176ce5] hover:underline" onClick={() => { setDraftContent(detail.resumeParseDraft?.content ?? ""); setDraftDirty(false); setEditingResult(false); }}>取消编辑</button>
+              </div>
+              <textarea
+                value={draftContent}
+                onChange={(event) => { setDraftContent(event.target.value); setDraftDirty(true); }}
+                placeholder="AI 解析结果将展示在此，你可以直接手动编辑或补充。"
+                className="min-h-[380px] w-full resize-y rounded-xl border border-[#d4e0ee] bg-white px-4 py-3 text-[14px] leading-7 text-[#26466f] outline-none transition focus:border-[#3d83e8] focus:ring-2 focus:ring-[#eaf2ff]"
+                maxLength={200_000}
+              />
+              <div className="mt-2 flex items-center justify-between text-[11px] text-[#7085a4]">
+                <span><Pencil size={11} className="mr-1 inline"/> 修改后点击页面顶部“保存草稿”确认。</span>
+                <span>{draftContent.length} / 200000</span>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 space-y-4">
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px]">
+                <article className="rounded-xl border border-[#d6e5f5] bg-gradient-to-br from-[#f7fbff] to-[#f2fbf8] p-4">
+                  <div className="flex items-center gap-2 text-sm font-bold text-[#173568]"><User className="text-[#1478e8]" size={16}/>人才概览</div>
+                  <p className="mb-0 mt-3 text-sm font-semibold leading-6 text-[#29486f]">{presentation.talentType}</p>
+                  <p className="mb-0 mt-1 text-xs leading-5 text-[#587296]">{presentation.coreExperience}</p>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {presentation.tags.map((tag) => <span key={tag} className="rounded-md border border-[#cfe4f5] bg-white px-2 py-1 text-[10px] font-medium text-[#3470b7]">{tag}</span>)}
+                  </div>
+                </article>
+                <RadarPreview dimensions={presentation.dimensions} matchScore={presentation.matchScore}/>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <InsightCard icon={<Award size={16}/>} title="核心优势" tone="positive" items={presentation.strengths} emptyText="当前报告未单独提取核心优势。" />
+                <InsightCard icon={<ShieldAlert size={16}/>} title="风险 / 待核验" tone="warning" items={presentation.risks} emptyText="当前报告未识别需重点核验的信息。" />
+              </div>
+
+              <article className="rounded-xl border border-[#dfe9f4] bg-white p-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-[#173568]"><ClipboardCheck className="text-[#13977e]" size={16}/>综合评价</div>
+                <p className="mb-0 mt-2 text-xs leading-6 text-[#55709a]">{presentation.evaluation}</p>
+              </article>
+
+              <article className="rounded-xl border border-[#dfe9f4] bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-sm font-bold text-[#173568]"><BarChart3 className="text-[#176ce5]" size={16}/>六维分析</div>
+                  <span className="text-[10px] text-[#8292a8]">评分由 AI 返回后自动呈现</span>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {presentation.dimensions.map((dimension) => {
+                    const expanded = expandedDimension === dimension.code;
+                    return <button key={dimension.code} type="button" onClick={() => setExpandedDimension(expanded ? null : dimension.code)} className="rounded-lg border border-[#e1ebf5] bg-[#fbfdff] p-3 text-left transition hover:border-[#b9d5f3] hover:bg-[#f6fbff]">
+                      <span className="flex items-center justify-between gap-2"><span className="text-xs font-semibold text-[#29486f]">{dimension.name}</span><span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${dimension.score === null ? "bg-[#f2f5f8] text-[#7185a3]" : "bg-[#eaf5ff] text-[#176ce5]"}`}>{dimension.score === null ? "待评估" : `${dimension.score} 分`}</span></span>
+                      <span className="mt-1 block text-[11px] leading-5 text-[#7185a3]">{dimension.summary}</span>
+                      {expanded && <span className="mt-2 block border-t border-[#e7eef6] pt-2 text-[11px] leading-5 text-[#52729a]">评分依据将在结构化六维结果接入后展示；当前完整报告仍可在下方查看。</span>}
+                    </button>;
+                  })}
+                </div>
+              </article>
+
+              <CollapsiblePanel icon={<FileText size={16}/>} title="分析依据" open={showEvidence} onToggle={() => setShowEvidence(!showEvidence)}>
+                <p className="m-0 text-xs leading-6 text-[#667f9f]">当前解析版本尚未返回可定位的原文证据。完整的解析依据与建议可在“完整分析报告”中查看；后续接入结构化证据后将在这里关联到简历原文。</p>
+              </CollapsiblePanel>
+              <CollapsiblePanel icon={<FileText size={16}/>} title="完整分析报告" open={showFullReport} onToggle={() => setShowFullReport(!showFullReport)}>
+                <div className="whitespace-pre-wrap text-xs leading-6 text-[#496889]">{draftContent}</div>
+              </CollapsiblePanel>
+            </div>
+          )}
         </section>
       </div>}
     </section>
@@ -622,4 +699,179 @@ function formatDate(iso: string) {
   } catch {
     return iso;
   }
+}
+
+type AnalysisDimension = {
+  code: string;
+  name: string;
+  score: number | null;
+  summary: string;
+};
+
+type ResumePresentation = {
+  talentType: string;
+  coreExperience: string;
+  tags: string[];
+  strengths: string[];
+  risks: string[];
+  evaluation: string;
+  matchScore: number | null;
+  dimensions: AnalysisDimension[];
+};
+
+const dimensionDefinitions = [
+  { code: "professional_capability", name: "专业能力", basis: "基于核心技能、专业经历、项目实践及明确成果进行判断。" },
+  { code: "experience_depth", name: "经验深度", basis: "基于核心领域持续时间、职责复杂度与问题解决经历进行判断。" },
+  { code: "experience_breadth", name: "经验广度", basis: "基于行业、业务场景、项目类型与跨职能协作经历进行判断。" },
+  { code: "achievement", name: "成果表现", basis: "基于量化成果、明确交付物、业务影响及个人贡献进行判断。" },
+  { code: "career_stability", name: "职业稳定性", basis: "仅基于明确任职时间、任职周期和可见变动频率进行判断。" },
+  { code: "career_growth", name: "职业成长性", basis: "基于职责扩大、岗位晋升、项目复杂度增长及专业深化进行判断。" },
+] as const;
+
+/**
+ * 兼容当前后端只返回 Markdown 的契约：前端只做展示性提取，不对缺失的六维分数进行臆测。
+ * 后续接入 structured_result 后可直接替换此适配层，页面组件无需重做。
+ */
+function buildResumePresentation(content: string): ResumePresentation {
+  const basic = markdownSection(content, ["基本信息"]);
+  const experience = markdownSection(content, ["工作/项目经历摘要", "工作经历", "项目经历"]);
+  const skills = markdownSection(content, ["核心技能标签", "专业技能"]);
+  const highlights = markdownSection(content, ["候选人亮点与风险", "亮点与风险"]);
+  const match = markdownSection(content, ["匹配度分析"]);
+  const explicitEvaluation = markdownSection(content, ["综合评价"]);
+  const skillTags = extractItems(skills)
+    .flatMap((item) => item.replace(/^核心技能标签[：:]?/, "").split(/[、，,；;]/))
+    .map(cleanText)
+    .filter(Boolean)
+    .slice(0, 6);
+  const intent = labelledValue(basic, ["求职意向", "目标职位", "意向岗位"]);
+  const firstExperience = extractItems(experience)[0];
+  const strengths = labelledItems(highlights, ["亮点", "核心优势"]);
+  const risks = labelledItems(highlights, ["风险/待核验", "风险", "待核验", "疑点"]);
+  const matchScore = scoreInText(match, ["匹配得分", "匹配度"]);
+  const dimensions = dimensionDefinitions.map((definition) => {
+    const score = scoreInText(content, [definition.name]);
+    return {
+      ...definition,
+      score,
+      summary: score === null ? "待当前 AI 解析返回该维度评分" : `${scoreBand(score)} · ${definition.basis}`,
+    };
+  });
+  const evaluation = cleanText(explicitEvaluation) || (match
+    ? truncate(cleanText(match), 180)
+    : "已完成简历内容提取。建议结合下方优势、待核验项及原始简历进行人工判断。");
+
+  return {
+    talentType: intent ? `${intent}方向人才` : "已完成解析的候选人",
+    coreExperience: firstExperience ? truncate(cleanText(firstExperience), 130) : "暂未从当前报告中提取到可展示的核心经历。",
+    tags: skillTags.length ? skillTags : ["简历已解析", "待人工复核"],
+    strengths: strengths.slice(0, 3),
+    risks: risks.slice(0, 3),
+    evaluation,
+    matchScore,
+    dimensions,
+  };
+}
+
+function markdownSection(content: string, names: string[]) {
+  const escaped = names.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const result = new RegExp(`^###\\s*(?:\\d+\\.\\s*)?(?:${escaped}).*?\\r?\\n([\\s\\S]*?)(?=^###\\s|^##\\s|(?![\\s\\S]))`, "mi").exec(content);
+  return result?.[1]?.trim() ?? "";
+}
+
+function extractItems(value: string) {
+  return value.split("\n")
+    .map((line) => cleanText(line.replace(/^\s*(?:[-*•]|\d+[.、])\s*/, "")))
+    .filter(Boolean);
+}
+
+function labelledValue(value: string, labels: string[]) {
+  for (const label of labels) {
+    const result = new RegExp(`${label}[：:]\\s*([^\\n]+)`, "i").exec(value);
+    if (result?.[1]) return cleanText(result[1]);
+  }
+  return "";
+}
+
+function labelledItems(value: string, labels: string[]) {
+  const items: string[] = [];
+  for (const line of extractItems(value)) {
+    if (labels.some((label) => line.startsWith(label))) {
+      const extracted = line.replace(/^[^：:]+[：:]\s*/, "");
+      if (extracted) items.push(extracted);
+    }
+  }
+  return items;
+}
+
+function scoreInText(value: string, labels: readonly string[]) {
+  for (const label of labels) {
+    const result = new RegExp(`${label}[^\\d\\n]{0,18}(\\d{1,3})\\s*(?:\\/\\s*100|分)?`, "i").exec(value);
+    const score = Number(result?.[1]);
+    if (Number.isFinite(score) && score >= 0 && score <= 100) return score;
+  }
+  return null;
+}
+
+function cleanText(value: string) {
+  return value.replace(/[`*_>#]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function truncate(value: string, maxLength: number) {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
+}
+
+function scoreBand(score: number) {
+  if (score >= 85) return "表现突出";
+  if (score >= 70) return "能力较强";
+  if (score >= 55) return "基础具备";
+  return "建议核验";
+}
+
+function InsightCard({ icon, title, tone, items, emptyText }: { icon: ReactNode; title: string; tone: "positive" | "warning"; items: string[]; emptyText: string }) {
+  const theme = tone === "positive"
+    ? { shell: "border-[#cfe9dc] bg-[#f5fcf8]", icon: "text-[#0b9863]", dot: "bg-[#16a36d]", text: "text-[#326a56]" }
+    : { shell: "border-[#f1dcc9] bg-[#fffaf5]", icon: "text-[#c47627]", dot: "bg-[#d89448]", text: "text-[#7e623f]" };
+  return <article className={`rounded-xl border p-4 ${theme.shell}`}>
+    <div className={`flex items-center gap-2 text-sm font-bold ${theme.icon}`}>{icon}{title}<span className="ml-auto text-[10px] font-medium text-[#8292a8]">最多 3 条</span></div>
+    {items.length ? <ul className="mb-0 mt-3 space-y-2 pl-0">{items.map((item, index) => <li key={`${item}-${index}`} className={`flex gap-2 text-xs leading-5 ${theme.text}`}><span className={`mt-2 h-1.5 w-1.5 shrink-0 rounded-full ${theme.dot}`}/><span>{item}</span></li>)}</ul>
+      : <p className="mb-0 mt-3 text-xs leading-5 text-[#8292a8]">{emptyText}</p>}
+  </article>;
+}
+
+function RadarPreview({ dimensions, matchScore }: { dimensions: AnalysisDimension[]; matchScore: number | null }) {
+  const center = 92;
+  const radius = 52;
+  const allScoresPresent = dimensions.every((dimension) => dimension.score !== null);
+  const pointAt = (index: number, scale: number) => {
+    const angle = -Math.PI / 2 + (Math.PI * 2 * index) / dimensions.length;
+    return `${(center + Math.cos(angle) * radius * scale).toFixed(1)},${(center + Math.sin(angle) * radius * scale).toFixed(1)}`;
+  };
+  const polygon = dimensions.map((dimension, index) => pointAt(index, (dimension.score ?? 0) / 100)).join(" ");
+  return <article className="rounded-xl border border-[#d6e5f5] bg-white p-3">
+    <div className="flex items-center justify-between"><span className="text-xs font-bold text-[#173568]">六维雷达图</span>{matchScore !== null && <span className="rounded-full bg-[#eaf5ff] px-2 py-0.5 text-[10px] font-bold text-[#176ce5]">岗位匹配 {matchScore} 分</span>}</div>
+    <div className="relative mx-auto mt-1 h-[170px] max-w-[210px]">
+      <svg viewBox="0 0 184 184" className="h-full w-full" aria-label="六维能力雷达图">
+        {[0.33, 0.66, 1].map((scale) => <polygon key={scale} points={dimensions.map((_, index) => pointAt(index, scale)).join(" ")} fill="none" stroke="#dce8f5" strokeWidth="1" />)}
+        {dimensions.map((_, index) => <line key={index} x1={center} y1={center} x2={pointAt(index, 1).split(",")[0]} y2={pointAt(index, 1).split(",")[1]} stroke="#dce8f5" strokeWidth="1" />)}
+        {allScoresPresent && <polygon points={polygon} fill="rgba(23,108,229,0.16)" stroke="#176ce5" strokeWidth="2" />}
+        {!allScoresPresent && <text x="92" y="96" textAnchor="middle" fill="#8292a8" fontSize="11">待六维评分</text>}
+      </svg>
+      {dimensions.map((dimension, index) => {
+        const angle = -Math.PI / 2 + (Math.PI * 2 * index) / dimensions.length;
+        const x = 50 + Math.cos(angle) * 47;
+        const y = 50 + Math.sin(angle) * 46;
+        return <span key={dimension.code} className="absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-[9px] text-[#587296]" style={{ left: `${x}%`, top: `${y}%` }}>{dimension.name}</span>;
+      })}
+    </div>
+  </article>;
+}
+
+function CollapsiblePanel({ icon, title, open, onToggle, children }: { icon: ReactNode; title: string; open: boolean; onToggle: () => void; children: ReactNode }) {
+  return <article className="overflow-hidden rounded-xl border border-[#dfe9f4] bg-white">
+    <button type="button" onClick={onToggle} className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-bold text-[#173568] hover:bg-[#f8fbff]">
+      <span className="text-[#5b8fd5]">{icon}</span>{title}<span className="ml-auto text-[#8292a8]">{open ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}</span>
+    </button>
+    {open && <div className="border-t border-[#e8eff6] px-4 py-3">{children}</div>}
+  </article>;
 }

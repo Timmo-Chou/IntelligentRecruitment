@@ -3,15 +3,29 @@
   "$id": "https://contracts.local/ai-platform/error.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["code", "message", "retryable", "request_id"],
+  "required": ["code", "message", "request_id"],
   "properties": {
     "code": {
-      "enum": ["AI_AUTH_FAILED", "AI_QUOTA_EXCEEDED", "AI_RATE_LIMITED", "AI_PROVIDER_UNAVAILABLE", "AI_TIMEOUT", "AI_INVALID_INPUT", "AI_FILE_UNSUPPORTED", "AI_PARSE_FAILED", "AI_CONTENT_REJECTED", "AI_TASK_NOT_FOUND", "AI_TASK_CONFLICT", "AI_CONTRACT_INVALID", "AI_INTERNAL_ERROR"]
+      "description": "错误码，与 BOSS 对齐。复用 BOSS 已有码，AI 执行面特有码不加 AI_ 前缀。",
+      "enum": [
+        "UNAUTHENTICATED",
+        "ACCESS_DENIED",
+        "RATE_LIMIT_EXCEEDED",
+        "MONTHLY_QUOTA_EXCEEDED",
+        "IDEMPOTENCY_CONFLICT",
+        "INVALID_ARGUMENT",
+        "FILE_UNSUPPORTED",
+        "PARSE_FAILED",
+        "CONTENT_REJECTED",
+        "TASK_NOT_FOUND",
+        "PROVIDER_UNAVAILABLE",
+        "REQUEST_TIMEOUT",
+        "CONTRACT_INVALID",
+        "INTERNAL_ERROR"
+      ]
     },
     "message": { "type": "string", "minLength": 1 },
-    "retryable": { "type": "boolean" },
     "request_id": { "type": "string", "minLength": 1 },
     "details": { "type": "object" }
   }
 }
-

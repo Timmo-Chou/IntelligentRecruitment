@@ -13,9 +13,9 @@ public interface AiPlatformClient {
         return startTask(command);
     }
 
-    AiTask getTask(String aiTaskId);
+    AiTask getTask(String aiTaskId, String actorId);
 
-    AiTask cancelTask(String aiTaskId, String idempotencyKey);
+    AiTask cancelTask(String aiTaskId, String idempotencyKey, String actorId);
 
     RouteDecision routeMessage(RouteAgentCommand command);
 
@@ -23,7 +23,7 @@ public interface AiPlatformClient {
 
     StructuredResult reviseJdInPlace(ConversationAgentCommand command);
 
-    StructuredResult getStructuredResult(String aiTaskId);
+    StructuredResult getStructuredResult(String aiTaskId, String actorId);
 
     /**
      * 同步生成面试题包：基于职位快照 + 候选人简历解析结果，

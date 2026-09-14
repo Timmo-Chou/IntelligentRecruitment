@@ -40,7 +40,8 @@ public record RouteDecision(
     }
 
     public enum Kind {
-        ROUTE("route"), CLARIFY("clarify"), INFORM("inform"), UNSUPPORTED("unsupported");
+        ROUTE("route"), CLARIFY("clarify"), INFORM("inform"), UNSUPPORTED("unsupported"),
+        FALLBACK("fallback");
         private final String value;
         Kind(String value) { this.value = value; }
         @JsonValue public String value() { return value; }
