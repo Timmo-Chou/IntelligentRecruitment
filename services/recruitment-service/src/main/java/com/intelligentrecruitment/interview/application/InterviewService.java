@@ -3,13 +3,10 @@ package com.intelligentrecruitment.interview.application;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.intelligentrecruitment.aiplatform.application.AiPlatformClient;
-import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract;
 import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract.Competency;
-import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract.GenerateInterviewQuestionsInput;
-import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract.GenerateInterviewQuestionsInput.CandidateSnapshot;
-import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract.GenerateInterviewQuestionsInput.JobSnapshot;
 import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract.InterviewQuestionKit;
+import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContract;
+import com.intelligentrecruitment.agentflow.domain.StructuredResult;
 import com.intelligentrecruitment.candidates.application.PiiCipher;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService;
@@ -22,6 +19,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static com.intelligentrecruitment.shared.database.SqlTimes.timestamp;
@@ -32,15 +30,12 @@ public class InterviewService {
     private final JdbcTemplate jdbc;
     private final WorkspaceAccessService access;
     private final ObjectMapper objectMapper;
-    private final AiPlatformClient aiPlatformClient;
     private final PiiCipher pii;
 
-    public InterviewService(JdbcTemplate jdbc, WorkspaceAccessService access, ObjectMapper objectMapper,
-                            AiPlatformClient aiPlatformClient, PiiCipher pii) {
+    public InterviewService(JdbcTemplate jdbc, WorkspaceAccessService access, ObjectMapper objectMapper, PiiCipher pii) {
         this.jdbc = jdbc;
         this.access = access;
         this.objectMapper = objectMapper;
-        this.aiPlatformClient = aiPlatformClient;
         this.pii = pii;
     }
 
@@ -59,39 +54,64 @@ public class InterviewService {
                 r.getTimestamp("created_at").toInstant()), workspaceId);
     }
 
-    @Transactional
-    public KitDetail create(UUID userId, UUID workspaceId, CreateInput input) {
+    public Map<String, Object> buildAiInput(UUID userId, UUID workspaceId, CreateInput input) {
         access.requireBusinessAccess(userId, workspaceId);
+        return buildAuthorizedAiInput(workspaceId, input);
+    }
+
+    /** Builds input from workspace-scoped records for an already authorized queued task. */
+    public Map<String, Object> buildAuthorizedAiInput(UUID workspaceId, CreateInput input) {
         if (input.candidateId() == null) throw badRequest("CANDIDATE_REQUIRED", "请选择人才");
         if (input.jobVersionId() == null) throw badRequest("JOB_REQUIRED", "请选择 JD");
         CandidateContext candidate = candidate(workspaceId, input.candidateId());
         JobContext job = job(workspaceId, input.jobVersionId());
+        return Map.of("job", Map.of("title", job.title(), "company_name", textAt(job.snapshot(), "company_name"),
+                        "location", textAt(job.snapshot(), "location"), "experience_level", textAt(job.snapshot(), "experience_level"),
+                        "education", textAt(job.snapshot(), "education"), "responsibilities", textAt(job.snapshot(), "responsibilities"),
+                        "requirements", textAt(job.snapshot(), "requirements"), "skills", textAt(job.snapshot(), "skills")),
+                "candidate", Map.of("name", candidate.name(), "headline", candidate.headline(), "skills", candidate.skills(),
+                        "summary", candidate.summary(), "resume_text", ""),
+                "requested_count", Math.max(4, Math.min(input.questionCount() <= 0 ? 8 : input.questionCount(), 20)),
+                "language_hint", "中文");
+    }
+
+    @Transactional
+    public KitDetail persistAiResult(UUID userId, UUID workspaceId, CreateInput input, StructuredResult result) {
+        access.requireBusinessAccess(userId, workspaceId);
+        return persistAuthorizedAiResult(userId, workspaceId, input, result);
+    }
+
+    /**
+     * Persists a result that has already passed the BOSS-authorized AIAgent task.
+     * The worker still scopes every source row to its workspace; it does not perform
+     * a second interactive access check because there is no user request context.
+     */
+    @Transactional
+    public KitDetail persistAuthorizedAiResult(UUID userId, UUID workspaceId, CreateInput input, StructuredResult result) {
+        if (result == null || result.data() == null) throw badRequest("AI_SCHEMA_INVALID", "AI 面试题未返回结构化结果");
+        InterviewQuestionKit kit = parseAiKit(result.data(), input.questionCount());
         Instant now = Instant.now();
         UUID kitId = UUID.randomUUID();
         UUID versionId = UUID.randomUUID();
-        UUID companyId = jdbc.queryForObject("SELECT company_id FROM workspaces WHERE id=?", UUID.class, workspaceId);
+        // The legacy workspace identifier is now always the authoritative BOSS Tenant UUID.
+        UUID tenantId = workspaceId;
 
-        JobSnapshot jobSnap = buildJobSnapshot(job);
-        CandidateSnapshot candSnap = new CandidateSnapshot(candidate.name(), candidate.headline(),
-                candidate.skills(), candidate.summary(), "");
-        InterviewQuestionKit kit = aiPlatformClient.generateInterviewQuestions(
-                new GenerateInterviewQuestionsInput(workspaceId, jobSnap, candSnap, input.questionCount()));
         List<CoreCompetency> competencies = toCoreCompetencies(kit.competencies());
         String summary = kit.matchSummary();
         List<Question> questions = toQuestions(kit.questions());
 
         jdbc.update("""
-                INSERT INTO interview_kits(id,company_id,workspace_id,job_version_id,candidate_id,screening_result_id,status,
+                INSERT INTO interview_kits(id,tenant_id,workspace_id,job_version_id,candidate_id,screening_result_id,status,
                                            core_competencies,match_summary,created_by,created_at,updated_at)
                 VALUES(?,?,?,?,?,?,'DRAFT',?::jsonb,?,?,?,?)
-                """, kitId, companyId, workspaceId, input.jobVersionId(), input.candidateId(), input.screeningResultId(),
+                """, kitId, tenantId, workspaceId, input.jobVersionId(), input.candidateId(), input.screeningResultId(),
                 protectedJson(competencies), pii.encrypt(summary), userId, timestamp(now), timestamp(now));
         jdbc.update("""
-                INSERT INTO interview_kit_versions(id,company_id,workspace_id,kit_id,screening_result_id,version_no,status,created_by,created_at)
+                INSERT INTO interview_kit_versions(id,tenant_id,workspace_id,kit_id,screening_result_id,version_no,status,created_by,created_at)
                 VALUES(?,?,?,?,?,1,'DRAFT',?,?)
-                """, versionId, companyId, workspaceId, kitId, input.screeningResultId(), userId, timestamp(now));
-        insertQuestions(versionId, companyId, workspaceId, questions);
-        return get(userId, workspaceId, kitId);
+                """, versionId, tenantId, workspaceId, kitId, input.screeningResultId(), userId, timestamp(now));
+        insertQuestions(versionId, tenantId, workspaceId, questions);
+        return getAuthorized(workspaceId, kitId);
     }
 
     @Transactional
@@ -99,25 +119,28 @@ public class InterviewService {
         access.requireBusinessAccess(userId, workspaceId);
         requireKit(workspaceId, kitId);
         if (questions == null || questions.isEmpty()) throw badRequest("QUESTIONS_REQUIRED", "请至少保留一道面试题");
-        UUID companyId = jdbc.queryForObject("SELECT company_id FROM workspaces WHERE id=?", UUID.class, workspaceId);
+        // The legacy workspace identifier is now always the authoritative BOSS Tenant UUID.
+        UUID tenantId = workspaceId;
         VersionContext current = jdbc.queryForObject("""
                 SELECT id,screening_result_id,version_no FROM interview_kit_versions
                 WHERE kit_id=? AND workspace_id=? ORDER BY version_no DESC LIMIT 1
                 """, (r, n) -> new VersionContext(r.getObject("id", UUID.class), r.getObject("screening_result_id", UUID.class), r.getInt("version_no")), kitId, workspaceId);
         UUID nextVersion = UUID.randomUUID();
         jdbc.update("""
-                INSERT INTO interview_kit_versions(id,company_id,workspace_id,kit_id,screening_result_id,version_no,status,created_by,created_at)
+                INSERT INTO interview_kit_versions(id,tenant_id,workspace_id,kit_id,screening_result_id,version_no,status,created_by,created_at)
                 VALUES(?,?,?,?,?,?,'DRAFT',?,?)
-                """, nextVersion, companyId, workspaceId, kitId, current.screeningResultId(), current.versionNo() + 1, userId, timestamp(Instant.now()));
+                """, nextVersion, tenantId, workspaceId, kitId, current.screeningResultId(), current.versionNo() + 1, userId, timestamp(Instant.now()));
         List<Question> normalized = new ArrayList<>();
         for (int i = 0; i < questions.size(); i++) {
             QuestionInput q = questions.get(i);
-            if (blank(q.content())) throw badRequest("QUESTION_CONTENT_REQUIRED", "面试题目不能为空");
-            normalized.add(new Question(UUID.randomUUID(), value(q.category(), "综合评估"), q.content().trim(), value(q.rationale(), "岗位胜任能力核验"),
-                    value(q.focusPoints(), "能力证据与思考过程"), value(q.referenceAnswerPoints(), "结合真实经历说明方法、行动与结果"),
-                    value(q.scoringPoints(), "回答完整、证据具体、结果可信"), value(q.evidenceRefs(), "JD 与人才档案"), i));
+            if (q == null || blank(q.category()) || blank(q.content()) || blank(q.rationale()) || blank(q.focusPoints())
+                    || blank(q.referenceAnswerPoints()) || blank(q.scoringPoints()) || blank(q.evidenceRefs())) {
+                throw badRequest("QUESTION_FIELDS_REQUIRED", "面试题字段不能为空");
+            }
+            normalized.add(new Question(UUID.randomUUID(), q.category().trim(), q.content().trim(), q.rationale().trim(),
+                    q.focusPoints().trim(), q.referenceAnswerPoints().trim(), q.scoringPoints().trim(), q.evidenceRefs().trim(), i));
         }
-        insertQuestions(nextVersion, companyId, workspaceId, normalized);
+        insertQuestions(nextVersion, tenantId, workspaceId, normalized);
         jdbc.update("UPDATE interview_kits SET status='DRAFT',updated_at=? WHERE id=? AND workspace_id=?", timestamp(Instant.now()), kitId, workspaceId);
         return get(userId, workspaceId, kitId);
     }
@@ -134,6 +157,10 @@ public class InterviewService {
 
     public KitDetail get(UUID userId, UUID workspaceId, UUID kitId) {
         access.requireBusinessAccess(userId, workspaceId);
+        return getAuthorized(workspaceId, kitId);
+    }
+
+    private KitDetail getAuthorized(UUID workspaceId, UUID kitId) {
         KitContext kit = requireKit(workspaceId, kitId);
         List<Question> questions = jdbc.query("""
                 SELECT iq.id,iq.category,iq.content,iq.rationale,iq.focus_points,iq.reference_answer_points,iq.scoring_points,iq.evidence_refs,iq.sort_order
@@ -220,11 +247,11 @@ public class InterviewService {
         return questions;
     }
 
-    private void insertQuestions(UUID versionId, UUID companyId, UUID workspaceId, List<Question> questions) {
+    private void insertQuestions(UUID versionId, UUID tenantId, UUID workspaceId, List<Question> questions) {
         for (Question q : questions) jdbc.update("""
-                INSERT INTO interview_questions(id,company_id,workspace_id,kit_version_id,category,content,rationale,focus_points,reference_answer_points,scoring_points,evidence_refs,sort_order)
+                INSERT INTO interview_questions(id,tenant_id,workspace_id,kit_version_id,category,content,rationale,focus_points,reference_answer_points,scoring_points,evidence_refs,sort_order)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
-                """, q.id(), companyId, workspaceId, versionId, q.category(), pii.encrypt(q.content()), pii.encrypt(q.rationale()), pii.encrypt(q.focusPoints()), pii.encrypt(q.referenceAnswerPoints()), pii.encrypt(q.scoringPoints()), pii.encrypt(q.evidenceRefs()), q.sortOrder());
+                """, q.id(), tenantId, workspaceId, versionId, q.category(), pii.encrypt(q.content()), pii.encrypt(q.rationale()), pii.encrypt(q.focusPoints()), pii.encrypt(q.referenceAnswerPoints()), pii.encrypt(q.scoringPoints()), pii.encrypt(q.evidenceRefs()), q.sortOrder());
     }
 
     private String json(Object value) { try { return objectMapper.writeValueAsString(value); } catch (Exception e) { throw new IllegalStateException("无法保存面试题能力模型", e); } }
@@ -238,35 +265,42 @@ public class InterviewService {
     private String value(String candidate, String fallback) { return blank(candidate) ? fallback : candidate.trim(); }
     private ApiException badRequest(String code, String message) { return new ApiException(code, message, HttpStatus.BAD_REQUEST); }
 
-    // ====== AI 面试题输入/输出转换（把 JobContext → JobSnapshot；AiPlatform 返回 → InterviewService 领域类型） ======
-
-    /** 从 job_versions.snapshot 读出 JD 详情 → JobSnapshot（供 AI 平台 Prompt 构造） */
-    private JobSnapshot buildJobSnapshot(JobContext job) {
-        String title = value(job.title(), "");
-        String responsibilities = textAt(job.snapshot(), "responsibilities");
-        String requirements = textAt(job.snapshot(), "requirements");
-        String skills = textAt(job.snapshot(), "skills");
-        String company = textAt(job.snapshot(), "company_name");
-        String location = textAt(job.snapshot(), "location");
-        String exp = textAt(job.snapshot(), "experience_level");
-        String edu = textAt(job.snapshot(), "education");
-        return new JobSnapshot(title, company, location, exp, edu, responsibilities, requirements, skills);
+    private InterviewQuestionKit parseAiKit(java.util.Map<String, Object> data, int requestedCount) {
+        JsonNode root = objectMapper.valueToTree(data);
+        String summary = root.path("match_summary").asText("").trim();
+        if (summary.isBlank()) throw badRequest("AI_SCHEMA_INVALID", "AI 面试题缺少 match_summary");
+        List<Competency> competencies = new ArrayList<>();
+        for (JsonNode item : root.path("core_competencies")) {
+            String name = item.path("name").asText("").trim();
+            String description = item.path("description").asText("").trim();
+            if (!name.isBlank() && !description.isBlank()) competencies.add(new Competency(name, description));
+        }
+        if (competencies.size() != 3) throw badRequest("AI_SCHEMA_INVALID", "AI 面试题必须返回 3 项核心胜任力");
+        List<InterviewQuestionContract.Question> questions = new ArrayList<>();
+        for (JsonNode item : root.path("questions")) {
+            String content = item.path("content").asText("").trim();
+            if (content.isBlank()) throw badRequest("AI_SCHEMA_INVALID", "AI 面试题存在空题面");
+            questions.add(new InterviewQuestionContract.Question(item.path("category").asText(""), content,
+                    item.path("rationale").asText(""), item.path("focus_points").asText(""),
+                    item.path("reference_answer_points").asText(""), item.path("scoring_points").asText(""),
+                    item.path("evidence_refs").asText(""), item.path("core_competency").asText("")));
+        }
+        int expected = Math.max(4, Math.min(requestedCount <= 0 ? 8 : requestedCount, 20));
+        if (questions.size() != expected) throw badRequest("AI_SCHEMA_INVALID", "AI 面试题数量与请求数量不一致");
+        return new InterviewQuestionKit(summary, competencies, questions);
     }
 
     /** AI 返回的 3 项胜任力 → 领域模型 CoreCompetency */
     private List<CoreCompetency> toCoreCompetencies(List<Competency> list) {
-        if (list == null || list.isEmpty()) return List.of(
-                new CoreCompetency("岗位专业能力", "验证岗位相关的专业方法和业务理解"),
-                new CoreCompetency("项目交付与问题解决", "验证问题拆解、协同推进和结果复盘能力"),
-                new CoreCompetency("协作与沟通", "验证跨团队协作、冲突处理与汇报能力"));
+        if (list == null || list.size() != 3) throw badRequest("AI_SCHEMA_INVALID", "AI 面试题核心胜任力数量不正确");
         List<CoreCompetency> out = new ArrayList<>();
         for (Competency c : list) {
             if (c == null || c.name() == null || c.name().isBlank()) continue;
-            out.add(new CoreCompetency(c.name().trim(), value(c.description(), "考察「" + c.name().trim() + "」的落地深度与真实结果")));
-            if (out.size() >= 3) break;
+            if (c.description() == null || c.description().isBlank()) throw badRequest("AI_SCHEMA_INVALID", "AI 面试题核心胜任力说明为空");
+            out.add(new CoreCompetency(c.name().trim(), c.description().trim()));
         }
-        while (out.size() < 3) out.add(new CoreCompetency("岗位专业能力", "验证岗位相关的专业方法和业务理解"));
-        return out.subList(0, 3);
+        if (out.size() != 3) throw badRequest("AI_SCHEMA_INVALID", "AI 面试题核心胜任力无效");
+        return out;
     }
 
     /** AI 返回的题目列表 → 领域模型 Question（补 UUID、sortOrder） */
@@ -275,16 +309,20 @@ public class InterviewService {
         if (list == null || list.isEmpty()) return out;
         int idx = 0;
         for (InterviewQuestionContract.Question q : list) {
-            if (q == null || blank(q.content())) continue;
+            if (q == null || blank(q.content()) || blank(q.category()) || blank(q.rationale())
+                    || blank(q.focusPoints()) || blank(q.referenceAnswerPoints())
+                    || blank(q.scoringPoints()) || blank(q.evidenceRefs())) {
+                throw badRequest("AI_SCHEMA_INVALID", "AI 面试题字段不完整");
+            }
             out.add(new Question(
                     UUID.randomUUID(),
-                    value(q.category(), "综合评估"),
+                    q.category().trim(),
                     q.content().trim(),
-                    value(q.rationale(), "岗位胜任能力核验"),
-                    value(q.focusPoints(), "背景与本人角色；方法与决策依据；量化结果；风险识别与复盘"),
-                    value(q.referenceAnswerPoints(), "结合真实经历说明方法、行动与结果"),
-                    value(q.scoringPoints(), "回答完整、证据具体、结果可信"),
-                    value(q.evidenceRefs(), "JD 与人才档案"),
+                    q.rationale().trim(),
+                    q.focusPoints().trim(),
+                    q.referenceAnswerPoints().trim(),
+                    q.scoringPoints().trim(),
+                    q.evidenceRefs().trim(),
                     idx++));
         }
         return out;

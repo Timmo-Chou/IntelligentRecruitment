@@ -48,6 +48,12 @@ public class HttpAiPlatformClient implements AiPlatformClient {
         this.boss = boss;
     }
 
+    /** BOSS-driven lifecycle cleanup; AIAgent retains accounting metadata but erases business payloads. */
+    public void logicallyDeleteTenantBusinessData(java.util.UUID tenantId) {
+        client.post().uri("/api/v1/internal/tenants/{tenantId}/logical-delete", tenantId)
+                .header("Authorization", "Bearer " + boss.internalAccessToken()).retrieve().toBodilessEntity();
+    }
+
     @Override
     public AiTask startTask(StartAiTaskCommand command) {
         ExecutionContext execution = command.executionContext();
@@ -56,12 +62,12 @@ public class HttpAiPlatformClient implements AiPlatformClient {
             throw new IllegalStateException("调用 AIAgentPlatform 前必须完成 BOSS PolicyDecision=allow");
         }
         if (execution.tenantId() == null || execution.actorId() == null) {
-            throw new IllegalStateException("AIAgentPlatform ExecutionContext 必须包含 company_id 与 actor_id");
+            throw new IllegalStateException("AIAgentPlatform ExecutionContext 必须包含 tenant_id 与 actor_id");
         }
         Map<String, Object> context = Map.of(
                 "request_id", execution.requestId(),
                 "trace_id", execution.traceId(),
-                "company_id", execution.tenantId(),
+                "tenant_id", execution.tenantId(),
                 "actor_id", execution.actorId(),
                 "business_task_id", execution.businessTaskId(),
                 "idempotency_key", execution.idempotencyKey(),
@@ -146,22 +152,14 @@ public class HttpAiPlatformClient implements AiPlatformClient {
         }
     }
 
-    // ==================== P2 迁移的同步能力 ====================
-
-    @Override
-    public InterviewQuestionContract.InterviewQuestionKit generateInterviewQuestions(
-            InterviewQuestionContract.GenerateInterviewQuestionsInput input) {
-        throw new UnsupportedOperationException("面试题生成尚未迁移到 CapabilityExecutionRequest，禁止调用旧 HTTP 协议");
-    }
-
     @Override
     public RouteDecision routeMessage(RouteAgentCommand command) {
         if (command.tenantId() == null || command.actorId() == null) {
-            throw new IllegalStateException("agent-routes 必须提供 BOSS company_id 与 actor_id");
+            throw new IllegalStateException("agent-routes 必须提供 BOSS tenant_id 与 actor_id");
         }
         Map<String, Object> body = Map.of(
                 "context", Map.of("request_id", command.requestId(), "trace_id", command.traceId(),
-                        "company_id", command.tenantId(), "actor_id", command.actorId(),
+                        "tenant_id", command.tenantId(), "actor_id", command.actorId(),
                         "business_task_id", command.businessTaskId(), "locale", "zh-CN",
                         "timezone", "Asia/Shanghai", "contract_version", "v1"),
                 "message", command.message(),
@@ -181,12 +179,42 @@ public class HttpAiPlatformClient implements AiPlatformClient {
 
     @Override
     public String continueConversation(ConversationAgentCommand command) {
-        throw new UnsupportedOperationException("对话续写尚未迁移到 CapabilityExecutionRequest，禁止调用旧 HTTP 协议");
+        StructuredResult result = startAndAwait(command, AiCapability.CONVERSATION_CONTINUE,
+                Map.of("conversation", command.messages(), "current_jd", command.jdDraft()));
+        String message = result.data() == null ? "" : String.valueOf(result.data().getOrDefault("message", "")).trim();
+        if (message.isBlank()) throw new IllegalStateException("对话能力未返回有效回复");
+        return message;
     }
 
     @Override
     public StructuredResult reviseJdInPlace(ConversationAgentCommand command) {
-        throw new UnsupportedOperationException("JD 修订尚未迁移到 CapabilityExecutionRequest，禁止调用旧 HTTP 协议");
+        return startAndAwait(command, AiCapability.JD_IN_PLACE_REVISION,
+                Map.of("conversation", command.messages(), "current_jd", command.jdDraft()));
+    }
+
+    private StructuredResult startAndAwait(ConversationAgentCommand command, AiCapability capability,
+                                           Map<String, Object> input) {
+        if (command.executionContext() == null) {
+            throw new IllegalArgumentException("对话能力必须携带 BOSS 授权执行上下文");
+        }
+        AiTask task = startTask(new StartAiTaskCommand(command.workspaceId(), command.tenantId(), command.actorId(),
+                command.businessTaskId(), command.executionContext().idempotencyKey(), capability, input,
+                command.executionContext()));
+        for (int attempt = 0; attempt < 120; attempt++) {
+            AiTask current = getTask(task.aiTaskId(), command.actorId());
+            if (current.status() == AiTaskStatus.COMPLETED) {
+                return getStructuredResult(current.aiTaskId(), command.actorId());
+            }
+            if (current.status() == AiTaskStatus.FAILED || current.status() == AiTaskStatus.CANCELLED) {
+                throw new IllegalStateException(current.errorMessage() == null ? "AI 任务执行失败" : current.errorMessage());
+            }
+            try { Thread.sleep(250L); }
+            catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("等待 AI 任务完成时被中断", exception);
+            }
+        }
+        throw new IllegalStateException("AI 任务仍在执行，请稍后重试");
     }
 
     // ==================== 结果解析 ====================

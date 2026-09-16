@@ -39,18 +39,6 @@ public class ScreeningController {
         return screening.listPlans(CurrentUser.id(authentication), tenantId, recruitmentTaskId);
     }
 
-    @PostMapping("/screening-quotes")
-    ScreeningService.ScreeningQuoteView quote(@PathVariable UUID tenantId,
-                                               @RequestBody ScreeningService.QuoteInput input,
-                                               Authentication authentication) {
-        return screening.quote(CurrentUser.id(authentication), tenantId, input);
-    }
-
-    @GetMapping("/screening-pricing")
-    ScreeningService.ScreeningPricingView pricing(@PathVariable UUID tenantId, Authentication authentication) {
-        return screening.pricing(CurrentUser.id(authentication), tenantId);
-    }
-
     @PostMapping("/screening-runs")
     ScreeningService.ScreeningRunDetail run(@PathVariable UUID tenantId,
                                              @RequestHeader("Idempotency-Key") String idempotencyKey,
@@ -72,18 +60,11 @@ public class ScreeningController {
         return screening.getRun(CurrentUser.id(authentication), tenantId, runId);
     }
 
-    @PostMapping("/screening-runs/{runId}/retry-quote")
-    ScreeningService.ScreeningQuoteView retryQuote(@PathVariable UUID tenantId, @PathVariable UUID runId,
-                                                    Authentication authentication) {
-        return screening.retryQuote(CurrentUser.id(authentication), tenantId, runId);
-    }
-
     @PostMapping("/screening-runs/{runId}/retry-failed")
     ScreeningService.ScreeningRunDetail retry(@PathVariable UUID tenantId, @PathVariable UUID runId,
                                                @RequestHeader("Idempotency-Key") String idempotencyKey,
-                                               @RequestBody ScreeningService.RetryInput input,
                                                Authentication authentication) {
-        return screening.retryFailed(CurrentUser.id(authentication), tenantId, runId, idempotencyKey, input);
+        return screening.retryFailed(CurrentUser.id(authentication), tenantId, runId, idempotencyKey);
     }
 
     @PostMapping("/screening-runs/{runId}/cancel")

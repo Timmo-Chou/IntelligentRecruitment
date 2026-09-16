@@ -54,9 +54,6 @@ export type AiRun = {
   status: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
   progress: number;
   attemptNumber: number;
-  pricingVersion: string;
-  estimatedAmountMinor: number;
-  settledAmountMinor: number;
   errorCode: string | null;
   errorMessage: string | null;
   createdAt: string;

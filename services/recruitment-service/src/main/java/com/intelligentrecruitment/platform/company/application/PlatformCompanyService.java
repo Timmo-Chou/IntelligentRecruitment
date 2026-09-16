@@ -1,140 +1,35 @@
 package com.intelligentrecruitment.platform.company.application;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.intelligentrecruitment.boss.application.BossControlPlaneClient;
 import com.intelligentrecruitment.shared.error.ApiException;
-import com.intelligentrecruitment.tenancy.application.LicenseFileService;
-import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Service;
-
 import java.util.List;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
 
-/**
- * 平台企业管理服务：查询企业列表和详情。
- */
+/** BOSS is the only source for recruitment enterprise and membership operations data. */
 @Service
 public class PlatformCompanyService {
-
-    private final JdbcTemplate jdbc;
-    private final LicenseFileService licenseFileService;
-
-    public PlatformCompanyService(JdbcTemplate jdbc, LicenseFileService licenseFileService) {
-        this.jdbc = jdbc;
-        this.licenseFileService = licenseFileService;
+    private final BossControlPlaneClient boss;
+    public PlatformCompanyService(BossControlPlaneClient boss) { this.boss = boss; }
+    public record CompanySummary(String tenantId,String companyName,String shortName,String verificationStatus,String managementStatus,int memberCount,String createdAt) {}
+    public record CompanyDetail(String tenantId,String legalName,String displayName,String creditCodeMasked,String verificationStatus,String managementStatus,String ownerUserId,String ownerDisplayName,String licenseOriginalFilename,String licensePreviewUrl,List<MemberSummary> members,List<WorkspaceSummary> workspaces,String createdAt) {}
+    public record MemberSummary(String userId,String displayName,String role,String status) {}
+    /** Compatibility DTO: one recruitment Tenant replaces the deleted Workspace concept. */
+    public record WorkspaceSummary(String workspaceId,String workspaceName,String status,int memberCount) {}
+    public record PagedResult<T>(List<T> items,long total,int page,int pageSize) {}
+    public PagedResult<CompanySummary> listCompanies(String search,String status,int page,int pageSize) {
+        JsonNode root=boss.internalRecruitmentPlatformQuery("/tenants?search="+encode(search)+"&status="+encode(status)+"&page="+page+"&pageSize="+pageSize);
+        List<CompanySummary> items=new java.util.ArrayList<>(); for(JsonNode item:root.path("items"))items.add(summary(item));
+        return new PagedResult<>(items,root.path("total").asLong(),root.path("page").asInt(page),root.path("page_size").asInt(pageSize));
     }
-
-    public record CompanySummary(
-            String tenantId, String companyName, String shortName,
-            String verificationStatus, String managementStatus,
-            int memberCount, String createdAt) {}
-
-    public record CompanyDetail(
-            String tenantId, String legalName, String displayName,
-            String creditCodeMasked, String verificationStatus, String managementStatus,
-            String ownerUserId, String ownerDisplayName,
-            String licenseOriginalFilename,   // 营业执照原始文件名
-            String licensePreviewUrl,          // 营业执照预签名预览 URL（旧数据为 null）
-            List<MemberSummary> members, List<WorkspaceSummary> workspaces,
-            String createdAt) {}
-
-    public record MemberSummary(String userId, String displayName, String role, String status) {}
-
-    public record WorkspaceSummary(String workspaceId, String workspaceName, String status, int memberCount) {}
-
-    public record PagedResult<T>(List<T> items, long total, int page, int pageSize) {}
-
-    public PagedResult<CompanySummary> listCompanies(String search, String status, int page, int pageSize) {
-        int offset = (page - 1) * pageSize;
-
-        StringBuilder where = new StringBuilder("WHERE 1=1");
-        List<Object> params = new java.util.ArrayList<>();
-
-        if (search != null && !search.isBlank()) {
-            where.append(" AND (c.legal_name ILIKE ? OR c.display_name ILIKE ?)");
-            String like = "%" + search + "%";
-            params.add(like);
-            params.add(like);
-        }
-        if (status != null && !status.isBlank()) {
-            where.append(" AND c.management_status = ?");
-            params.add(status);
-        }
-
-        String countSql = "SELECT COUNT(*) FROM companies c " + where;
-        Long total = jdbc.queryForObject(countSql, Long.class, params.toArray());
-
-        String dataSql = """
-                SELECT c.id AS company_id, c.legal_name, c.display_name, c.verification_status,
-                       c.management_status, c.created_at,
-                       (SELECT COUNT(*) FROM company_memberships cm WHERE cm.company_id = c.id) AS member_count
-                FROM companies c
-                """ + where + " ORDER BY c.created_at DESC LIMIT ? OFFSET ?";
-
-        params.add(pageSize);
-        params.add(offset);
-
-        List<CompanySummary> items = jdbc.query(dataSql, (rs, n) -> new CompanySummary(
-                rs.getString("company_id"),
-                rs.getString("legal_name"),
-                rs.getString("display_name"),
-                rs.getString("verification_status"),
-                rs.getString("management_status"),
-                rs.getInt("member_count"),
-                rs.getTimestamp("created_at").toInstant().toString()
-        ), params.toArray());
-
-        return new PagedResult<>(items, total != null ? total : 0, page, pageSize);
-    }
-
     public CompanyDetail getCompanyDetail(UUID tenantId) {
-        var company = jdbc.query(
-                "SELECT c.id, c.legal_name, c.display_name, c.credit_code_masked, c.license_reference, " +
-                "c.verification_status, c.management_status, c.owner_user_id, c.created_at, " +
-                "u.display_name AS owner_name " +
-                "FROM companies c LEFT JOIN users u ON u.id = c.owner_user_id WHERE c.id = ?",
-                (rs, n) -> new Object() {
-                    final String id = rs.getString("id");
-                    final String legalName = rs.getString("legal_name");
-                    final String displayName = rs.getString("display_name");
-                    final String creditCodeMasked = rs.getString("credit_code_masked");
-                    final String licenseReference = rs.getString("license_reference");
-                    final String verificationStatus = rs.getString("verification_status");
-                    final String managementStatus = rs.getString("management_status");
-                    final String ownerUserId = rs.getString("owner_user_id");
-                    final String ownerDisplayName = rs.getString("owner_name");
-                    final String createdAt = rs.getTimestamp("created_at").toInstant().toString();
-                },
-                tenantId
-        );
-        if (company.isEmpty()) {
-            throw new ApiException("NOT_FOUND", "企业不存在", HttpStatus.NOT_FOUND);
-        }
-        var c = company.getFirst();
-
-        List<MemberSummary> members = jdbc.query(
-                "SELECT cm.user_id, u.display_name, cm.role, cm.status " +
-                "FROM company_memberships cm JOIN users u ON u.id = cm.user_id " +
-                "WHERE cm.company_id = ?",
-                (rs, n) -> new MemberSummary(
-                        rs.getString("user_id"), rs.getString("display_name"),
-                        rs.getString("role"), rs.getString("status")),
-                tenantId
-        );
-
-        List<WorkspaceSummary> workspaces = jdbc.query(
-                "SELECT w.id, w.name, w.status, " +
-                "(SELECT COUNT(*) FROM workspace_memberships wm WHERE wm.workspace_id = w.id) AS member_count " +
-                "FROM workspaces w WHERE w.company_id = ?",
-                (rs, n) -> new WorkspaceSummary(
-                        rs.getString("id"), rs.getString("name"),
-                        rs.getString("status"), rs.getInt("member_count")),
-                tenantId
-        );
-
-        return new CompanyDetail(c.id, c.legalName, c.displayName, c.creditCodeMasked,
-                c.verificationStatus, c.managementStatus, c.ownerUserId, c.ownerDisplayName,
-                licenseFileService.extractFilename(c.licenseReference),
-                licenseFileService.previewUrl(c.licenseReference),
-                members, workspaces, c.createdAt);
+        JsonNode root=boss.internalRecruitmentPlatformQuery("/tenants/detail?tenantId="+tenantId); JsonNode t=root.path("tenant");
+        if(t.isMissingNode()||t.isEmpty())throw new ApiException("NOT_FOUND","企业不存在",HttpStatus.NOT_FOUND);
+        List<MemberSummary> members=new java.util.ArrayList<>();for(JsonNode m:root.path("members"))members.add(new MemberSummary(text(m,"user_id"),text(m,"display_name"),text(m,"role"),text(m,"status")));
+        return new CompanyDetail(text(t,"tenant_id"),text(t,"legal_name"),text(t,"display_name"),text(t,"credit_code"),"APPROVED",text(t,"management_status"),text(t,"owner_user_id"),text(t,"owner_display_name"),null,null,members,List.of(new WorkspaceSummary(text(t,"tenant_id"),text(t,"display_name"),text(t,"management_status"),members.size())),text(t,"created_at"));
     }
+    private static CompanySummary summary(JsonNode x){return new CompanySummary(text(x,"tenant_id"),text(x,"legal_name"),text(x,"display_name"),text(x,"verification_status"),text(x,"management_status"),x.path("member_count").asInt(),text(x,"created_at"));}
+    private static String text(JsonNode n,String key){return n.path(key).isNull()?null:n.path(key).asText(null);} private static String encode(String v){return java.net.URLEncoder.encode(v==null?"":v,java.nio.charset.StandardCharsets.UTF_8);}
 }

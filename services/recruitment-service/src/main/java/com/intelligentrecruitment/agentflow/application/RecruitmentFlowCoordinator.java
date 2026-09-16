@@ -21,33 +21,15 @@ import org.springframework.stereotype.Service;
 public class RecruitmentFlowCoordinator {
 
     public static final String POLICY_VERSION = "recruitment-flow-v1";
-    private static final String CURRENCY = "CNY";
-
-    public PolicyDecision evaluate(FlowCapability capability, TenantScope scope, UUID actorId,
-                                   long availableAmountMinor, long estimatedAmountMinor, UUID quoteId,
-                                   boolean userConfirmed) {
-        if (availableAmountMinor < estimatedAmountMinor) {
-            return decision(capability, scope, actorId, PolicyDecision.Decision.DENY,
-                    List.of(PolicyDecision.ReasonCode.INSUFFICIENT_BALANCE), quoteId,
-                    estimatedAmountMinor, null);
-        }
-        return evaluateAuthoritative(capability, scope, actorId, estimatedAmountMinor, quoteId, userConfirmed);
-    }
-
-    /** Production path: BOSS atomically evaluates package and wallet assets. */
-    public PolicyDecision evaluateAuthoritative(FlowCapability capability, TenantScope scope, UUID actorId,
-                                                long estimatedAmountMinor, UUID quoteId, boolean userConfirmed) {
-        // Balance authority is BOSS: package entitlements may cover the request even
-        // when the monetary wallet is empty. The atomic BOSS reservation decides
-        // whether execution can proceed, so do not reject on a local balance snapshot.
-        if (!userConfirmed) {
-            return decision(capability, scope, actorId, PolicyDecision.Decision.REQUIRE_USER_CONFIRMATION,
-                    List.of(PolicyDecision.ReasonCode.AUTHORIZED,
-                            PolicyDecision.ReasonCode.USER_CONFIRMATION_REQUIRED), quoteId,
-                    estimatedAmountMinor, null);
-        }
+    /**
+     * Recruitment only freezes business context.  Capability entitlement and
+     * credit reservation are evaluated atomically by BOSS when AIAgentPlatform
+     * accepts the execution request; this service must not keep a second local
+     * monetary or quota decision.
+     */
+    public PolicyDecision evaluateAuthoritative(FlowCapability capability, TenantScope scope, UUID actorId) {
         return decision(capability, scope, actorId, PolicyDecision.Decision.ALLOW,
-                List.of(PolicyDecision.ReasonCode.AUTHORIZED), quoteId, estimatedAmountMinor, Instant.now());
+                List.of(PolicyDecision.ReasonCode.AUTHORIZED));
     }
 
     public ExecutionContext createExecutionContext(PolicyDecision policyDecision, UUID businessTaskId,
@@ -61,19 +43,16 @@ public class RecruitmentFlowCoordinator {
         String requestId = MDC.get("request_id");
         if (requestId == null || requestId.isBlank()) requestId = UUID.randomUUID().toString();
         return new ExecutionContext(UUID.randomUUID(), null, requestId, requestId,
-                policyDecision.workspaceId(), policyDecision.workspaceId(), policyDecision.actorId(), businessTaskId,
+                policyDecision.tenantId(), policyDecision.actorId(), businessTaskId,
                 idempotencyKey, policyDecision.capability(), businessOperationRef,
                 List.copyOf(inputVersions), policyDecision,
                 new ExecutionContext.DataHandling(containsPii, "ephemeral", false), now);
     }
 
     private PolicyDecision decision(FlowCapability capability, TenantScope scope, UUID actorId,
-                                    PolicyDecision.Decision outcome, List<PolicyDecision.ReasonCode> reasons,
-                                    UUID quoteId, long estimatedAmountMinor, Instant confirmedAt) {
-        PolicyDecision.Confirmation confirmation = new PolicyDecision.Confirmation(quoteId,
-                estimatedAmountMinor, CURRENCY, confirmedAt, confirmedAt == null ? null : actorId);
+                                    PolicyDecision.Decision outcome, List<PolicyDecision.ReasonCode> reasons) {
         return new PolicyDecision(UUID.randomUUID(), capability, outcome, reasons, scope.tenantId(),
-                scope.tenantId(), actorId, confirmation, POLICY_VERSION, Instant.now());
+                actorId, POLICY_VERSION, Instant.now());
     }
 
     private ApiException denied(PolicyDecision decision) {

@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppShell } from "@/components/layout/app-shell";
+import { apiDownload, apiFetch } from "@/lib/api-client";
 import { CategoryTreePanel } from "@/components/jobs/category-tree-panel";
 import { useWorkspace } from "@/lib/workspace-context";
 import {
@@ -128,6 +129,11 @@ export default function JobsPage() {
 
   const [stats, setStats] = useState<JobStats | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [poolTab, setPoolTab] = useState<"mine" | "enterprise">("mine");
+  const [enterpriseJobs, setEnterpriseJobs] = useState<Array<{ copyId: string; sourceJobId: string; sourceOwnerUserId: string; snapshotJson: string; sourceUpdatedAt: string; synchronizedAt: string }>>([]);
+  const [enterpriseJobsError, setEnterpriseJobsError] = useState<string | null>(null);
+  const [jobPoolSharingEnabled, setJobPoolSharingEnabled] = useState(false);
+  const [jobPoolAllowed, setJobPoolAllowed] = useState(false);
   const [total, setTotal] = useState(0);
   const [dataLoading, setDataLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -183,6 +189,23 @@ export default function JobsPage() {
       setTotal(cached.total);
     }
   }, [workspaceId, search, apiStatus, page, pageSize]);
+
+  useEffect(() => {
+    if (!workspaceId || workspace?.type !== "ENTERPRISE") { setJobPoolAllowed(false); setJobPoolSharingEnabled(false); setPoolTab("mine"); return; }
+    void apiFetch<{ jobPoolSharingEnabled: boolean; jobPoolAllowed: boolean }>(`/tenants/${workspaceId}/enterprise-pools/access`).then((access) => {
+      setJobPoolAllowed(access.jobPoolAllowed);
+      setJobPoolSharingEnabled(access.jobPoolSharingEnabled);
+      if (!access.jobPoolAllowed) setPoolTab("mine");
+    }).catch(() => { setJobPoolAllowed(false); setJobPoolSharingEnabled(false); setPoolTab("mine"); });
+  }, [workspaceId, workspace?.type]);
+
+  useEffect(() => {
+    if (!workspaceId || poolTab !== "enterprise" || workspace?.type !== "ENTERPRISE" || !jobPoolAllowed) return;
+    setEnterpriseJobsError(null);
+    void apiFetch<typeof enterpriseJobs>(`/tenants/${workspaceId}/enterprise-pools/jobs`)
+      .then(setEnterpriseJobs)
+      .catch((cause) => setEnterpriseJobsError(cause instanceof Error ? cause.message : "企业职位池暂不可用"));
+  }, [workspaceId, poolTab, workspace?.type, jobPoolAllowed]);
 
   const loadData = useCallback(async () => {
     if (!workspaceId) return;
@@ -537,6 +560,19 @@ export default function JobsPage() {
       </section>
     }>
 
+      {workspace?.type === "ENTERPRISE" && (
+        <div className="mb-4 flex gap-2 border-b border-[#d6e5f5]">
+          <button type="button" className={`border-b-2 px-4 py-2 text-sm font-semibold ${poolTab === "mine" ? "border-[#0874e8] text-[#0874e8]" : "border-transparent text-[#6b80a4]"}`} onClick={() => setPoolTab("mine")}>我的职位</button>
+          {jobPoolAllowed && <button type="button" className={`border-b-2 px-4 py-2 text-sm font-semibold ${poolTab === "enterprise" ? "border-[#0874e8] text-[#0874e8]" : "border-transparent text-[#6b80a4]"}`} onClick={() => setPoolTab("enterprise")}>企业职位池</button>}
+        </div>
+      )}
+      {poolTab === "enterprise" && workspace?.type === "ENTERPRISE" ? (
+        <section className="rounded-xl border border-[#d6e5f5] bg-white p-4 shadow-[0_6px_20px_rgba(30,92,160,0.04)]">
+          <div className="mb-4 flex items-center justify-between"><div><h2 className="m-0 text-lg font-bold text-[#173568]">企业职位池</h2><p className="m-0 mt-1 text-xs text-[#6b80a4]">企业成员同步的只读职位副本。</p></div><div className="flex gap-2"><button type="button" className="outline-button" onClick={async () => { if (!workspaceId) return; try { const blob = await apiDownload(`/tenants/${workspaceId}/enterprise-pools/jobs/export`); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "enterprise-job-pool.csv"; link.click(); URL.revokeObjectURL(url); } catch { setEnterpriseJobsError("导出权限不足"); } }}>导出 CSV</button></div></div>
+          {enterpriseJobsError && <p className="rounded bg-[#fff5f5] p-3 text-sm text-[#dc2626]">{enterpriseJobsError}</p>}
+          {enterpriseJobs.length === 0 ? <p className="py-12 text-center text-sm text-[#6b80a4]">暂无企业职位副本</p> : <div className="overflow-x-auto"><table className="w-full text-left text-xs text-[#36527f]"><thead><tr className="border-b border-[#eaf1fa]"><th className="px-3 py-3">职位名称</th><th className="px-3 py-3">来源成员</th><th className="px-3 py-3">最近同步</th></tr></thead><tbody>{enterpriseJobs.map((job) => { let snapshot: Record<string, string> = {}; try { snapshot = JSON.parse(job.snapshotJson) as Record<string, string>; } catch { /* 服务端快照异常时保持只读空值 */ } return <tr key={job.copyId} className="border-b border-[#eaf1fa]"><td className="px-3 py-3 font-semibold">{snapshot.title || job.sourceJobId}</td><td className="px-3 py-3">{job.sourceOwnerUserId}</td><td className="px-3 py-3">{formatDate(job.synchronizedAt)}</td></tr>; })}</tbody></table></div>}
+        </section>
+      ) : (
       <div className="grid gap-3 2xl:grid-cols-[minmax(700px,1fr)_420px]">
         <div className="min-w-0">
           {/* 统计卡片 */}
@@ -604,6 +640,7 @@ export default function JobsPage() {
                 <button className="primary-button !h-10" type="button" onClick={() => handleOpenEdit()}>
                   <Plus size={16} /> 新建职位
                 </button>
+                {workspace?.type === "ENTERPRISE" && jobPoolSharingEnabled && workspace?.status !== "EXPIRED_READONLY" && <button className="outline-button !h-10" type="button" onClick={() => { if (workspaceId) void apiFetch(`/tenants/${workspaceId}/enterprise-pools/jobs/sync`, { method: "POST" }).catch((cause) => setError(cause instanceof Error ? cause.message : "同步失败")); }}>同步至企业池</button>}
 
                 <div className="relative" ref={batchMenuRef}>
                   <button
@@ -921,6 +958,7 @@ export default function JobsPage() {
           )}
         </aside>
       </div>
+      )}
 
       {editOpen && (
         <JobEditModal

@@ -89,12 +89,11 @@ public class TicketService {
                        COALESCE(NULLIF(u.display_name, ''),
                                 NULLIF('用户****' || u.phone_last_four, '用户****'),
                                 st.creator_name) AS creator_name,
-                       st.company_id, c.display_name AS company_name,
+                       st.tenant_id, st.tenant_id::text AS company_name,
                        st.title, st.category, st.priority, st.status, st.assigned_to_id, st.closed_at,
                        st.created_at, st.updated_at
                 FROM support_tickets st
                 LEFT JOIN users u ON u.id = st.creator_user_id
-                LEFT JOIN companies c ON c.id = st.company_id
                 """ + whereClause + """
                  ORDER BY st.created_at DESC
                  LIMIT ? OFFSET ?
@@ -105,7 +104,7 @@ public class TicketService {
                 rs.getString("ticket_number"),
                 rs.getObject("creator_user_id", UUID.class),
                 rs.getString("creator_name"),
-                rs.getObject("company_id", UUID.class),
+                rs.getObject("tenant_id", UUID.class),
                 rs.getString("company_name"),
                 rs.getString("title"),
                 rs.getString("category"),
@@ -130,19 +129,18 @@ public class TicketService {
                        COALESCE(NULLIF(u.display_name, ''),
                                 NULLIF('用户****' || u.phone_last_four, '用户****'),
                                 st.creator_name) AS creator_name,
-                       st.company_id, c.display_name AS company_name,
+                       st.tenant_id, st.tenant_id::text AS company_name,
                        st.title, st.category, st.priority, st.status, st.assigned_to_id, st.closed_at,
                        st.created_at, st.updated_at
                 FROM support_tickets st
                 LEFT JOIN users u ON u.id = st.creator_user_id
-                LEFT JOIN companies c ON c.id = st.company_id
                 WHERE st.id = ?
                 """, (rs, n) -> new TicketRow(
                 rs.getObject("id", UUID.class),
                 rs.getString("ticket_number"),
                 rs.getObject("creator_user_id", UUID.class),
                 rs.getString("creator_name"),
-                rs.getObject("company_id", UUID.class),
+                rs.getObject("tenant_id", UUID.class),
                 rs.getString("company_name"),
                 rs.getString("title"),
                 rs.getString("category"),
@@ -194,7 +192,7 @@ public class TicketService {
         String displayName = userInfo.displayName() != null ? userInfo.displayName() : creatorName;
 
         jdbc.update("""
-                INSERT INTO support_tickets (id, ticket_number, creator_user_id, creator_name, company_id, title, category, priority, status, created_at, updated_at)
+                INSERT INTO support_tickets (id, ticket_number, creator_user_id, creator_name, tenant_id, title, category, priority, status, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
                 """, ticketId, ticketNumber, creatorUserId, displayName, userInfo.tenantId(),
                 required(title, "工单标题不能为空"), required(category, "工单分类不能为空"),
@@ -351,25 +349,21 @@ public class TicketService {
         if (userId == null) {
             return new UserInfo(null, null, null);
         }
-        // 查询用户昵称和企业信息
-        // company_memberships 表使用 joined_at 作为加入时间
+        // 企业成员关系由 BOSS 管理；本地工单只保留创建人的显示信息。
         List<UserInfo> results = jdbc.query("""
                 SELECT CASE
                          WHEN NULLIF(u.display_name, '') IS NOT NULL THEN u.display_name
                          WHEN NULLIF('用户****' || u.phone_last_four, '用户****') IS NOT NULL THEN '用户****' || u.phone_last_four
                          ELSE NULL
                        END AS display_name,
-                       c.id AS company_id,
-                       c.display_name AS company_name
+                       NULL::uuid AS tenant_id,
+                       NULL::text AS company_name
                 FROM users u
-                LEFT JOIN company_memberships cm ON cm.user_id = u.id
-                LEFT JOIN companies c ON c.id = cm.company_id
                 WHERE u.id = ?
-                ORDER BY cm.joined_at DESC NULLS LAST
                 LIMIT 1
                 """, (rs, n) -> new UserInfo(
                         rs.getString("display_name"),
-                        rs.getObject("company_id", UUID.class),
+                        rs.getObject("tenant_id", UUID.class),
                         rs.getString("company_name")
                 ), userId);
         return results.isEmpty() ? new UserInfo(null, null, null) : results.getFirst();

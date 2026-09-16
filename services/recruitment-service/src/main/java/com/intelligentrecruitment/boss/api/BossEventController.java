@@ -49,9 +49,9 @@ public class BossEventController {
         if (inserted == 0) return;
         JsonNode data = event.path("payload");
         if ("company.status.changed".equals(eventType) || "company.activated".equals(eventType)) {
-            UUID companyId = nullableUuid(data, "company_id");
-            if (companyId != null) jdbc.update("UPDATE boss_company_projections SET company_status=?,synchronized_at=CURRENT_TIMESTAMP WHERE company_id=?",
-                    data.path("status").asText(), companyId);
+            UUID tenantId = nullableUuid(data, "tenant_id");
+            if (tenantId != null) jdbc.update("UPDATE boss_company_projections SET company_status=?,synchronized_at=CURRENT_TIMESTAMP WHERE tenant_id=?",
+                    data.path("status").asText(), tenantId);
         } else if ("tenant.status.changed".equals(eventType)) {
             UUID tenantId = nullableUuid(data, "tenant_id");
             if (tenantId != null) jdbc.update("UPDATE boss_company_projections SET tenant_status=?,synchronized_at=CURRENT_TIMESTAMP WHERE tenant_id=?",

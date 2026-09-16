@@ -22,7 +22,7 @@ public class PlatformCompanyController {
         this.guard = guard;
     }
 
-    @GetMapping("/companies")
+    @GetMapping("/tenant_projections")
     PlatformCompanyService.PagedResult<PlatformCompanyService.CompanySummary> listCompanies(
             @RequestHeader("X-Platform-Admin-Key") String key,
             @RequestParam(defaultValue = "") String search,
@@ -34,7 +34,7 @@ public class PlatformCompanyController {
         return service.listCompanies(search, status, page, pageSize);
     }
 
-    @GetMapping("/companies/{tenantId}")
+    @GetMapping("/tenant_projections/{tenantId}")
     PlatformCompanyService.CompanyDetail getCompanyDetail(
             @RequestHeader("X-Platform-Admin-Key") String key,
             @PathVariable UUID tenantId) {

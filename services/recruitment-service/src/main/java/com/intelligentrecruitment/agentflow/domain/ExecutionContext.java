@@ -10,7 +10,6 @@ public record ExecutionContext(
         @JsonProperty("route_decision_id") UUID routeDecisionId,
         @JsonProperty("request_id") String requestId,
         @JsonProperty("trace_id") String traceId,
-        @JsonProperty("workspace_id") UUID workspaceId,
         @JsonProperty("tenant_id") UUID tenantId,
         @JsonProperty("actor_id") UUID actorId,
         @JsonProperty("business_task_id") UUID businessTaskId,

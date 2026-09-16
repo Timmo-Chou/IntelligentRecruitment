@@ -1,24 +1,25 @@
 package com.intelligentrecruitment.platform.user.application;
 
 import com.intelligentrecruitment.shared.error.ApiException;
+import com.intelligentrecruitment.boss.application.BossControlPlaneClient;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 /**
- * 平台用户管理服务：查询注册用户列表和详情。
+ * 平台用户管理服务：所有用户数据均从 BOSS 内部接口获取，不再依赖本地投影表。
  */
 @Service
 public class PlatformUserService {
 
-    private final JdbcTemplate jdbc;
+    private final BossControlPlaneClient boss;
 
-    public PlatformUserService(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+    public PlatformUserService(BossControlPlaneClient boss) {
+        this.boss = boss;
     }
 
     public record UserSummary(
@@ -29,125 +30,80 @@ public class PlatformUserService {
             String userId, String displayName, String phone, String status,
             String verificationStatus, String realNameMasked,
             String identityHash, String reviewedBy, String reviewedAt, String rejectionReason,
-            List<CompanyMembership> companies, List<WorkspaceMembership> workspaces,
+            List<TenantMembership> tenantMemberships, List<WorkspaceMembership> workspaces,
             String createdAt) {}
 
-    public record CompanyMembership(String tenantId, String companyName, String role, String status) {}
+    public record TenantMembership(String tenantId, String tenantName, String role, String status) {}
 
     public record WorkspaceMembership(String workspaceId, String workspaceName, String role, String status) {}
 
     public record PagedResult<T>(List<T> items, long total, int page, int pageSize) {}
 
     public PagedResult<UserSummary> listUsers(String search, String status, int page, int pageSize) {
-        int offset = (page - 1) * pageSize;
+        JsonNode result = boss.internalUserList(search, status, page, pageSize);
+        long total = result.path("total").asLong(0);
+        int safePage = result.path("page").asInt(page);
+        int safeSize = result.path("page_size").asInt(pageSize);
 
-        StringBuilder where = new StringBuilder("WHERE 1=1");
-        List<Object> params = new java.util.ArrayList<>();
-
-        if (search != null && !search.isBlank()) {
-            where.append(" AND (u.display_name ILIKE ? OR u.id::text ILIKE ?)");
-            String like = "%" + search + "%";
-            params.add(like);
-            params.add(like);
+        List<UserSummary> items = new ArrayList<>();
+        for (JsonNode row : result.path("items")) {
+            items.add(new UserSummary(
+                    text(row, "user_id"),
+                    text(row, "display_name"),
+                    text(row, "phone_last_four"),
+                    text(row, "status"),
+                    text(row, "verification_status"),
+                    text(row, "created_at")
+            ));
         }
-        if (status != null && !status.isBlank()) {
-            where.append(" AND u.status = ?");
-            params.add(status);
-        }
-
-        String countSql = "SELECT COUNT(*) FROM users u " + where;
-        Long total = jdbc.queryForObject(countSql, Long.class, params.toArray());
-
-        String dataSql = """
-                SELECT u.id AS user_id, u.display_name, u.phone_last_four, u.status, u.created_at,
-                       COALESCE(pi.verification_status, 'UNVERIFIED') AS verification_status
-                FROM users u
-                LEFT JOIN personal_identities pi ON pi.user_id = u.id
-                """ + where + " ORDER BY u.created_at DESC LIMIT ? OFFSET ?";
-
-        params.add(pageSize);
-        params.add(offset);
-
-        List<UserSummary> items = jdbc.query(dataSql, (rs, n) -> new UserSummary(
-                rs.getString("user_id"),
-                rs.getString("display_name"),
-                rs.getString("phone_last_four"),
-                rs.getString("status"),
-                rs.getString("verification_status"),
-                rs.getTimestamp("created_at").toInstant().toString()
-        ), params.toArray());
-
-        return new PagedResult<>(items, total != null ? total : 0, page, pageSize);
+        return new PagedResult<>(items, total, safePage, safeSize);
     }
 
     public UserDetail getUserDetail(UUID userId) {
-        // 查询用户基本信息
-        var user = jdbc.query(
-                "SELECT u.id, u.display_name, u.phone_last_four, u.status, u.created_at, " +
-                "COALESCE(pi.verification_status, 'UNVERIFIED') AS verification_status, " +
-                "pi.real_name_masked, pi.identity_hash, pi.reviewed_by, pi.reviewed_at, pi.rejection_reason " +
-                "FROM users u LEFT JOIN personal_identities pi ON pi.user_id = u.id WHERE u.id = ?",
-                (rs, n) -> new Object() {
-                    final String id = rs.getString("id");
-                    final String displayName = rs.getString("display_name");
-                    final String phone = rs.getString("phone_last_four");
-                    final String status = rs.getString("status");
-                    final String verificationStatus = rs.getString("verification_status");
-                    final String realNameMasked = rs.getString("real_name_masked");
-                    final String identityHash = rs.getString("identity_hash");
-                    final String reviewedBy = rs.getString("reviewed_by");
-                    final String reviewedAt = rs.getTimestamp("reviewed_at") != null
-                            ? rs.getTimestamp("reviewed_at").toInstant().toString() : null;
-                    final String rejectionReason = rs.getString("rejection_reason");
-                    final String createdAt = rs.getTimestamp("created_at").toInstant().toString();
-                },
-                userId
-        );
-        if (user.isEmpty()) {
+        JsonNode result = boss.internalUserDetail(userId);
+        JsonNode u = result.path("user");
+        if (u.isNull() || u.isMissingNode()) {
             throw new ApiException("NOT_FOUND", "用户不存在", HttpStatus.NOT_FOUND);
         }
-        var u = user.getFirst();
 
-        // 查询用户所属企业
-        List<CompanyMembership> companies = jdbc.query(
-                "SELECT c.id, c.display_name, cm.role, cm.status " +
-                "FROM company_memberships cm JOIN companies c ON c.id = cm.company_id " +
-                "WHERE cm.user_id = ?",
-                (rs, n) -> new CompanyMembership(
-                        rs.getString("id"), rs.getString("display_name"),
-                        rs.getString("role"), rs.getString("status")),
-                userId
+        List<TenantMembership> tenantMemberships = new ArrayList<>();
+        List<WorkspaceMembership> workspaces = new ArrayList<>();
+        for (JsonNode membership : result.path("memberships")) {
+            String tenantId = text(membership, "tenant_id");
+            String tenantName = text(membership, "tenant_name");
+            String role = text(membership, "role");
+            String membershipStatus = text(membership, "status");
+            tenantMemberships.add(new TenantMembership(tenantId, tenantName, role, membershipStatus));
+            // 招聘 Tenant 替代已删除的 Workspace 实体。
+            workspaces.add(new WorkspaceMembership(tenantId, tenantName, role, membershipStatus));
+        }
+
+        return new UserDetail(
+                text(u, "user_id"),
+                text(u, "display_name"),
+                text(u, "phone_last_four"),
+                text(u, "status"),
+                text(u, "verification_status"),
+                text(u, "real_name_masked"),
+                text(u, "identity_hash"),
+                text(u, "reviewed_by"),
+                text(u, "reviewed_at"),
+                text(u, "rejection_reason"),
+                tenantMemberships,
+                workspaces,
+                text(u, "created_at")
         );
-
-        // 查询用户工作空间
-        List<WorkspaceMembership> workspaces = jdbc.query(
-                "SELECT w.id, w.name, wm.role, wm.status " +
-                "FROM workspace_memberships wm JOIN workspaces w ON w.id = wm.workspace_id " +
-                "WHERE wm.user_id = ?",
-                (rs, n) -> new WorkspaceMembership(
-                        rs.getString("id"), rs.getString("name"),
-                        rs.getString("role"), rs.getString("status")),
-                userId
-        );
-
-        return new UserDetail(u.id, u.displayName, u.phone, u.status, u.verificationStatus,
-                u.realNameMasked, u.identityHash, u.reviewedBy, u.reviewedAt, u.rejectionReason,
-                companies, workspaces, u.createdAt);
     }
 
     public void disableUser(UUID userId) {
-        int updated = jdbc.update("UPDATE users SET status = 'DISABLED', updated_at = ? WHERE id = ?",
-                java.sql.Timestamp.from(Instant.now()), userId);
-        if (updated == 0) {
-            throw new ApiException("NOT_FOUND", "用户不存在", HttpStatus.NOT_FOUND);
-        }
+        boss.internalDisableUser(userId);
     }
 
     public void enableUser(UUID userId) {
-        int updated = jdbc.update("UPDATE users SET status = 'ACTIVE', updated_at = ? WHERE id = ?",
-                java.sql.Timestamp.from(Instant.now()), userId);
-        if (updated == 0) {
-            throw new ApiException("NOT_FOUND", "用户不存在", HttpStatus.NOT_FOUND);
-        }
+        boss.internalEnableUser(userId);
+    }
+
+    private static String text(JsonNode node, String field) {
+        return node.hasNonNull(field) ? node.path(field).asText() : null;
     }
 }

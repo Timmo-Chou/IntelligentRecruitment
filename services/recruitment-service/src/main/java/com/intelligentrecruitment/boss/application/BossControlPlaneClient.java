@@ -105,6 +105,17 @@ public class BossControlPlaneClient {
         return new Contexts(uuid(body, "user_id"), tenants);
     }
 
+    public TenantOverview tenantOverview(String accessToken, UUID tenantId) {
+        JsonNode body = request("GET", "/api/v1/recruitment/tenants/" + tenantId + "/overview", accessToken, null, null).body();
+        return new TenantOverview(uuid(body,"tenant_id"), text(body,"tenant_type"), text(body,"tenant_status"),
+                body.path("talent_pool_sharing_enabled").asBoolean(false), body.path("job_pool_sharing_enabled").asBoolean(false));
+    }
+
+    public boolean hasPermission(String accessToken, UUID tenantId, String permissionCode) {
+        JsonNode body = request("GET", "/api/v1/recruitment/tenants/" + tenantId + "/permissions/" + encode(permissionCode), accessToken, null, null).body();
+        return body.path("allowed").asBoolean(false);
+    }
+
     public Map<String, Object> creditCodeAvailability(String accessToken, String creditCode) {
         JsonNode body = request("GET", "/api/v1/recruitment/enterprise-registrations/credit-code-availability?creditCode=" + encode(creditCode), accessToken, null, null).body();
         return Map.of("available", body.path("available").asBoolean(false));
@@ -165,225 +176,10 @@ public class BossControlPlaneClient {
     public void updateMemberRole(String accessToken, UUID tenantId, UUID userId, String roleCode) { request("PUT", "/api/v1/recruitment/tenants/" + tenantId + "/members/" + userId + "/role", accessToken, "{\"roleCode\":" + quoted(roleCode) + "}", null); }
     private JsonNode recruitmentGet(String accessToken, UUID tenantId, String resource) { return request("GET", "/api/v1/recruitment/tenants/" + tenantId + "/" + resource, accessToken, null, null).body(); }
 
-    public Registration registerCompany(String accessToken, String legalName, String creditCode,
-                                        String licenseReference, String contactName, String contactPhone) {
-        JsonNode body = request("POST", "/api/v1/companies/registrations", accessToken,
-                "{\"legalName\":" + quoted(legalName) + ",\"creditCode\":" + quoted(creditCode)
-                        + ",\"licenseReference\":" + quoted(licenseReference) + ",\"contactName\":"
-                        + quoted(contactName) + ",\"contactPhone\":" + quoted(contactPhone) + "}", null).body();
-        return new Registration(uuid(body, "tenant_id"), uuid(body, "company_id"), uuid(body, "verification_request_id"), text(body, "status"));
-    }
-
-    /** Streams the original license file to BOSS; Recruitment never stores the document. */
-    public LicenseDocument uploadLicenseDocument(String accessToken, MultipartFile file) {
-        if (file == null || file.isEmpty()) {
-            throw new ApiException("EMPTY_FILE", "营业执照文件不能为空", HttpStatus.BAD_REQUEST);
-        }
-        try {
-            String boundary = "----RecruitmentBoss" + UUID.randomUUID().toString().replace("-", "");
-            String filename = file.getOriginalFilename() == null ? "license" : file.getOriginalFilename().replace("\"", "_");
-            String type = file.getContentType() == null ? "application/octet-stream" : file.getContentType();
-            byte[] opening = ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\""
-                    + filename + "\"\r\nContent-Type: " + type + "\r\n\r\n").getBytes(StandardCharsets.UTF_8);
-            byte[] closing = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
-            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + "/api/v1/companies/registrations/license-files"))
-                    .timeout(Duration.ofSeconds(15)).header("Accept", "application/json")
-                    .header("Authorization", "Bearer " + accessToken)
-                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                    .POST(HttpRequest.BodyPublishers.ofByteArrays(Arrays.asList(opening, file.getBytes(), closing)));
-            HttpResponse<String> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
-            JsonNode body = response.body().isBlank() ? json.createObjectNode() : json.readTree(response.body());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) throw bossError(response.statusCode(), body);
-            return new LicenseDocument(text(body, "reference"), text(body, "filename"), text(body, "contentType"), body.path("sizeBytes").asLong());
-        } catch (ApiException exception) {
-            throw exception;
-        } catch (IOException exception) {
-            throw new ApiException("BOSS_UNAVAILABLE", "BOSS 文件服务暂不可用，请稍后重试", HttpStatus.SERVICE_UNAVAILABLE);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new ApiException("BOSS_UNAVAILABLE", "BOSS 文件服务暂不可用，请稍后重试", HttpStatus.SERVICE_UNAVAILABLE);
-        }
-    }
-
-    /** Streams transfer evidence directly to BOSS; Recruitment never retains payment evidence. */
-    public void uploadTransferProof(String accessToken, UUID companyId, UUID orderId, MultipartFile file) {
-        if (file == null || file.isEmpty()) throw new ApiException("EMPTY_FILE", "转账凭证不能为空", HttpStatus.BAD_REQUEST);
-        try {
-            String boundary = "----RecruitmentBoss" + UUID.randomUUID().toString().replace("-", "");
-            String filename = file.getOriginalFilename() == null ? "transfer-proof" : file.getOriginalFilename().replace("\"", "_");
-            String type = file.getContentType() == null ? "application/octet-stream" : file.getContentType();
-            byte[] opening = ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"\r\nContent-Type: " + type + "\r\n\r\n").getBytes(StandardCharsets.UTF_8);
-            byte[] closing = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
-            HttpResponse<String> response = http.send(HttpRequest.newBuilder(URI.create(baseUrl + "/api/v1/companies/" + companyId + "/payments/orders/" + orderId + "/transfer-proof"))
-                    .timeout(Duration.ofSeconds(15)).header("Authorization", "Bearer " + accessToken).header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                    .POST(HttpRequest.BodyPublishers.ofByteArrays(Arrays.asList(opening, file.getBytes(), closing))).build(), HttpResponse.BodyHandlers.ofString());
-            JsonNode body = response.body().isBlank() ? json.createObjectNode() : json.readTree(response.body());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) throw bossError(response.statusCode(), body);
-        } catch (ApiException exception) { throw exception; }
-        catch (IOException exception) { throw new ApiException("BOSS_UNAVAILABLE", "BOSS 文件服务暂不可用，请稍后重试", HttpStatus.SERVICE_UNAVAILABLE); }
-        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new ApiException("BOSS_UNAVAILABLE", "BOSS 文件服务暂不可用，请稍后重试", HttpStatus.SERVICE_UNAVAILABLE); }
-    }
-
-    public List<DirectoryCompany> searchCompanies(String accessToken, String query) {
-        JsonNode body = request("GET", "/api/v1/companies/search?q=" + encode(query), accessToken, null, null).body();
-        List<DirectoryCompany> companies = new ArrayList<>();
-        for (JsonNode item : body) companies.add(new DirectoryCompany(uuid(item, "company_id"), text(item, "legal_name"), item.path("member_count").asInt()));
-        return companies;
-    }
-
-    public void applyForMembership(String accessToken, UUID companyId) {
-        request("POST", "/api/v1/companies/" + companyId + "/membership-applications", accessToken, "{}", null);
-    }
-
-    public JsonNode inviteCompanyMember(String accessToken, UUID companyId, String phone) {
-        return request("POST", "/api/v1/companies/" + companyId + "/invitations", accessToken,
-                "{\"phone\":" + quoted(phone) + "}", null).body();
-    }
-
-    public void decideMembershipApplication(String accessToken, UUID applicationId, boolean approve, String reason) {
-        String body = "{\"approve\":" + approve + ",\"reason\":" + (reason == null ? "null" : quoted(reason)) + "}";
-        request("POST", "/api/v1/membership-applications/" + applicationId + "/decision", accessToken, body, null);
-    }
-
-    public void setCompanyMemberStatus(String accessToken, UUID companyId, UUID userId, String status) {
-        request("POST", "/api/v1/companies/" + companyId + "/members/" + userId + "/status", accessToken,
-                "{\"status\":" + quoted(status) + "}", null);
-    }
-
-    public List<PendingRegistration> pendingRegistrations(String accessToken) {
-        JsonNode body = request("GET", "/api/v1/me/company-registrations/pending", accessToken, null, null).body();
-        List<PendingRegistration> registrations = new ArrayList<>();
-        for (JsonNode item : body) registrations.add(new PendingRegistration(uuid(item, "verification_request_id"),
-                uuid(item, "company_id"), text(item, "legal_name"), text(item, "status"), instant(item, "created_at")));
-        return registrations;
-    }
-
-    public JsonNode companyWallet(String accessToken, UUID companyId) {
-        return request("GET", "/api/v1/companies/" + companyId + "/wallet-v2", accessToken, null, null).body();
-    }
-
-    public JsonNode tenantWallet(String accessToken, UUID tenantId) {
-        return request("GET", "/api/v1/tenants/" + tenantId + "/wallet", accessToken, null, null).body();
-    }
-
-    public JsonNode tenantPackages(String accessToken, UUID tenantId) {
-        return request("GET", "/api/v1/tenants/" + tenantId + "/packages", accessToken, null, null).body();
-    }
-
-    public JsonNode companyStatements(String accessToken, UUID companyId) {
-        return request("GET", "/api/v1/companies/" + companyId + "/statements", accessToken, null, null).body();
-    }
-
-    public JsonNode paymentContext(String accessToken, UUID companyId) {
-        return request("GET", "/api/v1/companies/" + companyId + "/payments/recharge-context", accessToken, null, null).body();
-    }
-
-    public JsonNode createAlipayPayment(String accessToken, UUID companyId, long amountMinor, String payerName) {
-        return request("POST", "/api/v1/companies/" + companyId + "/payments/orders/alipay", accessToken,
-                "{\"amountMinor\":" + amountMinor + ",\"payerName\":" + quoted(payerName) + "}", null).body();
-    }
-
-    public JsonNode createTransferPayment(String accessToken, UUID companyId, long amountMinor, String payerName) {
-        return request("POST", "/api/v1/companies/" + companyId + "/payments/orders/transfer", accessToken,
-                "{\"amountMinor\":" + amountMinor + ",\"payerName\":" + quoted(payerName) + "}", null).body();
-    }
-
-    public JsonNode companyGovernance(String accessToken, UUID companyId, String resource) {
-        return request("GET", "/api/v1/companies/" + companyId + "/" + resource, accessToken, null, null).body();
-    }
-
-    // ==================== 平台管理端内部调用（使用机器令牌） ====================
-
-    /** 平台管理端读取企业钱包，使用机器令牌而非用户令牌。 */
-    public JsonNode internalCompanyWallet(UUID companyId) {
-        return internal("GET", "/internal/v1/companies/" + companyId + "/wallet-v2", null);
-    }
-
-    /** 平台管理端读取企业账本流水，使用机器令牌而非用户令牌。 */
-    public JsonNode internalCompanyStatements(UUID companyId) {
-        return internal("GET", "/internal/v1/companies/" + companyId + "/statements", null);
-    }
-
-    /** 平台管理端读取企业上下文快照（tenant/company 状态），使用机器令牌。 */
-    public JsonNode internalCompanyContext(UUID companyId) {
-        return internal("GET", "/internal/v1/companies/" + companyId + "/context", null);
-    }
-
-    /** 平台管理端读取个人租户钱包，使用机器令牌。 */
-    public JsonNode internalTenantWallet(UUID tenantId) {
-        return internal("GET", "/internal/v1/tenants/" + tenantId + "/wallet", null);
-    }
-
-    public JsonNode accessibleOrgUnits(String accessToken, UUID companyId) {
-        return request("GET", "/api/v1/companies/" + companyId + "/org-units/accessible", accessToken, null, null).body();
-    }
-
-    public List<String> companyPermissions(String accessToken, UUID companyId) {
-        JsonNode body = request("GET", "/api/v1/scopes/COMPANY/" + companyId + "/my-permissions", accessToken, null, null).body();
-        List<String> result = new ArrayList<>();
-        for (JsonNode item : body) result.add(item.asText());
-        return result;
-    }
-
-    public void rememberOrgUnit(String accessToken, UUID companyId, UUID orgUnitId) {
-        request("POST", "/api/v1/companies/" + companyId + "/org-units/recent", accessToken,
-                "{\"orgUnitId\":\"" + orgUnitId + "\"}", null);
-    }
-
-    public boolean quotaCheck(UUID companyId, String capability) {
-        return internal("POST", "/internal/v1/authorization/quota-check", "{\"companyId\":\""
-                + companyId + "\",\"capability\":" + quoted(capability) + "}")
-                .path("authorized").asBoolean(false);
-    }
-
-    public long quoteUnitPrice(UUID companyId, String capability) {
-        return internal("POST", "/internal/v1/billing/quote", "{\"companyId\":\""
-                + companyId + "\",\"capability\":" + quoted(capability) + "}")
-                .path("unit_price_micro").asLong(-1);
-    }
-
-    public void reserve(UUID companyId, String capability, String reservationKey, long requestedUnits, long estimatedAmountMicro) {
-        JsonNode result = internal("POST", "/internal/v1/billing/reservations", "{\"companyId\":\""
-                + companyId + "\",\"capability\":" + quoted(capability) + ",\"reservationKey\":" + quoted(reservationKey)
-                + ",\"requestedUnits\":" + requestedUnits + ",\"estimatedAmountMicro\":" + estimatedAmountMicro + "}");
-        if (!result.path("reserved").asBoolean(false)) {
-            throw new ApiException(result.path("reason_code").asText("COMPANY_ASSET_INSUFFICIENT"), "套餐权益或余额不足，请充值", HttpStatus.PAYMENT_REQUIRED);
-        }
-    }
-
-    public void release(UUID companyId, String reservationKey) {
-        internal("POST", "/internal/v1/billing/reservations/" + encodePath(reservationKey) + "/release", "{}");
-    }
-
-    public void reportUsage(String usageEventId, String executionId, UUID companyId, String capability,
-                            String outcome, long successfulUnits, long inputTokens, long outputTokens,
-                            Instant occurredAt) {
-        MachineIdentity identity = machineIdentity();
-        internal("POST", "/internal/v1/usage-events", "{\"usageEventId\":" + quoted(usageEventId)
-                + ",\"executionId\":" + quoted(executionId) + ",\"sourceApiClientId\":\""
-                + identity.apiClientId() + "\",\"companyId\":\"" + companyId + "\",\"capability\":"
-                + quoted(capability) + ",\"outcome\":" + quoted(outcome) + ",\"successfulUnits\":"
-                + successfulUnits + ",\"inputTokens\":" + inputTokens + ",\"outputTokens\":"
-                + outputTokens + ",\"occurredAt\":" + quoted(occurredAt.toString()) + "}");
-    }
-
-    /** Checks BOSS Company membership/roles. A missing capability means ordinary, non-AI RBAC. */
-    public boolean permitted(UUID userId, UUID companyId, String permission, String capability) {
-        String capabilityValue = capability == null ? "null" : quoted(capability);
-        JsonNode body = internal("POST", "/internal/v1/authorization/check", "{\"userId\":\"" + userId
-                + "\",\"companyId\":\"" + companyId + "\",\"permission\":" + quoted(permission)
-                + ",\"capability\":" + capabilityValue + "}");
-        return body.path("permitted").asBoolean(false);
-    }
-
     private Session session(Response response) {
         JsonNode body = response.body();
         return new Session(uuid(body, "user_id"), text(body, "access_token"), instant(body, "expires_at"),
                 body.path("new_user").asBoolean(false), body.path("password_setup_required").asBoolean(false), response.setCookie());
-    }
-
-    private JsonNode internal(String method, String path, String body) {
-        return request(method, path, machineAccessToken(), body, null).body();
     }
 
     private String machineAccessToken() {
@@ -393,6 +189,47 @@ public class BossControlPlaneClient {
     /** 供受信任的下游内部服务调用携带 BOSS OAuth machine token；不得暴露给浏览器。 */
     public String internalAccessToken() {
         return machineAccessToken();
+    }
+
+    public JsonNode claimRecruitmentDataDeletion() {
+        return request("POST", "/internal/v1/recruitment-data-deletion/claim", machineAccessToken(), "{}", null).body();
+    }
+
+    public void completeRecruitmentDataDeletion(UUID taskId) {
+        request("POST", "/internal/v1/recruitment-data-deletion/" + taskId + "/complete", machineAccessToken(), "{}", null);
+    }
+
+    public void failRecruitmentDataDeletion(UUID taskId, String error) {
+        request("POST", "/internal/v1/recruitment-data-deletion/" + taskId + "/fail", machineAccessToken(),
+                "{\"error\":" + quoted(error == null ? "招聘数据删除失败" : error) + "}", null);
+    }
+
+    /** Internal, read-only BOSS operations data. Never expose this machine credential to browsers. */
+    public JsonNode internalRecruitmentPlatformQuery(String path) {
+        return request("GET", "/internal/v1/recruitment-platform" + path, machineAccessToken(), null, null).body();
+    }
+
+    /** 用户列表（内部）：BOSS 作为身份权威源，替代本地 users 投影表查询。 */
+    public JsonNode internalUserList(String search, String status, int page, int pageSize) {
+        StringBuilder path = new StringBuilder("/internal/v1/recruitment-platform/users?page=" + page + "&pageSize=" + pageSize);
+        if (search != null && !search.isBlank()) path.append("&search=").append(encode(search));
+        if (status != null && !status.isBlank()) path.append("&status=").append(encode(status));
+        return request("GET", path.toString(), machineAccessToken(), null, null).body();
+    }
+
+    /** 用户详情（内部）：含实名信息与招聘企业成员关系。 */
+    public JsonNode internalUserDetail(UUID userId) {
+        return request("GET", "/internal/v1/recruitment-platform/users/" + userId, machineAccessToken(), null, null).body();
+    }
+
+    /** 停用用户（内部）。 */
+    public void internalDisableUser(UUID userId) {
+        request("POST", "/internal/v1/recruitment-platform/users/" + userId + "/disable", machineAccessToken(), "{}", null);
+    }
+
+    /** 启用用户（内部）。 */
+    public void internalEnableUser(UUID userId) {
+        request("POST", "/internal/v1/recruitment-platform/users/" + userId + "/enable", machineAccessToken(), "{}", null);
     }
 
     private MachineIdentity machineIdentity() {
@@ -410,13 +247,12 @@ public class BossControlPlaneClient {
             }
             String form = "grant_type=client_credentials&client_id=" + encode(clientId)
                     + "&client_secret=" + encode(clientSecret);
-            Response response = request("POST", "/oauth2/token", null, form, null, null,
-                    "application/x-www-form-urlencoded");
+            Response response = request("POST", "/internal/v1/oauth/token", null,
+                    "{\"clientId\":" + quoted(clientId) + ",\"clientSecret\":" + quoted(clientSecret) + "}", null);
             String token = text(response.body(), "access_token");
             long expires = response.body().path("expires_in").asLong(900);
-            UUID apiClientId = uuid(response.body(), "api_client_id");
-            machineToken = new MachineToken(token, apiClientId, Instant.now().plusSeconds(expires));
-            return new MachineIdentity(token, apiClientId);
+            machineToken = new MachineToken(token, null, Instant.now().plusSeconds(expires));
+            return new MachineIdentity(token, null);
         }
     }
 
@@ -476,7 +312,6 @@ public class BossControlPlaneClient {
     private static String text(JsonNode node, String field) { return node.hasNonNull(field) ? node.path(field).asText() : null; }
     private String quoted(String value) { try { return json.writeValueAsString(value == null ? "" : value); } catch (Exception e) { throw new IllegalStateException(e); } }
     private static String encode(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }
-    private static String encodePath(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20"); }
     private static String trimSlash(String value) { return value.endsWith("/") ? value.substring(0, value.length() - 1) : value; }
 
     public record Challenge(UUID id, Instant expiresAt, String mockCode) { }
@@ -486,14 +321,8 @@ public class BossControlPlaneClient {
     public record Contexts(UUID userId, List<Tenant> tenants) { }
     public record Tenant(UUID tenantId, String productDomain, String tenantType, String tenantName, String tenantStatus,
                          String roleCode, boolean owner, boolean seatAssigned) { }
+    public record TenantOverview(UUID tenantId, String tenantType, String tenantStatus, boolean talentPoolSharingEnabled, boolean jobPoolSharingEnabled) { }
     public record DirectoryTenant(UUID tenantId, String tenantName, String legalName) { }
-    public record Company(UUID companyId, UUID tenantId, String legalName, String entityType,
-                          String companyStatus, String tenantStatus, boolean companyOwner) { }
-    public record Registration(UUID tenantId, UUID companyId, UUID verificationRequestId, String status) { }
-    public record LicenseDocument(String reference, String filename, String contentType, long sizeBytes) { }
-    public record DirectoryCompany(UUID companyId, String legalName, int memberCount) { }
-    public record PendingRegistration(UUID verificationRequestId, UUID companyId, String legalName,
-                                      String status, Instant createdAt) { }
     private record MachineToken(String value, UUID apiClientId, Instant expiresAt) { }
     private record MachineIdentity(String value, UUID apiClientId) { }
     private record Response(JsonNode body, String setCookie) { }

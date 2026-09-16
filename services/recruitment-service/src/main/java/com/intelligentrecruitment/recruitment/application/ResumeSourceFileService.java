@@ -61,7 +61,7 @@ public class ResumeSourceFileService {
             storage.put(objectKey, bytes, mediaType);
             jdbc.update("""
                     INSERT INTO file_assets
-                    (id,company_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
+                    (id,tenant_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
                     VALUES (?,?,?,?,?,?,?,?,'PENDING','ACTIVE',?,?)
                     """, assetId, scope.tenantId(), workspaceId, objectKey, pii.encrypt(filename), mediaType, bytes.length, hash,
@@ -74,7 +74,7 @@ public class ResumeSourceFileService {
         long size = bytes.length;
         jdbc.update("""
                 INSERT INTO resume_source_files
-                (id,company_id,workspace_id,recruitment_task_id,file_asset_id,filename,media_type,size_bytes,extracted_text,created_by,created_at)
+                (id,tenant_id,workspace_id,recruitment_task_id,file_asset_id,filename,media_type,size_bytes,extracted_text,created_by,created_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT (recruitment_task_id,file_asset_id) DO NOTHING
                 """, sourceId, scope.tenantId(), workspaceId, taskId, resolvedAssetId, pii.encrypt(filename), mediaType, size, pii.encrypt(extracted),

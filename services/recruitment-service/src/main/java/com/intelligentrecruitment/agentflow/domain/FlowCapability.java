@@ -14,6 +14,8 @@ public enum FlowCapability {
     JOB_DISTRIBUTION("job_distribution"),
     CANDIDATE_OUTREACH("candidate_outreach"),
     INTERVIEW_KIT_GENERATION("interview_kit_generation"),
+    CONVERSATION_CONTINUE("conversation_continue"),
+    JD_IN_PLACE_REVISION("jd_in_place_revision"),
     TASK_ASSISTANCE("task_assistance"),
     RECRUITMENT_QA("recruitment_qa");
 

@@ -28,10 +28,36 @@ public class WorkspaceAccessService {
             }
             if (!tenant.seatAssigned()) throw new ApiException("BOSS_SEAT_REQUIRED", "当前账号未占用企业席位，无法使用招聘功能", HttpStatus.FORBIDDEN);
         }
+        var overview = boss.tenantOverview(BossRequestContext.accessToken(userId), tenantId);
         // Business services still expose a workspace-shaped method parameter for compatibility with
         // existing handlers; the value is always the BOSS Tenant UUID.
-        return new TenantScope(tenantId, tenant.tenantType(), tenant.tenantName(), tenant.roleCode());
+        return new TenantScope(tenantId, tenant.tenantType(), tenant.tenantName(), tenant.roleCode(), tenant.owner(),
+                overview.talentPoolSharingEnabled(), overview.jobPoolSharingEnabled(), false);
     }
 
-    public record TenantScope(UUID tenantId, String type, String name, String role) { }
+    /**
+     * Expired enterprise owners retain the agreed 30-day read/export window for
+     * enterprise pools only. No source-data or membership operation uses this scope.
+     */
+    public TenantScope requireEnterprisePoolReadAccess(UUID userId, UUID tenantId) {
+        var tenant = boss.contexts(BossRequestContext.accessToken(userId)).tenants().stream()
+                .filter(item -> item.tenantId().equals(tenantId) && "RECRUITMENT".equals(item.productDomain()))
+                .findFirst().orElseThrow(() -> new ApiException("BOSS_CONTEXT_REQUIRED", "未找到可用的招聘产品租户", HttpStatus.FORBIDDEN));
+        boolean active = "TRIAL_ACTIVE".equals(tenant.tenantStatus()) || "ACTIVE".equals(tenant.tenantStatus());
+        boolean expiredOwner = "EXPIRED_READONLY".equals(tenant.tenantStatus()) && tenant.owner();
+        if (!"ENTERPRISE".equals(tenant.tenantType()) || (!active && !expiredOwner) || (active && !tenant.seatAssigned())) {
+            throw new ApiException("ENTERPRISE_POOL_READ_DENIED", "当前账号无权查看企业数据池", HttpStatus.FORBIDDEN);
+        }
+        var overview = boss.tenantOverview(BossRequestContext.accessToken(userId), tenantId);
+        return new TenantScope(tenantId, tenant.tenantType(), tenant.tenantName(), tenant.roleCode(), tenant.owner(),
+                overview.talentPoolSharingEnabled(), overview.jobPoolSharingEnabled(), expiredOwner);
+    }
+
+    public record TenantScope(UUID tenantId, String type, String name, String role, boolean owner,
+                              boolean talentPoolSharingEnabled, boolean jobPoolSharingEnabled, boolean readOnly) {
+        public TenantScope(UUID tenantId, String type, String name, String role) {
+            this(tenantId, type, name, role, false, false, false, false);
+        }
+        public boolean enterprise() { return "ENTERPRISE".equals(type); }
+    }
 }

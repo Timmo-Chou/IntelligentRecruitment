@@ -8,14 +8,13 @@ import { apiFetch } from "@/lib/api-client";
 import { useEffect, useState } from "react";
 
 type JobStats = { total: number; active: number; closed: number; draft: number };
-type BillingStats = { availableAmountMicro: number; todaySpentAmountMinor?: number };
+type BillingStats = { availableCredits: number };
 
 export default function OverviewPage() {
   const {workspaceId}=useWorkspace();
   const [tasksData,setTasksData]=useState<TaskSummary[]>([]);
   const [balance,setBalance]=useState<number|null>(null);
   const [jobStats, setJobStats] = useState<JobStats | null>(null);
-  const [todaySpent, setTodaySpent] = useState<number|null>(null);
   useEffect(()=>{if(!workspaceId)return;
     Promise.all([
       fetchTasks(workspaceId),
@@ -23,8 +22,7 @@ export default function OverviewPage() {
       apiFetch<JobStats>(`/tenants/${workspaceId}/jobs/stats`).catch(()=>({total:0,active:0,closed:0,draft:0}))
     ]).then(([tasks,billing,jobs])=>{
       setTasksData(tasks);
-      setBalance(billing.availableAmountMicro);
-      setTodaySpent(typeof billing.todaySpentAmountMinor==="number"?billing.todaySpentAmountMinor:null);
+      setBalance(billing.availableCredits);
       setJobStats(jobs);
     }).catch(()=>{});
   },[workspaceId]);
@@ -66,18 +64,18 @@ export default function OverviewPage() {
           <p className="mb-0 mt-2 truncate text-xs text-[#6c83a7]">当前 Workspace 实时统计</p>
         </div>
       </Link>
-      {/* 今日花费 */}
+      {/* 可用积分 */}
       <Link href="/billing" className="metric-card !min-h-[112px] transition hover:-translate-y-0.5 hover:border-[#b9d9ed]">
         <span className="metric-icon !h-10 !w-10 !bg-gradient-to-br !from-[#ffe9c9] !to-[#fff6e7] !text-[#c9741b]">
           <CircleCheck size={20}/>
         </span>
         <div className="min-w-0">
-          <p className="m-0 text-sm font-semibold text-[#2b4775]">今日花费</p>
+          <p className="m-0 text-sm font-semibold text-[#2b4775]">可用积分</p>
           <strong className="mt-1 block text-[30px] leading-none text-[#09245d]">
-            {todaySpent===null?"--":`¥${(todaySpent/100).toFixed(2)}`}
+            {balance===null?"--":balance}
           </strong>
           <p className="mb-0 mt-2 truncate text-xs text-[#6c83a7]">
-            {todaySpent===null?"今日账本统计中":`当前 Workspace 已消费 ¥${(todaySpent/100).toFixed(2)}`}
+            企业账号共享积分，按实际 AI 用量扣减
           </p>
         </div>
       </Link>
@@ -93,7 +91,7 @@ export default function OverviewPage() {
         <span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-[#247aff] to-[#17bd91] text-white"><FileSearch size={22}/></span>
         <h2 className="mb-0 mt-4 text-lg font-bold text-[#102d64]">从一个招聘需求开始</h2><p className="mt-2 text-sm leading-6 text-[#60799f]">AI 协助生成 JD、解析简历、准备筛选方案和面试题；关键业务结果均由招聘人员确认。</p>
         <Link href="/recruitment" className="primary-button mt-4 w-full">进入智能招聘工作台 <ArrowRight size={15}/></Link>
-        <div className="mt-5 rounded-lg border border-[#dbe8f5] bg-white/80 p-3 text-xs leading-5 text-[#60799f]">当前 Workspace 可用余额：{balance===null?"加载中…":`¥${(balance/1_000_000).toFixed(2)}`}<br/>收费任务执行前会展示费用估算。</div>
+        <div className="mt-5 rounded-lg border border-[#dbe8f5] bg-white/80 p-3 text-xs leading-5 text-[#60799f]">当前 Workspace 可用积分：{balance===null?"加载中…":balance}<br/>AI 任务按实际 token 用量换算积分并从租户共享余额扣减。</div>
       </aside>
     </div>
   </AppShell>;

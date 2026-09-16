@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  AlertCircle, Bot, BriefcaseBusiness, CheckCircle2, CircleDollarSign, Copy, Pencil,
+  AlertCircle, Bot, BriefcaseBusiness, CheckCircle2, Copy, Pencil,
   FileText, Filter, ListChecks, Loader2, MessageSquareText, Plus, Save, Send, Sparkles,
   TriangleAlert, UsersRound, Search, X, Upload, FolderOpen, File, ChevronDown, User,
 } from "lucide-react";
@@ -372,9 +372,6 @@ export default function RecruitmentPage() {
       <div>
         <h1 className="m-0 text-[25px] font-bold tracking-tight text-[#09245d]">智能招聘</h1>
         <p className="mb-0 mt-1 text-sm text-[#55709d]">{workspace?.name ?? "当前工作空间"} · 从需求对话生成并确认可追溯的 JD 版本</p>
-      </div>
-      <div className="flex items-center gap-2 rounded-lg border border-[#cfe4f5] bg-white px-3 py-2 text-xs text-[#53709a]">
-        <CircleDollarSign size={16} className="text-[#0a9a66]" /> JD 生成临时价 ¥0.80/次
       </div>
     </section>
   }>
@@ -992,7 +989,6 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
             {agent === "RECRUITMENT_ASSISTANT" ? <><button type="button" onClick={()=>onFeature("JD_GENERATION")} className={`rounded-full border px-3 py-2 ${selectedFeature === "JD_GENERATION" ? "border-[#15b6b3] bg-[#e9fbf9] text-[#0a8f8b]" : "border-[#e0e8f0] hover:bg-[#f5faff]"}`}><FileText className="mr-1 inline text-[#15b6b3]" size={16}/>JD生成</button><button type="button" onClick={()=>onFeature("RESUME_PARSING")} className={`rounded-full border px-3 py-2 ${selectedFeature === "RESUME_PARSING" ? "border-[#15b6b3] bg-[#e9fbf9] text-[#0a8f8b]" : "border-[#e0e8f0] hover:bg-[#f5faff]"}`}><File className="mr-1 inline text-[#15b6b3]" size={16}/>AI简历解析</button><button type="button" onClick={()=>onFeature("CANDIDATE_SCREENING")} className={`rounded-full border px-3 py-2 ${selectedFeature === "CANDIDATE_SCREENING" ? "border-[#15b6b3] bg-[#e9fbf9] text-[#0a8f8b]" : "border-[#e0e8f0] hover:bg-[#f5faff]"}`}><UsersRound className="mr-1 inline text-[#15b6b3]" size={16}/>AI简历筛选</button><button type="button" onClick={()=>onFeature("INTERVIEW_KIT")} className={`rounded-full border px-3 py-2 ${selectedFeature === "INTERVIEW_KIT" ? "border-[#15b6b3] bg-[#e9fbf9] text-[#0a8f8b]" : "border-[#e0e8f0] hover:bg-[#f5faff]"}`}><ListChecks className="mr-1 inline text-[#15b6b3]" size={16}/>AI面试出题</button></> : <><button type="button" onClick={()=>onRequirement("请协助我制定企业人才规划，包含业务目标、关键岗位、人数、时间节奏和优先级。")} className="rounded-full border border-[#e4d9fb] bg-[#fbf9ff] px-3 py-2 text-[#7044bf] hover:bg-[#f4efff]"><BriefcaseBusiness className="mr-1 inline" size={16}/>企业人才规划</button><button type="button" onClick={()=>onRequirement("请协助我构建企业人才画像，包含核心岗位能力、经验背景、文化匹配和人才来源。")} className="rounded-full border border-[#e4d9fb] bg-[#fbf9ff] px-3 py-2 text-[#7044bf] hover:bg-[#f4efff]"><UsersRound className="mr-1 inline" size={16}/>企业人才画像构建</button><button type="button" onClick={()=>onRequirement("请协助我制定业务人才方案，结合业务目标、项目阶段、组织分工和关键人才配置。")} className="rounded-full border border-[#e4d9fb] bg-[#fbf9ff] px-3 py-2 text-[#7044bf] hover:bg-[#f4efff]"><Sparkles className="mr-1 inline" size={16}/>业务人才方案制定</button></>}
           </div>
           <div className="flex items-center gap-3">
-            <span className="min-w-24 text-right text-xs font-semibold text-[#0a9a66]" aria-live="polite">{quoteFor(selectedFeature, requirement, uploadedFiles.length)}</span>
             {/* 添加附件按钮：点击打开文件选择，RESUME_PARSING 模式下显示气泡提示 */}
             <div className="relative">
               <button type="button" onClick={handleUploadClick} className="grid h-9 w-9 place-items-center rounded-full border-2 border-[#24456f] text-[#24456f] hover:bg-[#f5faff]" aria-label={selectedFeature === "RESUME_PARSING" ? "上传简历" : "添加附件"}><Plus size={18}/></button>
@@ -1223,18 +1219,6 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
       </div>
     )}
   </div>;
-}
-
-function quoteFor(feature: SelectedFeature, content: string, fileCount: number = 0) {
-  if (feature === "JD_GENERATION") return "预计 ¥0.80 / 次";
-  if (feature === "CANDIDATE_SCREENING") return "¥0.80 / 成功候选人";
-  if (feature === "INTERVIEW_KIT") return "预计 ¥0.80 / 题包";
-  if (feature === "RESUME_PARSING") return fileCount > 0 ? `预计 ¥0.80 / 份（${fileCount}份）` : "预计 ¥0.80 / 份";
-  if (!content.trim()) return "输入内容后按发送（支持文件上传）";
-  let tokens = 0;
-  for (const character of content) tokens += /[\u4e00-\u9fff]/.test(character) ? 0.6 : 0.3;
-  const yuan = Math.max(0.01, tokens * 0.2 / 1_000_000);
-  return `对话预估 ¥${yuan.toFixed(2)}`;
 }
 
 function insertLineBreak(target: HTMLTextAreaElement, apply: (update: (current: string) => string) => void) {

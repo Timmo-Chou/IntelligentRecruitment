@@ -188,6 +188,8 @@ function TaskDialog({ title, busy, error, onClose, children }: { title: string; 
 export function AppShell({ children, activeItem = "概览", pageHeader }: { children: ReactNode; activeItem?: string; pageHeader?: ReactNode }) {
   const router=useRouter(); const pathname=usePathname();
   const { workspace, loading } = useWorkspace();
+  const trialExpiredNoContract = workspace?.type === "ENTERPRISE" && workspace.status === "TRIAL_EXPIRED_NO_CONTRACT";
+  const restrictedTrialPage = trialExpiredNoContract && pathname !== "/enterprise-management";
   // AI咨询助手开关
   const [aiOpen, setAiOpen] = useState(false);
   useEffect(()=>{if(pathname==="/onboarding"||pathname==="/login"||loading)return; if(!workspace)router.replace("/onboarding");},[pathname,router,loading,workspace]);
@@ -197,7 +199,9 @@ export function AppShell({ children, activeItem = "概览", pageHeader }: { chil
   // explicit boolean for live sessions, where false hides seat-gated modules.
   const seatGatedNav = workspace?.type === "PERSONAL" || workspace?.seatAssigned !== false;
   const visibleBaseNav = seatGatedNav ? baseNavItems : [baseNavItems[0], baseNavItems[5]] as const;
-  const navItems = workspace?.type === "ENTERPRISE" && workspace.owner
+  const navItems = trialExpiredNoContract && workspace?.owner
+    ? [["企业管理", Building2, "/enterprise-management"], baseNavItems[5]] as const
+    : workspace?.type === "ENTERPRISE" && workspace.owner
     ? seatGatedNav
       ? [...baseNavItems.slice(0, 5), ["企业管理", Building2, "/enterprise-management"], baseNavItems[5]] as const
       : [baseNavItems[0], ["企业管理", Building2, "/enterprise-management"], baseNavItems[5]] as const
@@ -249,7 +253,7 @@ export function AppShell({ children, activeItem = "概览", pageHeader }: { chil
             {pageHeader}
           </div>
         )}
-        <div className="px-4 py-4 sm:px-5 xl:px-6">{children}</div>
+        <div className="px-4 py-4 sm:px-5 xl:px-6">{restrictedTrialPage ? <section className="mx-auto mt-10 max-w-xl rounded-2xl border border-[#dbe9f8] bg-white p-7 text-center shadow-sm"><h1 className="m-0 text-xl font-bold text-[#173568]">试用已到期</h1><p className="mt-3 text-sm leading-6 text-[#60799f]">当前企业尚未开通正式套餐，招聘业务、AI、成员管理和企业共享池已停止使用。请联系商务或查看企业资料与合同订单状态。</p>{workspace.owner && <Link className="primary-button mt-5 inline-flex" href="/enterprise-management">进入企业管理</Link>}</section> : children}</div>
       </main>
     </div>
     {/* AI咨询助手对话弹窗 */}

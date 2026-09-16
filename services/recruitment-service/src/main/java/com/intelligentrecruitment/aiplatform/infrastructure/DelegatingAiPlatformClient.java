@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
  * - deepseek_ait_ 前缀 → DeepSeek
  * - UUID 格式 → Http（AIAgentPlatform）
  *
- * feature flag：app.ai-platform.use-http-client=false 时全部走 DeepSeek（可回退）。
+ * 已迁移的招聘能力始终走 AIAgentPlatform；旧任务按任务 ID 前缀保持可读取。
  */
 @Component
 @Primary
@@ -41,7 +41,7 @@ public class DelegatingAiPlatformClient implements AiPlatformClient {
 
     @Override
     public AiTask startTask(StartAiTaskCommand command) {
-        if (useHttp && isHttpCapability(command.capability())) {
+        if (isHttpCapability(command.capability())) {
             return httpClient.startTask(command);
         }
         return deepSeekClient.startTask(command);
@@ -50,7 +50,7 @@ public class DelegatingAiPlatformClient implements AiPlatformClient {
     @Override
     public AiTask startTask(StartAiTaskCommand command, java.util.function.Consumer<String> onDelta) {
         // HTTP 路径不支持流式 delta；DeepSeek 路径保留流式
-        if (useHttp && isHttpCapability(command.capability())) {
+        if (isHttpCapability(command.capability())) {
             return httpClient.startTask(command);
         }
         return deepSeekClient.startTask(command, onDelta);
@@ -73,26 +73,17 @@ public class DelegatingAiPlatformClient implements AiPlatformClient {
 
     @Override
     public RouteDecision routeMessage(RouteAgentCommand command) {
-        if (useHttp) return httpClient.routeMessage(command);
-        return deepSeekClient.routeMessage(command);
+        return httpClient.routeMessage(command);
     }
 
     @Override
     public String continueConversation(ConversationAgentCommand command) {
-        // 尚未携带 PolicyDecision 的旧对话协议不允许穿过新的 AI Platform 入口。
-        // 在其迁移为 CapabilityExecutionRequest 前，保留既有本地适配器路径。
-        return deepSeekClient.continueConversation(command);
+        return httpClient.continueConversation(command);
     }
 
     @Override
     public StructuredResult reviseJdInPlace(ConversationAgentCommand command) {
-        return deepSeekClient.reviseJdInPlace(command);
-    }
-
-    @Override
-    public InterviewQuestionContract.InterviewQuestionKit generateInterviewQuestions(
-            InterviewQuestionContract.GenerateInterviewQuestionsInput input) {
-        return deepSeekClient.generateInterviewQuestions(input);
+        return httpClient.reviseJdInPlace(command);
     }
 
     // ===== 内部路由 =====
@@ -100,11 +91,14 @@ public class DelegatingAiPlatformClient implements AiPlatformClient {
     private boolean isHttpCapability(AiCapability capability) {
         return capability == AiCapability.JD_GENERATION
                 || capability == AiCapability.RESUME_PARSING
-                || capability == AiCapability.CANDIDATE_SCREENING;
+                || capability == AiCapability.CANDIDATE_SCREENING
+                || capability == AiCapability.INTERVIEW_KIT_GENERATION
+                || capability == AiCapability.CONVERSATION_CONTINUE
+                || capability == AiCapability.JD_IN_PLACE_REVISION;
     }
 
     private AiPlatformClient route(String aiTaskId) {
-        if (useHttp && aiTaskId != null && !aiTaskId.startsWith(DEEPSEEK_PREFIX)) {
+        if (aiTaskId != null && !aiTaskId.startsWith(DEEPSEEK_PREFIX)) {
             return httpClient;
         }
         return deepSeekClient;

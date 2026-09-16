@@ -4,14 +4,6 @@ export type ScreeningDimension = {
   name: string; weight: number; description: string; required: boolean;
   exclusionRule: string; missingPolicy: "REVIEW" | "NEGOTIABLE" | "IGNORE";
 };
-export type ScreeningQuote = {
-  id: string; workspaceId: string; planId: string; planVersionId: string; candidateCount: number;
-  pricingVersion: string; unitPriceMinor: number; estimatedAmountMinor: number;
-  availableAmountMinor: number; expiresAt: string;
-};
-export type ScreeningPricing = {
-  pricingVersion: string; unitPriceMinor: number; quoteTtlSeconds: number;
-};
 export type ScreeningPlan = {
   id: string; recruitmentTaskId: string | null; jobId: string; jobTitle: string; currentVersionId: string; versionNumber: number;
   dimensions: ScreeningDimension[]; name: string; status: string; updatedAt: string;
@@ -24,13 +16,12 @@ export type ScreeningItem = {
 };
 export type ScreeningRun = {
   id: string; jobId: string; jobTitle: string; planId: string; planName: string; status: string;
-  progress: number; scenario: string; pricingVersion: string; unitPriceMinor: number;
-  estimatedAmountMinor: number; settledAmountMinor: number; items: ScreeningItem[];
+  progress: number; scenario: string; items: ScreeningItem[];
   createdAt: string; completedAt: string | null; recruitmentTaskId: string | null;
 };
 export type ScreeningRunSummary = {
   id: string; jobId: string; jobTitle: string; status: string; progress: number; totalItems: number;
-  succeededItems: number; estimatedAmountMinor: number; settledAmountMinor: number; createdAt: string;
+  succeededItems: number; createdAt: string;
   recruitmentTaskId: string | null;
 };
 
@@ -60,18 +51,10 @@ export function fetchScreeningRuns(workspaceId: string, recruitmentTaskId?: stri
 export function fetchScreeningRun(workspaceId: string, runId: string) {
   return apiFetch<ScreeningRun>(`/tenants/${workspaceId}/screening-runs/${runId}`);
 }
-export function createScreeningQuote(workspaceId: string, planId: string, candidateIds: string[]) {
-  return apiFetch<ScreeningQuote>(`/tenants/${workspaceId}/screening-quotes`, {
-    method: "POST", body: JSON.stringify({ planId, candidateIds }),
-  });
-}
-export function fetchScreeningPricing(workspaceId: string) {
-  return apiFetch<ScreeningPricing>(`/tenants/${workspaceId}/screening-pricing`);
-}
-export function startScreeningRun(workspaceId: string, planId: string, candidateIds: string[], quoteId: string, idempotencyKey: string) {
+export function startScreeningRun(workspaceId: string, planId: string, candidateIds: string[], idempotencyKey: string) {
   return apiFetch<ScreeningRun>(`/tenants/${workspaceId}/screening-runs`, {
     method: "POST", headers: { "Idempotency-Key": idempotencyKey },
-    body: JSON.stringify({ planId, candidateIds, quoteId }),
+    body: JSON.stringify({ planId, candidateIds }),
   });
 }
 export function cancelScreeningRun(workspaceId: string, runId: string, idempotencyKey: string) {
@@ -79,13 +62,8 @@ export function cancelScreeningRun(workspaceId: string, runId: string, idempoten
     method: "POST", headers: { "Idempotency-Key": idempotencyKey },
   });
 }
-export function createRetryScreeningQuote(workspaceId: string, runId: string) {
-  return apiFetch<ScreeningQuote>(`/tenants/${workspaceId}/screening-runs/${runId}/retry-quote`, {
-    method: "POST",
-  });
-}
-export function retryFailedScreening(workspaceId: string, runId: string, quoteId: string, idempotencyKey: string) {
+export function retryFailedScreening(workspaceId: string, runId: string, idempotencyKey: string) {
   return apiFetch<ScreeningRun>(`/tenants/${workspaceId}/screening-runs/${runId}/retry-failed`, {
-    method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ quoteId }),
+    method: "POST", headers: { "Idempotency-Key": idempotencyKey },
   });
 }

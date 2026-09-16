@@ -74,15 +74,15 @@ public class ReviewQueryService {
         String statusFilter = buildStatusFilter(status, "cvr.status");
 
         Long total = jdbc.queryForObject("""
-                SELECT COUNT(*) FROM company_verification_requests cvr WHERE 1=1
+                SELECT COUNT(*) FROM enterprise_registration_projections cvr WHERE 1=1
                 """ + statusFilter, Long.class);
 
         List<CompanyVerificationRow> rows = jdbc.query("""
-                SELECT cvr.id, cvr.applicant_user_id, cvr.company_id, cvr.request_type, cvr.legal_name, cvr.display_name,
+                SELECT cvr.id, cvr.applicant_user_id, cvr.tenant_id, cvr.request_type, cvr.legal_name, cvr.display_name,
                        cvr.credit_code_hash, cvr.credit_code_masked, cvr.license_reference, cvr.first_workspace_name,
                        cvr.status, cvr.reviewed_by, cvr.reviewed_at, cvr.rejection_reason, cvr.created_at,
                        u.display_name AS applicant_display_name
-                FROM company_verification_requests cvr
+                FROM enterprise_registration_projections cvr
                 LEFT JOIN users u ON u.id = cvr.applicant_user_id
                 WHERE 1=1
                 """ + statusFilter + """
@@ -93,7 +93,7 @@ public class ReviewQueryService {
             return new CompanyVerificationRow(
                     rs.getObject("id", UUID.class),
                     rs.getObject("applicant_user_id", UUID.class),
-                    rs.getObject("company_id", UUID.class),
+                    rs.getObject("tenant_id", UUID.class),
                     rs.getString("request_type"),
                     rs.getString("legal_name"),
                     rs.getString("display_name"),
@@ -128,20 +128,19 @@ public class ReviewQueryService {
                 """ + statusFilter, Long.class);
 
         List<MembershipApplicationRow> rows = jdbc.query("""
-                SELECT ma.id, ma.company_id, ma.applicant_user_id, ma.evidence, ma.status,
+                SELECT ma.id, ma.tenant_id, ma.applicant_user_id, ma.evidence, ma.status,
                        ma.reviewed_by_platform_user, ma.reviewed_at, ma.review_reason, ma.created_at,
                        u.display_name AS user_display_name,
-                       c.display_name AS company_display_name
+                       ma.tenant_id::text AS company_display_name
                 FROM membership_applications ma
                 LEFT JOIN users u ON u.id = ma.applicant_user_id
-                LEFT JOIN companies c ON c.id = ma.company_id
                 WHERE 1=1
                 """ + statusFilter + """
                 ORDER BY ma.created_at DESC
                 LIMIT ? OFFSET ?
                 """, (rs, n) -> new MembershipApplicationRow(
                 rs.getObject("id", UUID.class),
-                rs.getObject("company_id", UUID.class),
+                rs.getObject("tenant_id", UUID.class),
                 rs.getObject("applicant_user_id", UUID.class),
                 rs.getString("evidence"),
                 rs.getString("status"),
@@ -208,11 +207,11 @@ public class ReviewQueryService {
      */
     public CompanyVerificationRow getCompanyVerificationDetail(UUID requestId) {
         List<CompanyVerificationRow> rows = jdbc.query("""
-                SELECT cvr.id, cvr.applicant_user_id, cvr.company_id, cvr.request_type, cvr.legal_name, cvr.display_name,
+                SELECT cvr.id, cvr.applicant_user_id, cvr.tenant_id, cvr.request_type, cvr.legal_name, cvr.display_name,
                        cvr.credit_code_hash, cvr.credit_code_masked, cvr.license_reference, cvr.first_workspace_name,
                        cvr.status, cvr.reviewed_by, cvr.reviewed_at, cvr.rejection_reason, cvr.created_at,
                        u.display_name AS applicant_display_name
-                FROM company_verification_requests cvr
+                FROM enterprise_registration_projections cvr
                 LEFT JOIN users u ON u.id = cvr.applicant_user_id
                 WHERE cvr.id = ?
                 """, (rs, n) -> {
@@ -220,7 +219,7 @@ public class ReviewQueryService {
             return new CompanyVerificationRow(
                     rs.getObject("id", UUID.class),
                     rs.getObject("applicant_user_id", UUID.class),
-                    rs.getObject("company_id", UUID.class),
+                    rs.getObject("tenant_id", UUID.class),
                     rs.getString("request_type"),
                     rs.getString("legal_name"),
                     rs.getString("display_name"),
@@ -249,17 +248,16 @@ public class ReviewQueryService {
      */
     public MembershipApplicationRow getMembershipApplicationDetail(UUID applicationId) {
         List<MembershipApplicationRow> rows = jdbc.query("""
-                SELECT ma.id, ma.company_id, ma.applicant_user_id, ma.evidence, ma.status,
+                SELECT ma.id, ma.tenant_id, ma.applicant_user_id, ma.evidence, ma.status,
                        ma.reviewed_by_platform_user, ma.reviewed_at, ma.review_reason, ma.created_at,
                        u.display_name AS user_display_name,
-                       c.display_name AS company_display_name
+                       ma.tenant_id::text AS company_display_name
                 FROM membership_applications ma
                 LEFT JOIN users u ON u.id = ma.applicant_user_id
-                LEFT JOIN companies c ON c.id = ma.company_id
                 WHERE ma.id = ?
                 """, (rs, n) -> new MembershipApplicationRow(
                 rs.getObject("id", UUID.class),
-                rs.getObject("company_id", UUID.class),
+                rs.getObject("tenant_id", UUID.class),
                 rs.getObject("applicant_user_id", UUID.class),
                 rs.getString("evidence"),
                 rs.getString("status"),

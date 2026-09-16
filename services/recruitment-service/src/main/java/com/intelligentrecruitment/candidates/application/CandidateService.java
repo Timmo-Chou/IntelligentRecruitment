@@ -4,7 +4,17 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intelligentrecruitment.aiplatform.application.AiPlatformClient;
+import com.intelligentrecruitment.aiplatform.application.StartAiTaskCommand;
+import com.intelligentrecruitment.aiplatform.domain.AiCapability;
+import com.intelligentrecruitment.aiplatform.domain.AiTask;
+import com.intelligentrecruitment.aiplatform.domain.AiTaskStatus;
+import com.intelligentrecruitment.agentflow.application.RecruitmentFlowCoordinator;
+import com.intelligentrecruitment.agentflow.domain.ExecutionContext;
+import com.intelligentrecruitment.agentflow.domain.FlowCapability;
+import com.intelligentrecruitment.agentflow.domain.PolicyDecision;
+import com.intelligentrecruitment.agentflow.domain.StructuredResult;
 import com.intelligentrecruitment.candidates.infrastructure.ResumeObjectStorage;
+import com.intelligentrecruitment.pools.application.EnterprisePoolService;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
 import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService;
@@ -43,10 +53,13 @@ public class CandidateService {
     private final ResumeTextExtractor extractor;
     private final PiiCipher pii;
     private final AiPlatformClient aiPlatform;
+    private final EnterprisePoolService enterprisePools;
+    private final RecruitmentFlowCoordinator flowCoordinator;
     private final long maxFileSize;
 
     public CandidateService(JdbcTemplate jdbc, ObjectMapper objectMapper, WorkspaceAccessService workspaceAccess,
                             ResumeObjectStorage storage, ResumeTextExtractor extractor, PiiCipher pii, AiPlatformClient aiPlatform,
+                            EnterprisePoolService enterprisePools, RecruitmentFlowCoordinator flowCoordinator,
                             @Value("${app.storage.max-file-size-bytes:10485760}") long maxFileSize) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
@@ -55,6 +68,8 @@ public class CandidateService {
         this.extractor = extractor;
         this.pii = pii;
         this.aiPlatform = aiPlatform;
+        this.enterprisePools = enterprisePools;
+        this.flowCoordinator = flowCoordinator;
         this.maxFileSize = maxFileSize;
     }
 
@@ -63,11 +78,14 @@ public class CandidateService {
         TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         byte[] bytes = validateAndRead(file);
         String hash = SecurityHashes.sha256(bytes);
+        String duplicateOwner = scope.enterprise() ? " AND c.created_by=?" : "";
+        List<Object> duplicateParams = new ArrayList<>(List.of(workspaceId, hash));
+        if (scope.enterprise()) duplicateParams.add(userId);
         List<UUID> duplicate = jdbc.query("""
                 SELECT c.id FROM candidates c JOIN resume_files rf ON rf.candidate_id=c.id
                 JOIN file_assets f ON f.id=rf.file_asset_id
-                WHERE c.workspace_id=? AND f.sha256=? AND c.status<>'DELETED'
-                """, (rs, n) -> rs.getObject(1, UUID.class), workspaceId, hash);
+                WHERE c.workspace_id=? AND f.sha256=? AND c.status<>'DELETED'""" + duplicateOwner,
+                (rs, n) -> rs.getObject(1, UUID.class), duplicateParams.toArray());
         if (!duplicate.isEmpty()) return detailScoped(workspaceId, duplicate.getFirst());
 
         AssetReference existingAsset = activeAsset(workspaceId, hash);
@@ -102,12 +120,11 @@ public class CandidateService {
                                             UUID resumeFileId, String objectKey, String filename, String mediaType,
                                             byte[] bytes, String hash, boolean createAsset) {
         Instant now = Instant.now();
-        String rawText = extractor.extract(bytes, filename);
         String provisionalName = filenameDisplayName(filename);
         if (createAsset) {
             jdbc.update("""
                     INSERT INTO file_assets
-                    (id,company_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
+                    (id,tenant_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
                     VALUES (?,?,?,?,?,?,?,?, 'CLEAN','ACTIVE',?,?)
                     """, assetId, scope.tenantId(), scope.tenantId(), objectKey, pii.encrypt(filename), mediaType, bytes.length,
@@ -115,7 +132,7 @@ public class CandidateService {
         }
         jdbc.update("""
                 INSERT INTO candidates
-                (id,company_id,workspace_id,display_name_masked,full_name_ciphertext,email_ciphertext,
+                (id,tenant_id,workspace_id,display_name_masked,full_name_ciphertext,email_ciphertext,
                  phone_ciphertext,full_name_search_hash,phone_search_hash,status,created_by,created_at,updated_at,profile,search_text)
                 VALUES (?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
                 """, candidateId, scope.tenantId(), scope.tenantId(), mask(provisionalName), pii.encrypt(provisionalName),
@@ -123,11 +140,11 @@ public class CandidateService {
                 userId, timestamp(now), timestamp(now), json(Map.of("source", "简历上传", "tags", List.of())), provisionalName);
         jdbc.update("""
                 INSERT INTO resume_files
-                (id,company_id,workspace_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
+                (id,tenant_id,workspace_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
                 VALUES (?,?,?,?,?,?,?, ?,?,?)
-                """, resumeFileId, scope.tenantId(), scope.tenantId(), candidateId, assetId, "PROCESSING",
+                """, resumeFileId, scope.tenantId(), scope.tenantId(), candidateId, assetId, "QUEUED",
                 null, userId, timestamp(now), timestamp(now));
-        parseAndSave(userId, scope, candidateId, resumeFileId, filename, rawText, 1);
+        enqueueResumeParse(scope, userId, candidateId, resumeFileId);
         audit(userId, scope, "RESUME_UPLOADED", candidateId);
         return detailScoped(scope.tenantId(), candidateId);
     }
@@ -146,27 +163,27 @@ public class CandidateService {
     }
 
     public CandidateStats stats(UUID userId, UUID workspaceId) {
-        workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         StatPoint total = metric(
-                countTotal(workspaceId, null),
-                countTotal(workspaceId, "PREV_MONTH_END"));
+                countTotal(scope, userId, null),
+                countTotal(scope, userId, "PREV_MONTH_END"));
         StatPoint active = metric(
-                countActive(workspaceId, false),
-                countActive(workspaceId, true));
+                countActive(scope, userId, false),
+                countActive(scope, userId, true));
         StatPoint highMatch = metric(
-                countHighMatch(workspaceId, false),
-                countHighMatch(workspaceId, true));
+                countHighMatch(scope, userId, false),
+                countHighMatch(scope, userId, true));
         StatPoint dormant = metric(
-                countDormant(workspaceId, false),
-                countDormant(workspaceId, true));
+                countDormant(scope, userId, false),
+                countDormant(scope, userId, true));
         StatPoint inPool = metric(
-                countInPool(workspaceId, null),
-                countInPool(workspaceId, "PREV_MONTH_END"));
+                countInPool(scope, userId, null),
+                countInPool(scope, userId, "PREV_MONTH_END"));
         return new CandidateStats(total, active, highMatch, dormant, inPool, 80);
     }
 
     public CandidateListResult list(UUID userId, UUID workspaceId, CandidateListQuery query) {
-        workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         int safePage = Math.max(1, query.page());
         // 筛选工作台需要一次加载最多 200 位已解析候选人；保持旧接口容量，
         // 同时使用远端新增的统一查询条件。
@@ -174,6 +191,7 @@ public class CandidateService {
         List<Object> params = new ArrayList<>();
         params.add(workspaceId);
         StringBuilder where = new StringBuilder(" WHERE c.workspace_id=? AND c.status<>'DELETED'");
+        if (scope.enterprise()) { where.append(" AND c.created_by=?"); params.add(userId); }
         appendSearch(where, params, query.search());
         if (query.status() != null && !query.status().isBlank()) {
             where.append(" AND rf.status=?");
@@ -289,7 +307,7 @@ public class CandidateService {
                 """;
         Integer total = jdbc.queryForObject("SELECT count(DISTINCT c.id) " + joins + where, Integer.class, params.toArray());
         List<CandidateSummary> items = jdbc.query("""
-                SELECT c.id,c.company_id,c.workspace_id,c.full_name_ciphertext,c.phone_ciphertext,c.email_ciphertext,c.status,
+                SELECT c.id,c.tenant_id,c.workspace_id,c.full_name_ciphertext,c.phone_ciphertext,c.email_ciphertext,c.status,
                        COALESCE(rf.status, 'PARSED') AS parse_status,COALESCE(f.original_filename, '手动录入') AS original_filename,
                        COALESCE(pv.headline, CONCAT_WS(' | ', c.profile->>'currentTitle', c.profile->>'currentCompany')) AS headline,
                        COALESCE(NULLIF(c.profile->>'yearsExperience','')::int, pv.years_experience, 0) AS years_experience,
@@ -335,14 +353,14 @@ public class CandidateService {
         try {
             jdbc.update("""
                     INSERT INTO file_assets
-                    (id,company_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
+                    (id,tenant_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
                     VALUES (?,?,?,?,?,?,?,?,'CLEAN','ACTIVE',?,?)
                     """, assetId, scope.tenantId(), scope.tenantId(), objectKey, pii.encrypt(filename), "text/plain",
                     bytes.length, SecurityHashes.sha256(bytes), userId, timestamp(now));
             jdbc.update("""
                     INSERT INTO candidates
-                    (id,company_id,workspace_id,display_name_masked,full_name_ciphertext,email_ciphertext,
+                    (id,tenant_id,workspace_id,display_name_masked,full_name_ciphertext,email_ciphertext,
                      phone_ciphertext,full_name_search_hash,phone_search_hash,status,created_by,created_at,updated_at,profile,search_text)
                     VALUES (?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
                     """, candidateId, scope.tenantId(), scope.tenantId(), mask(name), pii.encrypt(name),
@@ -350,7 +368,7 @@ public class CandidateService {
                     json(profile), searchText);
             jdbc.update("""
                     INSERT INTO resume_files
-                    (id,company_id,workspace_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
+                    (id,tenant_id,workspace_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
                     VALUES (?,?,?,?,?,'PARSED',NULL,?,?,?)
                     """, resumeFileId, scope.tenantId(), scope.tenantId(), candidateId, assetId, userId,
                     timestamp(now), timestamp(now));
@@ -362,7 +380,7 @@ public class CandidateService {
                     "手动录入人才档案", List.of(), "手动录入人才档案");
             saveParseVersion(scope, candidateId, resumeFileId, 1, parsed, now);
             audit(userId, scope, "CANDIDATE_CREATED_MANUAL", candidateId);
-            return detailScoped(scope.tenantId(), candidateId);
+            CandidateDetail detail=detailScoped(scope.tenantId(), candidateId); enterprisePools.syncCandidate(scope,userId,candidateId); return detail;
         } catch (RuntimeException exception) {
             try { storage.remove(objectKey); } catch (RuntimeException ignored) { }
             throw exception;
@@ -379,11 +397,14 @@ public class CandidateService {
                                                   String filename, String extractedText) {
         TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         // 幂等：该简历资产已入库为候选人则直接返回已有候选人
+        String linkedOwner = scope.enterprise() ? " AND c.created_by=?" : "";
+        List<Object> linkedParams = new ArrayList<>(List.of(assetId, workspaceId));
+        if (scope.enterprise()) linkedParams.add(userId);
         List<UUID> linked = jdbc.query("""
                 SELECT c.id FROM candidates c
                 JOIN resume_files rf ON rf.candidate_id=c.id
-                WHERE rf.file_asset_id=? AND c.workspace_id=? AND c.status<>'DELETED'
-                """, (rs, n) -> rs.getObject(1, UUID.class), assetId, workspaceId);
+                WHERE rf.file_asset_id=? AND c.workspace_id=? AND c.status<>'DELETED'""" + linkedOwner,
+                (rs, n) -> rs.getObject(1, UUID.class), linkedParams.toArray());
         if (!linked.isEmpty()) return detailScoped(workspaceId, linked.getFirst());
         // 资产必须存在且属于当前工作空间
         Integer assetCount = jdbc.queryForObject(
@@ -399,7 +420,7 @@ public class CandidateService {
         // 先建候选人（姓名暂用文件名占位，人才库解析完成后会回填真实姓名）
         jdbc.update("""
                 INSERT INTO candidates
-                (id,company_id,workspace_id,display_name_masked,full_name_ciphertext,email_ciphertext,
+                (id,tenant_id,workspace_id,display_name_masked,full_name_ciphertext,email_ciphertext,
                  phone_ciphertext,full_name_search_hash,phone_search_hash,status,created_by,created_at,updated_at,profile,search_text)
                 VALUES (?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
                 """, candidateId, scope.tenantId(), scope.tenantId(), mask(safeName), pii.encrypt(safeName),
@@ -408,15 +429,14 @@ public class CandidateService {
                 json(Map.of("source", "AI简历解析", "tags", List.of())), safeName);
         jdbc.update("""
                 INSERT INTO resume_files
-                (id,company_id,workspace_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
-                VALUES (?,?,?,?,?,'PROCESSING',NULL,?,?,?)
+                (id,tenant_id,workspace_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
+                VALUES (?,?,?,?,?,'QUEUED',NULL,?,?,?)
                 """, resumeFileId, scope.tenantId(), scope.tenantId(), candidateId, assetId, userId,
                 timestamp(now), timestamp(now));
-        // 用任务已提取的简历文本走人才库解析入库（内部失败有兜底，不影响候选人创建）
-        String rawText = extractedText == null || extractedText.isBlank() ? safeName : extractedText;
-        parseAndSave(userId, scope, candidateId, resumeFileId, filename, rawText, 1);
+        // 复用源附件后仍由统一的 BOSS 授权 AI 异步任务解析；不得在招聘服务内直接解析。
+        enqueueResumeParse(scope, userId, candidateId, resumeFileId);
         audit(userId, scope, "CANDIDATE_CREATED_FROM_RESUME_PARSE", candidateId);
-        return detailScoped(workspaceId, candidateId);
+        CandidateDetail detail=detailScoped(workspaceId, candidateId); enterprisePools.syncCandidate(scope,userId,candidateId); return detail;
     }
 
     private void appendSearch(StringBuilder where, List<Object> params, String search) {
@@ -465,36 +485,44 @@ public class CandidateService {
     }
 
 
-    private int countTotal(UUID workspaceId, String mode) {
+    private int countTotal(TenantScope scope, UUID userId, String mode) {
+        UUID workspaceId = scope.tenantId();
+        String owner = scope.enterprise() ? " AND created_by=?" : "";
+        Object[] params = scope.enterprise() ? new Object[]{workspaceId, userId} : new Object[]{workspaceId};
         if ("PREV_MONTH_END".equals(mode)) {
             return value(jdbc.queryForObject("""
                     SELECT count(*) FROM candidates
                     WHERE workspace_id=? AND created_at < date_trunc('month', CURRENT_TIMESTAMP)
                       AND (status<>'DELETED' OR updated_at >= date_trunc('month', CURRENT_TIMESTAMP))
-                    """, Integer.class, workspaceId));
+                    """ + owner,
+                    Integer.class, params));
         }
         return value(jdbc.queryForObject(
-                "SELECT count(*) FROM candidates WHERE workspace_id=? AND status<>'DELETED'",
-                Integer.class, workspaceId));
+                "SELECT count(*) FROM candidates WHERE workspace_id=? AND status<>'DELETED'" + owner,
+                Integer.class, params));
     }
 
-    private int countActive(UUID workspaceId, boolean previousWindow) {
+    private int countActive(TenantScope scope, UUID userId, boolean previousWindow) {
+        UUID workspaceId = scope.tenantId(); String owner = scope.enterprise() ? " AND created_by=?" : "";
+        Object[] params = scope.enterprise() ? new Object[]{workspaceId, userId} : new Object[]{workspaceId};
         if (previousWindow) {
             return value(jdbc.queryForObject("""
                     SELECT count(*) FROM candidates
                     WHERE workspace_id=? AND status<>'DELETED'
                       AND updated_at >= (date_trunc('month', CURRENT_TIMESTAMP) - INTERVAL '30 days')
                       AND updated_at < date_trunc('month', CURRENT_TIMESTAMP)
-                    """, Integer.class, workspaceId));
+                    """ + owner, Integer.class, params));
         }
         return value(jdbc.queryForObject("""
                 SELECT count(*) FROM candidates
                 WHERE workspace_id=? AND status<>'DELETED'
                   AND updated_at >= (CURRENT_TIMESTAMP - INTERVAL '30 days')
-                """, Integer.class, workspaceId));
+                """ + owner, Integer.class, params));
     }
 
-    private int countHighMatch(UUID workspaceId, boolean previousMonth) {
+    private int countHighMatch(TenantScope scope, UUID userId, boolean previousMonth) {
+        UUID workspaceId = scope.tenantId(); String owner = scope.enterprise() ? " AND c.created_by=?" : "";
+        Object[] params = scope.enterprise() ? new Object[]{workspaceId, userId} : new Object[]{workspaceId};
         if (previousMonth) {
             return value(jdbc.queryForObject("""
                     SELECT count(DISTINCT sri.candidate_id)
@@ -504,7 +532,8 @@ public class CandidateService {
                     WHERE sri.workspace_id=? AND c.status<>'DELETED'
                       AND sr.score >= 80
                       AND sr.created_at < date_trunc('month', CURRENT_TIMESTAMP)
-                    """, Integer.class, workspaceId));
+                    """ + owner,
+                    Integer.class, params));
         }
         return value(jdbc.queryForObject("""
                 SELECT count(DISTINCT sri.candidate_id)
@@ -512,26 +541,31 @@ public class CandidateService {
                 JOIN screening_results sr ON sr.run_item_id = sri.id
                 JOIN candidates c ON c.id = sri.candidate_id
                 WHERE sri.workspace_id=? AND c.status<>'DELETED' AND sr.score >= 80
-                """, Integer.class, workspaceId));
+                """ + owner, Integer.class, params));
     }
 
-    private int countDormant(UUID workspaceId, boolean previousMonth) {
+    private int countDormant(TenantScope scope, UUID userId, boolean previousMonth) {
+        UUID workspaceId = scope.tenantId(); String owner = scope.enterprise() ? " AND created_by=?" : "";
+        Object[] params = scope.enterprise() ? new Object[]{workspaceId, userId} : new Object[]{workspaceId};
         if (previousMonth) {
             return value(jdbc.queryForObject("""
                     SELECT count(*) FROM candidates
                     WHERE workspace_id=? AND status<>'DELETED'
                       AND created_at < date_trunc('month', CURRENT_TIMESTAMP)
                       AND updated_at < (date_trunc('month', CURRENT_TIMESTAMP) - INTERVAL '90 days')
-                    """, Integer.class, workspaceId));
+                    """ + owner,
+                    Integer.class, params));
         }
         return value(jdbc.queryForObject("""
                 SELECT count(*) FROM candidates
                 WHERE workspace_id=? AND status<>'DELETED'
                   AND updated_at < (CURRENT_TIMESTAMP - INTERVAL '90 days')
-                """, Integer.class, workspaceId));
+                """ + owner, Integer.class, params));
     }
 
-    private int countInPool(UUID workspaceId, String mode) {
+    private int countInPool(TenantScope scope, UUID userId, String mode) {
+        UUID workspaceId = scope.tenantId(); String owner = scope.enterprise() ? " AND c.created_by=?" : "";
+        Object[] params = scope.enterprise() ? new Object[]{workspaceId, userId} : new Object[]{workspaceId};
         if ("PREV_MONTH_END".equals(mode)) {
             return value(jdbc.queryForObject("""
                     SELECT count(DISTINCT c.id)
@@ -539,14 +573,15 @@ public class CandidateService {
                     JOIN resume_files rf ON rf.candidate_id = c.id
                     WHERE c.workspace_id=? AND c.status<>'DELETED' AND rf.status='PARSED'
                       AND c.created_at < date_trunc('month', CURRENT_TIMESTAMP)
-                    """, Integer.class, workspaceId));
+                    """ + owner,
+                    Integer.class, params));
         }
         return value(jdbc.queryForObject("""
                 SELECT count(DISTINCT c.id)
                 FROM candidates c
                 JOIN resume_files rf ON rf.candidate_id = c.id
                 WHERE c.workspace_id=? AND c.status<>'DELETED' AND rf.status='PARSED'
-                """, Integer.class, workspaceId));
+                """ + owner, Integer.class, params));
     }
 
     private static StatPoint metric(int current, int previous) {
@@ -561,12 +596,13 @@ public class CandidateService {
     }
 
     public CandidateDetail get(UUID userId, UUID workspaceId, UUID candidateId) {
-        workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope=workspaceAccess.requireBusinessAccess(userId, workspaceId); requireSourceOwner(scope,userId,candidateId);
         return detailScoped(workspaceId, candidateId);
     }
 
     public RevealedPii reveal(UUID userId, UUID workspaceId, UUID candidateId) {
         TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        requireSourceOwner(scope,userId,candidateId);
         List<RevealedPii> rows = jdbc.query("""
                 SELECT full_name_ciphertext,email_ciphertext,phone_ciphertext FROM candidates
                 WHERE id=? AND workspace_id=? AND status<>'DELETED'
@@ -580,6 +616,7 @@ public class CandidateService {
     @Transactional
     public DownloadedResume download(UUID userId, UUID workspaceId, UUID candidateId) {
         TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        requireSourceOwner(scope,userId,candidateId);
         List<FileRow> rows = jdbc.query("""
                 SELECT f.object_key,f.original_filename,f.media_type FROM candidates c
                 JOIN resume_files rf ON rf.candidate_id=c.id JOIN file_assets f ON f.id=rf.file_asset_id
@@ -595,15 +632,11 @@ public class CandidateService {
     @Transactional
     public CandidateDetail retryParse(UUID userId, UUID workspaceId, UUID candidateId) {
         TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        requireSourceOwner(scope,userId,candidateId);
         CandidateDetail existing = detailScoped(workspaceId, candidateId);
-        FileRow file = fileRow(workspaceId, candidateId);
-        String filename = pii.decryptIfEncrypted(file.filename());
-        jdbc.update("UPDATE resume_files SET status='PROCESSING',error_code=NULL,updated_at=? WHERE id=? AND workspace_id=?",
+        jdbc.update("UPDATE resume_files SET status='QUEUED',error_code=NULL,provider_task_id=NULL,updated_at=? WHERE id=? AND workspace_id=?",
                 timestamp(Instant.now()), existing.resumeFileId(), workspaceId);
-        Integer version = jdbc.queryForObject("SELECT COALESCE(MAX(version_number),0)+1 FROM resume_parse_versions WHERE candidate_id=?",
-                Integer.class, candidateId);
-        parseAndSave(userId, scope, candidateId, existing.resumeFileId(), filename,
-                extractor.extract(storage.get(file.objectKey()), filename), version == null ? 1 : version);
+        enqueueResumeParse(scope, userId, candidateId, existing.resumeFileId());
         audit(userId, scope, "RESUME_PARSE_RETRIED", candidateId);
         return detailScoped(workspaceId, candidateId);
     }
@@ -611,6 +644,7 @@ public class CandidateService {
     @Transactional
     public void delete(UUID userId, UUID workspaceId, UUID candidateId) {
         TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        requireSourceOwner(scope,userId,candidateId);
         List<FileRow> files = jdbc.query("""
                 SELECT f.object_key,f.original_filename,f.media_type FROM candidates c
                 JOIN resume_files rf ON rf.candidate_id=c.id JOIN file_assets f ON f.id=rf.file_asset_id
@@ -642,7 +676,7 @@ public class CandidateService {
         UUID parseId = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO resume_parse_versions
-                (id,company_id,workspace_id,candidate_id,resume_file_id,version_number,schema_version,status,
+                (id,tenant_id,workspace_id,candidate_id,resume_file_id,version_number,schema_version,status,
                  headline,years_experience,highest_education,skills,work_experience,education_experience,
                  summary,warnings,raw_text,created_at)
                 VALUES (?,?,?,?,?,?,'RESUME_V1','CONFIRMED',?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?::jsonb,?,?)
@@ -656,7 +690,7 @@ public class CandidateService {
 
     private CandidateDetail detailScoped(UUID workspaceId, UUID candidateId) {
         List<CandidateDetail> rows = jdbc.query("""
-                SELECT c.id,c.company_id,c.workspace_id,c.full_name_ciphertext,c.phone_ciphertext,c.email_ciphertext,c.status,c.current_parse_version_id,
+                SELECT c.id,c.tenant_id,c.workspace_id,c.full_name_ciphertext,c.phone_ciphertext,c.email_ciphertext,c.status,c.current_parse_version_id,
                        rf.id AS resume_file_id,rf.status AS parse_status,rf.error_code,
                        f.original_filename,f.media_type,f.size_bytes,
                        COALESCE(NULLIF(c.profile->>'yearsExperience','')::int, pv.years_experience, 0) AS years_experience,
@@ -683,7 +717,7 @@ public class CandidateService {
                 """, (rs, n) -> {
             Integer score = rs.getObject("match_score") == null ? null : rs.getInt("match_score");
             return new CandidateDetail(rs.getObject("id", UUID.class),
-                rs.getObject("company_id", UUID.class), rs.getObject("workspace_id", UUID.class),
+                rs.getObject("tenant_id", UUID.class), rs.getObject("workspace_id", UUID.class),
                 pii.decrypt(rs.getString("full_name_ciphertext")), pii.decrypt(rs.getString("phone_ciphertext")), pii.decrypt(rs.getString("email_ciphertext")), rs.getString("status"),
                 rs.getObject("current_parse_version_id", UUID.class), rs.getObject("resume_file_id", UUID.class),
                 rs.getString("parse_status"), rs.getString("error_code"), pii.decryptIfEncrypted(rs.getString("original_filename")),
@@ -701,7 +735,7 @@ public class CandidateService {
 
     @Transactional
     public CandidateDetail updateTags(UUID userId, UUID workspaceId, UUID candidateId, List<String> tags) {
-        workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope=workspaceAccess.requireBusinessAccess(userId, workspaceId); requireSourceOwner(scope,userId,candidateId);
         CandidateDetail existing = detailScoped(workspaceId, candidateId);
         Map<String, Object> profile = parseProfileMap(existing.profileJson());
         List<String> cleaned = tags == null ? List.of() : tags.stream()
@@ -711,7 +745,13 @@ public class CandidateService {
                 profile, existing.skills(), existing.headline());
         jdbc.update("UPDATE candidates SET profile=?::jsonb, search_text=?, updated_at=? WHERE id=? AND workspace_id=?",
                 json(profile), searchText, timestamp(Instant.now()), candidateId, workspaceId);
-        return detailScoped(workspaceId, candidateId);
+        CandidateDetail detail=detailScoped(workspaceId, candidateId); enterprisePools.syncCandidate(scope,userId,candidateId); return detail;
+    }
+
+    private void requireSourceOwner(TenantScope scope, UUID userId, UUID candidateId) {
+        if (!scope.enterprise()) return;
+        Integer n=jdbc.queryForObject("SELECT count(*) FROM candidates WHERE id=? AND workspace_id=? AND created_by=? AND status<>'DELETED'",Integer.class,candidateId,scope.tenantId(),userId);
+        if(n==null||n==0)throw new ApiException("CANDIDATE_SOURCE_FORBIDDEN","只能访问自己的个人人才数据",HttpStatus.FORBIDDEN);
     }
 
     @SuppressWarnings("unchecked")
@@ -734,9 +774,8 @@ public class CandidateService {
         return rows.getFirst();
     }
 
-    private void parseAndSave(UUID userId, TenantScope scope, UUID candidateId, UUID resumeFileId,
-                              String filename, String rawText, int version) {
-        ParsedResume parsed = parseWithDeepSeek(scope, userId, candidateId, filename, rawText);
+    private void saveParsedResume(TenantScope scope, UUID candidateId, UUID resumeFileId,
+                                  ParsedResume parsed, int version) {
         Instant now = Instant.now();
         saveParseVersion(scope, candidateId, resumeFileId, version, parsed, now);
         Map<String, Object> profile = uploadProfile(parsed);
@@ -753,10 +792,128 @@ public class CandidateService {
                 timestamp(now), resumeFileId, scope.tenantId());
     }
 
-    private ParsedResume parseWithDeepSeek(TenantScope scope, UUID userId, UUID candidateId, String filename, String rawText) {
-        throw new ApiException("POLICY_REQUIRED",
-                "候选人上传不能直接触发 AI 简历解析；请通过携带 BOSS 授权和 PolicyDecision 的招聘流程发起",
-                HttpStatus.CONFLICT);
+    private void enqueueResumeParse(TenantScope scope, UUID userId, UUID candidateId, UUID resumeFileId) {
+        String idempotencyKey = "candidate-resume:" + resumeFileId + ":" + UUID.randomUUID();
+        Instant now = Instant.now();
+        jdbc.update("UPDATE resume_files SET parse_idempotency_key=?,parse_attempts=0,enterprise_pool_sync_enabled=? WHERE id=? AND workspace_id=?",
+                idempotencyKey, scope.enterprise() && scope.talentPoolSharingEnabled(), resumeFileId, scope.tenantId());
+        jdbc.update("""
+                INSERT INTO outbox_events
+                (id,aggregate_type,aggregate_id,event_type,payload,status,attempts,next_attempt_at,created_at)
+                VALUES (?,'RESUME_FILE',?,'CANDIDATE_RESUME_PARSE_REQUESTED',?::jsonb,'PENDING',0,?,?)
+                """, UUID.randomUUID(), resumeFileId.toString(), json(Map.of(
+                        "candidate_id", candidateId.toString(), "actor_user_id", userId.toString())),
+                timestamp(now), timestamp(now));
+    }
+
+    @Transactional
+    public ResumeParseOutboxClaim claimNextResumeParse() {
+        Instant now = Instant.now();
+        List<ResumeParseOutboxClaim> rows = jdbc.query("""
+                UPDATE outbox_events SET status='PROCESSING',attempts=attempts+1,next_attempt_at=?
+                WHERE id=(SELECT id FROM outbox_events
+                    WHERE event_type='CANDIDATE_RESUME_PARSE_REQUESTED'
+                      AND ((status='PENDING' AND (next_attempt_at IS NULL OR next_attempt_at<=?))
+                        OR (status='PROCESSING' AND next_attempt_at<=?))
+                    ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
+                RETURNING id,aggregate_id,attempts
+                """, (rs, n) -> new ResumeParseOutboxClaim(rs.getObject("id", UUID.class),
+                UUID.fromString(rs.getString("aggregate_id")), rs.getInt("attempts")),
+                timestamp(now.plusSeconds(300)), timestamp(now), timestamp(now));
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
+
+    @Transactional
+    public void startResumeParse(UUID resumeFileId) {
+        CandidateParseJob job = candidateParseJob(resumeFileId, true);
+        if (!"QUEUED".equals(job.status())) return;
+        String rawText = extractor.extract(storage.get(job.objectKey()), job.filename());
+        TenantScope scope = new TenantScope(job.tenantId(), null, null, null);
+        PolicyDecision policy = flowCoordinator.evaluateAuthoritative(FlowCapability.RESUME_PARSING, scope, job.actorUserId());
+        ExecutionContext context = flowCoordinator.createExecutionContext(policy, job.candidateId(), job.idempotencyKey(),
+                "candidate-resume-parse:" + resumeFileId,
+                List.of(new ExecutionContext.InputVersion("resume_file", resumeFileId.toString(), "uploaded",
+                        SecurityHashes.sha256(rawText))), true);
+        AiTask task = aiPlatform.startTask(new StartAiTaskCommand(job.tenantId().toString(), job.tenantId().toString(),
+                job.actorUserId().toString(), job.candidateId().toString(), job.idempotencyKey(), AiCapability.RESUME_PARSING,
+                Map.of("resumes", List.of(Map.of("filename", job.filename(), "text", rawText, "source", "upload")),
+                        "job", Map.of()), context));
+        jdbc.update("UPDATE resume_files SET status='PROCESSING',provider_task_id=?,parse_attempts=parse_attempts+1,updated_at=? WHERE id=? AND workspace_id=?",
+                UUID.fromString(task.aiTaskId()), timestamp(Instant.now()), resumeFileId, job.tenantId());
+    }
+
+    public List<UUID> runningResumeParseIds() {
+        return jdbc.query("SELECT id FROM resume_files WHERE status='PROCESSING' AND provider_task_id IS NOT NULL ORDER BY updated_at LIMIT 50",
+                (rs, n) -> rs.getObject(1, UUID.class));
+    }
+
+    @Transactional
+    public void finalizeResumeParseIfReady(UUID resumeFileId) {
+        CandidateParseJob job = candidateParseJob(resumeFileId, true);
+        if (!"PROCESSING".equals(job.status()) || job.providerTaskId() == null) return;
+        AiTask task = aiPlatform.getTask(job.providerTaskId().toString(), job.actorUserId().toString());
+        if (task.status() == AiTaskStatus.FAILED || task.status() == AiTaskStatus.CANCELLED) {
+            failResumeParse(job, task.errorCode() == null ? "AI_PROVIDER_UNAVAILABLE" : task.errorCode(),
+                    task.errorMessage() == null ? "AI 简历解析失败，请重试" : task.errorMessage());
+            return;
+        }
+        if (task.status() != AiTaskStatus.COMPLETED) return;
+        StructuredResult result = aiPlatform.getStructuredResult(job.providerTaskId().toString(), job.actorUserId().toString());
+        Map<String, Object> resultData = result.data() == null ? Map.of() : result.data();
+        String markdown = String.valueOf(resultData.getOrDefault("markdown", "")).trim();
+        if (markdown.isBlank()) {
+            failResumeParse(job, "AI_SCHEMA_INVALID", "AI 简历解析未返回有效内容，请重试");
+            return;
+        }
+        List<String> warnings = resultData.get("warnings") instanceof List<?> values
+                ? values.stream().filter(String.class::isInstance).map(String.class::cast).toList() : List.of();
+        String rawText = extractor.extract(storage.get(job.objectKey()), job.filename());
+        Integer current = jdbc.queryForObject("SELECT COALESCE(MAX(version_number),0)+1 FROM resume_parse_versions WHERE candidate_id=?",
+                Integer.class, job.candidateId());
+        TenantScope completionScope = new TenantScope(job.tenantId(), job.enterprisePoolSyncEnabled() ? "ENTERPRISE" : "PERSONAL", null, null,
+                false, job.enterprisePoolSyncEnabled(), false, false);
+        saveParsedResume(completionScope, job.candidateId(), job.resumeFileId(),
+                parsedFromAi(job.filename(), rawText, markdown, warnings), current == null ? 1 : current);
+        if (job.enterprisePoolSyncEnabled()) enterprisePools.syncCandidate(completionScope, job.actorUserId(), job.candidateId());
+        audit(job.actorUserId(), completionScope, "RESUME_PARSE_COMPLETED", job.candidateId());
+    }
+
+    @Transactional
+    public void completeResumeParseOutbox(UUID eventId) {
+        jdbc.update("UPDATE outbox_events SET status='SENT',sent_at=? WHERE id=?", timestamp(Instant.now()), eventId);
+    }
+
+    @Transactional
+    public void failResumeParseOutbox(ResumeParseOutboxClaim claim, String error) {
+        if (claim.attempts() < 3) {
+            jdbc.update("UPDATE outbox_events SET status='PENDING',next_attempt_at=? WHERE id=?",
+                    timestamp(Instant.now().plusSeconds(claim.attempts())), claim.eventId());
+            return;
+        }
+        CandidateParseJob job = candidateParseJob(claim.resumeFileId(), true);
+        failResumeParse(job, "WORKER", error);
+        jdbc.update("UPDATE outbox_events SET status='FAILED',sent_at=? WHERE id=?", timestamp(Instant.now()), claim.eventId());
+    }
+
+    private CandidateParseJob candidateParseJob(UUID resumeFileId, boolean forUpdate) {
+        String lock = forUpdate ? " FOR UPDATE" : "";
+        List<CandidateParseJob> jobs = jdbc.query("""
+                SELECT rf.id,rf.tenant_id,rf.workspace_id,rf.candidate_id,rf.provider_task_id,rf.status,rf.parse_idempotency_key,rf.enterprise_pool_sync_enabled,
+                       rf.created_by,f.object_key,f.original_filename
+                FROM resume_files rf JOIN file_assets f ON f.id=rf.file_asset_id
+                WHERE rf.id=?""" + lock, (rs, n) -> new CandidateParseJob(rs.getObject(1, UUID.class),
+                rs.getObject(2, UUID.class), rs.getObject(3, UUID.class), rs.getObject(4, UUID.class),
+                rs.getObject(5, UUID.class), rs.getString(6), rs.getString(7), rs.getBoolean(8), rs.getObject(9, UUID.class),
+                rs.getString(10), pii.decryptIfEncrypted(rs.getString(11))), resumeFileId);
+        if (jobs.isEmpty()) throw notFound();
+        return jobs.getFirst();
+    }
+
+    private void failResumeParse(CandidateParseJob job, String code, String message) {
+        jdbc.update("UPDATE resume_files SET status='FAILED',error_code=?,updated_at=? WHERE id=? AND workspace_id=?",
+                code, timestamp(Instant.now()), job.resumeFileId(), job.tenantId());
+        audit(job.actorUserId(), new TenantScope(job.tenantId(), job.enterprisePoolSyncEnabled() ? "ENTERPRISE" : "PERSONAL", null, null,
+                false, job.enterprisePoolSyncEnabled(), false, false), "RESUME_PARSE_FAILED", job.candidateId());
     }
 
     private ParsedResume parsedFromAi(String filename, String rawText, String markdown, List<String> warnings) {
@@ -827,7 +984,7 @@ public class CandidateService {
     private void audit(UUID actor, TenantScope scope, String action, UUID resourceId) {
         jdbc.update("""
                 INSERT INTO audit_logs
-                (id,actor_user_id,company_id,workspace_id,action,resource_type,resource_id,created_at)
+                (id,actor_user_id,tenant_id,workspace_id,action,resource_type,resource_id,created_at)
                 VALUES (?,?,?,?,?,'CANDIDATE',?,?)
                 """, UUID.randomUUID(), actor, scope.tenantId(), scope.tenantId(), action,
                 resourceId.toString(), timestamp(Instant.now()));
@@ -836,7 +993,7 @@ public class CandidateService {
     private CandidateSummary summary(java.sql.ResultSet rs) throws java.sql.SQLException {
         int matchScore = rs.getInt("match_score");
         Integer matchScoreValue = rs.wasNull() ? null : matchScore;
-        return new CandidateSummary(rs.getObject("id", UUID.class), rs.getObject("company_id", UUID.class),
+        return new CandidateSummary(rs.getObject("id", UUID.class), rs.getObject("tenant_id", UUID.class),
                 rs.getObject("workspace_id", UUID.class), pii.decrypt(rs.getString("full_name_ciphertext")),
                 pii.decrypt(rs.getString("phone_ciphertext")), pii.decrypt(rs.getString("email_ciphertext")), rs.getString("status"),
                 rs.getString("parse_status"), pii.decryptIfEncrypted(rs.getString("original_filename")), rs.getString("headline"),
@@ -1037,6 +1194,10 @@ public class CandidateService {
     private record AssetReference(UUID id, String objectKey) { }
     private record FileRow(String objectKey, String filename, String mediaType) { }
     private record AssetHashRow(UUID id, String sha256) { }
+    private record CandidateParseJob(UUID resumeFileId, UUID tenantId, UUID workspaceId, UUID candidateId,
+                                     UUID providerTaskId, String status, String idempotencyKey, boolean enterprisePoolSyncEnabled,
+                                     UUID actorUserId, String objectKey, String filename) { }
+    public record ResumeParseOutboxClaim(UUID eventId, UUID resumeFileId, int attempts) { }
 
     public record CandidateSummary(UUID id, UUID tenantId, UUID workspaceId, String displayNameMasked, String phone, String email,
                                    String status, String parseStatus, String originalFilename, String headline,

@@ -12,10 +12,8 @@ public record PolicyDecision(
         FlowCapability capability,
         Decision decision,
         @JsonProperty("reason_codes") List<ReasonCode> reasonCodes,
-        @JsonProperty("workspace_id") UUID workspaceId,
         @JsonProperty("tenant_id") UUID tenantId,
         @JsonProperty("actor_id") UUID actorId,
-        Confirmation confirmation,
         @JsonProperty("policy_version") String policyVersion,
         @JsonProperty("evaluated_at") Instant evaluatedAt
 ) {
@@ -62,12 +60,4 @@ public record PolicyDecision(
         INVALID_STATE
     }
 
-    public record Confirmation(
-            @JsonProperty("quote_id") UUID quoteId,
-            @JsonProperty("estimated_amount_minor") long estimatedAmountMinor,
-            String currency,
-            @JsonProperty("confirmed_at") Instant confirmedAt,
-            @JsonProperty("confirmed_by") UUID confirmedBy
-    ) {
-    }
 }

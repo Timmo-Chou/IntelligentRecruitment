@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Award, BarChart3, BriefcaseBusiness, ChevronDown, ChevronUp, CircleDollarSign, ClipboardCheck, File, FileText, Loader2, Pencil, Save, ShieldAlert, Sparkles, Upload, Eye, X, ExternalLink, User, UserPlus, CheckCircle2, Download, AlertTriangle } from "lucide-react";
+import { AlertCircle, Award, BarChart3, BriefcaseBusiness, ChevronDown, ChevronUp, ClipboardCheck, File, FileText, Loader2, Pencil, Save, ShieldAlert, Sparkles, Upload, Eye, X, ExternalLink, User, UserPlus, CheckCircle2, Download, AlertTriangle } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ApiError } from "@/lib/api-client";
@@ -667,9 +667,6 @@ export function ResumeParsingWorkspace({
           <div>
             <h1 className="m-0 text-[25px] font-bold text-[#09245d]">AI简历解析</h1>
             <p className="mb-0 mt-1 text-sm text-[#60799f]">{workspace?.name ?? "当前工作空间"} · 上传简历后由 AI 提取关键内容，可与职位匹配度一起查看编辑</p>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg border border-[#cfe4f5] bg-white px-3 py-2 text-xs text-[#53709a]">
-            <CircleDollarSign size={16} className="text-[#0a9a66]"/>简历解析临时价 ¥0.80/份
           </div>
         </section>
       }

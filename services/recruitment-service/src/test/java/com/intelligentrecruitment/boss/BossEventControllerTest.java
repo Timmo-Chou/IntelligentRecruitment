@@ -22,7 +22,7 @@ class BossEventControllerTest {
         BossEventController controller = new BossEventController(jdbc, "event-secret");
         JsonNode event = json.readTree("""
                 {"event_id":"evt-1","event_type":"company.status.changed","aggregate_id":"00000000-0000-0000-0000-000000000001",
-                 "payload":{"company_id":"00000000-0000-0000-0000-000000000001","tenant_id":"00000000-0000-0000-0000-000000000002","status":"SUSPENDED"}}
+                 "payload":{"tenant_id":"00000000-0000-0000-0000-000000000001","tenant_id":"00000000-0000-0000-0000-000000000002","status":"SUSPENDED"}}
                 """);
 
         controller.receive("Bearer event-secret", event);

@@ -8,7 +8,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { AppShell } from "@/components/layout/app-shell";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, apiDownload, apiFetch } from "@/lib/api-client";
 import {
   deleteCandidate, downloadResume, fetchCandidate, fetchCandidateStats, fetchCandidates, parseProfile,
   revealCandidate, retryResumeParse, updateCandidateTags, uploadResume,
@@ -108,6 +108,11 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
   const [batchBusy, setBatchBusy] = useState(false);
   const [rowMoreId, setRowMoreId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [poolTab, setPoolTab] = useState<"mine" | "enterprise">("mine");
+  const [enterprisePool, setEnterprisePool] = useState<Array<{ copyId: string; sourceOwnerUserId: string; fullName: string; email: string; phone: string; maskedName: string; profileJson: string }>>([]);
+  const [enterprisePoolError, setEnterprisePoolError] = useState<string | null>(null);
+  const [talentPoolSharingEnabled, setTalentPoolSharingEnabled] = useState(false);
+  const [talentPoolAllowed, setTalentPoolAllowed] = useState(false);
   const batchMenuRef = useRef<HTMLDivElement>(null);
   const filterBarRef = useRef<HTMLDivElement>(null);
 
@@ -176,9 +181,37 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
   ]);
 
   useEffect(() => {
+    if (workspace?.type !== "ENTERPRISE" || !workspaceId) {
+      setTalentPoolAllowed(false);
+      setTalentPoolSharingEnabled(false);
+      setPoolTab("mine");
+      return;
+    }
+    void apiFetch<{ talentPoolSharingEnabled: boolean; talentPoolAllowed: boolean }>(`/tenants/${workspaceId}/enterprise-pools/access`)
+      .then((access) => {
+        setTalentPoolAllowed(access.talentPoolAllowed);
+        setTalentPoolSharingEnabled(access.talentPoolSharingEnabled);
+        if (!access.talentPoolAllowed) setPoolTab("mine");
+      })
+      .catch(() => {
+        setTalentPoolAllowed(false);
+        setTalentPoolSharingEnabled(false);
+        setPoolTab("mine");
+      });
+  }, [workspace?.type, workspaceId]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
+
+  useEffect(() => {
+    if (poolTab !== "enterprise" || workspace?.type !== "ENTERPRISE" || !workspaceId || !talentPoolAllowed) return;
+    setEnterprisePoolError(null);
+    void apiFetch<typeof enterprisePool>(`/tenants/${workspaceId}/enterprise-pools/talents`)
+      .then(setEnterprisePool)
+      .catch((cause) => setEnterprisePoolError(messageOf(cause)));
+  }, [poolTab, workspace?.type, workspaceId, talentPoolAllowed]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -395,6 +428,20 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
 
   const content = (
     <>
+      {workspace?.type === "ENTERPRISE" && (
+        <div className="mb-4 flex gap-2 border-b border-[#dbe7f3]">
+          <button type="button" className={`border-b-2 px-3 py-2 text-sm font-semibold ${poolTab === "mine" ? "border-[#2f6bff] text-[#2f6bff]" : "border-transparent text-[#7187a8]"}`} onClick={() => setPoolTab("mine")}>我的人才库</button>
+          {talentPoolAllowed && <button type="button" className={`border-b-2 px-3 py-2 text-sm font-semibold ${poolTab === "enterprise" ? "border-[#2f6bff] text-[#2f6bff]" : "border-transparent text-[#7187a8]"}`} onClick={() => setPoolTab("enterprise")}>企业人才池</button>}
+        </div>
+      )}
+      {poolTab === "enterprise" ? (
+        <section className="rounded-xl border border-[#d6e5f5] bg-white p-5">
+          <div className="flex items-center justify-between"><div><h1 className="m-0 text-[25px] font-bold text-[#09245d]">企业人才池</h1><p className="mb-0 mt-1 text-sm text-[#60799f]">企业成员共享的只读副本；源数据更新后自动同步。</p></div><div className="flex gap-2"><button type="button" className="outline-button" onClick={async () => { if (!workspaceId) return; try { const blob = await apiDownload(`/tenants/${workspaceId}/enterprise-pools/talents/export`); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "enterprise-talent-pool.csv"; link.click(); URL.revokeObjectURL(url); } catch { setEnterprisePoolError("导出权限不足"); } }}>导出 CSV</button></div></div>
+          {enterprisePoolError && <p className="mt-4 text-sm text-[#b42318]">{enterprisePoolError}</p>}
+          {!enterprisePoolError && !enterprisePool.length && <p className="mt-8 text-center text-sm text-[#7187a8]">企业人才池暂无已同步数据。</p>}
+          {!!enterprisePool.length && <div className="mt-5 divide-y divide-[#e4edf7]">{enterprisePool.map((item) => <div key={item.copyId} className="grid gap-1 py-3 text-sm text-[#36527f]"><strong>{item.maskedName || item.fullName}</strong><span>{item.email || ""} {item.phone || ""}</span><span className="text-xs text-[#7187a8]">只读副本 · 来源账号 {item.sourceOwnerUserId}</span></div>)}</div>}
+        </section>
+      ) : (
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
         <div className="min-w-0 flex-1 space-y-4">
           <section>
@@ -450,6 +497,7 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
             >
               <Plus size={16} /> 新增人才
             </button>
+            {workspace?.type === "ENTERPRISE" && talentPoolSharingEnabled && workspace?.status !== "EXPIRED_READONLY" && <button type="button" className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-[#d9e2ec] bg-white px-4 text-sm font-medium text-[#334155] hover:bg-[#f8fafc]" onClick={() => { if (workspaceId) void apiFetch(`/tenants/${workspaceId}/enterprise-pools/talents/sync`, { method: "POST" }).catch((cause) => setError(messageOf(cause))); }}>同步至企业池</button>}
             <div className="relative" ref={batchMenuRef}>
               <button
                 type="button"
@@ -915,6 +963,7 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
           </div>
         )}
       </div>
+      )}
 
       {importOpen && (
         <ImportTalentModal
@@ -1447,25 +1496,7 @@ function TalentDetailDrawer({
         )}
       </div>
 
-      <div className="relative grid grid-cols-2 gap-2 border-t border-[#eaf1fa] bg-[#f9fcff] p-3 sm:grid-cols-4">
-        <div className="relative">
-          <button type="button" className="h-9 w-full rounded-lg bg-[#2f6bff] text-xs font-semibold text-white" onClick={() => setFooterMenu(footerMenu === "pool" ? null : "pool")}>加入人才池</button>
-          {footerMenu === "pool" && (
-            <FooterMenu
-              items={["核心人才池", "高潜人才池", "工艺专家人才池", "化工研发人才池"]}
-              onPick={(item) => notify(`已加入「${item}」`)}
-            />
-          )}
-        </div>
-        <div className="relative">
-          <button type="button" className="h-9 w-full rounded-lg border border-[#d9e2ec] bg-white text-xs font-semibold text-[#36527f]" onClick={() => setFooterMenu(footerMenu === "activate" ? null : "activate")}>激活人才</button>
-          {footerMenu === "activate" && (
-            <FooterMenu
-              items={["AI推荐激活话术", "发送职位", "发送短信", "发送邮件", "企业微信沟通"]}
-              onPick={(item) => notify(`${item}已就绪`)}
-            />
-          )}
-        </div>
+      <div className="relative grid grid-cols-2 gap-2 border-t border-[#eaf1fa] bg-[#f9fcff] p-3">
         <div className="relative">
           <button type="button" className="h-9 w-full rounded-lg border border-[#d9e2ec] bg-white text-xs font-semibold text-[#36527f]" onClick={() => setFooterMenu(footerMenu === "invite" ? null : "invite")}>发送邀请</button>
           {footerMenu === "invite" && (

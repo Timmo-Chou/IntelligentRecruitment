@@ -12,7 +12,6 @@ import com.intelligentrecruitment.agentflow.domain.StructuredResult;
 import com.intelligentrecruitment.aiplatform.application.AiPlatformClient;
 import com.intelligentrecruitment.aiplatform.application.StartAiTaskCommand;
 import com.intelligentrecruitment.aiplatform.domain.AiCapability;
-import com.intelligentrecruitment.billing.application.BillingService;
 import com.intelligentrecruitment.candidates.application.PiiCipher;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
@@ -47,40 +46,27 @@ public class ScreeningService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final WorkspaceAccessService workspaceAccess;
-    private final BillingService billing;
     private final RecruitmentFlowCoordinator flowCoordinator;
     private final AiPlatformClient aiPlatform;
     private final ScreeningMatcher matcher;
     private final PiiCipher pii;
-    private final String pricingVersion;
-    private final long quoteTtlSeconds;
     private final long outboxLeaseSeconds;
     private final int maxInFlightPerRun;
 
     public ScreeningService(JdbcTemplate jdbc, ObjectMapper objectMapper, WorkspaceAccessService workspaceAccess,
-                            BillingService billing, RecruitmentFlowCoordinator flowCoordinator,
+                            RecruitmentFlowCoordinator flowCoordinator,
                             AiPlatformClient aiPlatform, ScreeningMatcher matcher, PiiCipher pii,
-                            @Value("${app.phase5.pricing-version:SCREENING_DEEPSEEK_V1}") String pricingVersion,
-                            @Value("${app.phase5.quote-ttl-seconds:300}") long quoteTtlSeconds,
                             @Value("${app.phase5.outbox-lease-seconds:300}") long outboxLeaseSeconds,
                             @Value("${app.phase5.screening-max-in-flight-per-run:3}") int maxInFlightPerRun) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.workspaceAccess = workspaceAccess;
-        this.billing = billing;
         this.flowCoordinator = flowCoordinator;
         this.aiPlatform = aiPlatform;
         this.matcher = matcher;
         this.pii = pii;
-        this.pricingVersion = pricingVersion;
-        this.quoteTtlSeconds = quoteTtlSeconds;
         this.outboxLeaseSeconds = outboxLeaseSeconds;
         this.maxInFlightPerRun = Math.max(1, Math.min(maxInFlightPerRun, 10));
-    }
-
-    /** BOSS 是筛选价格的唯一来源。 */
-    private long resolveUnitPriceMinor(UUID tenantId) {
-        return billing.quoteUnitPrice(tenantId, "RESUME_SCREENING");
     }
 
     @Transactional
@@ -106,12 +92,12 @@ public class ScreeningService {
         if (name.length() > 200) throw validation("筛选方案名称不能超过200字");
         jdbc.update("""
                 INSERT INTO screening_plans
-                (id,company_id,workspace_id,recruitment_task_id,job_id,name,status,created_by,created_at,updated_at)
+                (id,tenant_id,workspace_id,recruitment_task_id,job_id,name,status,created_by,created_at,updated_at)
                 VALUES (?,?,?,?,?,?,'ACTIVE',?,?,?)
                 """, planId, scope.tenantId(), workspaceId, recruitmentTaskId, job.id(), name, userId, timestamp(now), timestamp(now));
         jdbc.update("""
                 INSERT INTO screening_plan_versions
-                (id,company_id,workspace_id,plan_id,version_number,rules_snapshot,created_by,created_at)
+                (id,tenant_id,workspace_id,plan_id,version_number,rules_snapshot,created_by,created_at)
                 VALUES (?,?,?,?,1,?::jsonb,?,?)
                 """, versionId, scope.tenantId(), workspaceId, planId, json(dimensions), userId, timestamp(now));
         jdbc.update("UPDATE screening_plans SET current_version_id=? WHERE id=?", versionId, planId);
@@ -130,7 +116,7 @@ public class ScreeningService {
         Instant now = Instant.now();
         jdbc.update("""
                 INSERT INTO screening_plan_versions
-                (id,company_id,workspace_id,plan_id,version_number,rules_snapshot,created_by,created_at)
+                (id,tenant_id,workspace_id,plan_id,version_number,rules_snapshot,created_by,created_at)
                 VALUES (?,?,?,?,?,?::jsonb,?,?)
                 """, versionId, scope.tenantId(), workspaceId, planId, version, json(dimensions), userId, timestamp(now));
         jdbc.update("UPDATE screening_plans SET current_version_id=?,job_id=?,updated_at=? WHERE id=? AND workspace_id=?",
@@ -152,41 +138,6 @@ public class ScreeningService {
     }
 
     @Transactional
-    public ScreeningQuoteView quote(UUID userId, UUID workspaceId, QuoteInput input) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
-        if (input == null || input.planId() == null) throw validation("请选择筛选方案");
-        List<UUID> candidateIds = safeCandidateIds(input.candidateIds());
-        ScreeningPlanView plan = planScoped(workspaceId, input.planId());
-        JobRow job = job(workspaceId, plan.jobId());
-        List<CandidateRow> candidates = candidates(workspaceId, candidateIds);
-        if (candidates.size() != candidateIds.size()) {
-            throw validation("候选人不存在、未解析或不属于当前工作空间");
-        }
-        long unitPrice = resolveUnitPriceMinor(scope.tenantId());
-        long estimate = Math.multiplyExact(unitPrice, candidateIds.size());
-        var billingView = billing.view(userId, workspaceId);
-        UUID quoteId = UUID.randomUUID();
-        Instant now = Instant.now();
-        Instant expiresAt = now.plus(quoteTtlSeconds, ChronoUnit.SECONDS);
-        jdbc.update("""
-                INSERT INTO screening_quotes
-                (id,company_id,workspace_id,plan_version_id,job_version_id,candidate_ids_hash,
-                 candidate_versions_hash,candidate_count,pricing_version,unit_price_minor,
-                 estimated_amount_minor,expires_at,created_by,created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """, quoteId, scope.tenantId(), workspaceId, plan.currentVersionId(), job.versionId(),
-                candidateHash(candidateIds), candidateVersionHash(candidates), candidateIds.size(), pricingVersion,
-                unitPrice, estimate, timestamp(expiresAt), userId, timestamp(now));
-        return new ScreeningQuoteView(quoteId, workspaceId, plan.id(), plan.currentVersionId(), candidateIds.size(),
-                pricingVersion, unitPrice, estimate, billingView.availableAmountMinor(), expiresAt);
-    }
-
-    public ScreeningPricingView pricing(UUID userId, UUID workspaceId) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
-        return new ScreeningPricingView(pricingVersion, resolveUnitPriceMinor(scope.tenantId()), quoteTtlSeconds);
-    }
-
-    @Transactional
     public ScreeningRunDetail run(UUID userId, UUID workspaceId, String idempotencyKey, RunInput input) {
         TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         String key = requiredKey(idempotencyKey);
@@ -197,93 +148,39 @@ public class ScreeningService {
         JobRow job = job(workspaceId, plan.jobId());
         List<CandidateRow> candidates = candidates(workspaceId, candidateIds);
         if (candidates.size() != candidateIds.size()) throw validation("候选人不存在、未解析或不属于当前工作空间");
-        QuoteRow quote = quoteForUpdate(workspaceId, input.quoteId());
         String requestHash = SecurityHashes.sha256(plan.currentVersionId() + "|" + candidateIds.stream().sorted().toList()
-                + "|" + scenario + "|" + quote.id());
+                + "|" + scenario);
         ScreeningRunDetail existing = existingRun(workspaceId, key, requestHash);
         if (existing != null) return existing;
-        if (quote.consumedAt() != null) throw new ApiException("SCREENING_QUOTE_CONSUMED", "费用报价已使用，请重新获取报价", HttpStatus.CONFLICT);
-        if (quote.expiresAt().isBefore(Instant.now())) throw new ApiException("SCREENING_QUOTE_EXPIRED", "费用报价已过期，请重新确认", HttpStatus.CONFLICT);
-        if (!quote.createdBy().equals(userId)) throw new ApiException("SCREENING_QUOTE_OWNER_MISMATCH", "只能使用本人确认的费用报价", HttpStatus.FORBIDDEN);
-        if (!java.util.Objects.equals(quote.planVersionId(), plan.currentVersionId())
-                || !java.util.Objects.equals(quote.jobVersionId(), job.versionId())
-                || !java.util.Objects.equals(quote.candidateIdsHash(), candidateHash(candidateIds))
-                || !java.util.Objects.equals(quote.candidateVersionsHash(), candidateVersionHash(candidates))
-                || quote.candidateCount() != candidateIds.size()
-                || !quote.pricingVersion().equals(pricingVersion)
-                || quote.unitPriceMinor() != resolveUnitPriceMinor(scope.tenantId())) {
-            throw new ApiException("SCREENING_QUOTE_CHANGED", "筛选范围、方案或价格已变化，请重新确认", HttpStatus.CONFLICT);
-        }
         List<QueuedCandidate> queued = candidates.stream()
                 .map(value -> new QueuedCandidate(value.id(), value.parseVersionId(), null, 1)).toList();
-        return createQueuedRun(scope, userId, key, requestHash, quote, job.id(), job.versionId(),
+        return createQueuedRun(scope, userId, key, requestHash, job.id(), job.versionId(),
                 plan.currentVersionId(), plan.recruitmentTaskId(), scenario, queued, null, null);
     }
 
     @Transactional
-    public ScreeningQuoteView retryQuote(UUID userId, UUID workspaceId, UUID originalRunId) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
-        RetryContext context = retryContext(workspaceId, originalRunId);
-        List<QueuedCandidate> failed = failedCandidates(workspaceId, originalRunId);
-        if (failed.isEmpty()) throw new ApiException("NO_FAILED_ITEMS", "没有可重试的失败候选人", HttpStatus.CONFLICT);
-        long unitPrice = resolveUnitPriceMinor(scope.tenantId());
-        long estimate = Math.multiplyExact(unitPrice, failed.size());
-        var billingView = billing.view(userId, workspaceId);
-        UUID quoteId = UUID.randomUUID();
-        Instant now = Instant.now();
-        Instant expiresAt = now.plus(quoteTtlSeconds, ChronoUnit.SECONDS);
-        jdbc.update("""
-                INSERT INTO screening_quotes
-                (id,company_id,workspace_id,plan_version_id,job_version_id,candidate_ids_hash,
-                 candidate_versions_hash,candidate_count,pricing_version,unit_price_minor,
-                 estimated_amount_minor,expires_at,created_by,created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """, quoteId, scope.tenantId(), workspaceId, context.planVersionId(), context.jobVersionId(),
-                candidateHash(failed.stream().map(QueuedCandidate::candidateId).toList()),
-                queuedCandidateVersionHash(failed), failed.size(), pricingVersion, unitPrice, estimate,
-                timestamp(expiresAt), userId, timestamp(now));
-        return new ScreeningQuoteView(quoteId, workspaceId, context.planId(), context.planVersionId(), failed.size(),
-                pricingVersion, unitPrice, estimate, billingView.availableAmountMinor(), expiresAt);
-    }
-
-    @Transactional
     public ScreeningRunDetail retryFailed(UUID userId, UUID workspaceId, UUID originalRunId,
-                                          String idempotencyKey, RetryInput input) {
+                                          String idempotencyKey) {
         TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         String key = requiredKey(idempotencyKey);
         RetryContext context = retryContext(workspaceId, originalRunId);
         List<QueuedCandidate> failed = failedCandidates(workspaceId, originalRunId);
         if (failed.isEmpty()) throw new ApiException("NO_FAILED_ITEMS", "没有可重试的失败候选人", HttpStatus.CONFLICT);
-        QuoteRow quote = quoteForUpdate(workspaceId, input == null ? null : input.quoteId());
-        String requestHash = SecurityHashes.sha256(originalRunId + "|" + quote.id() + "|RETRY_FAILED");
+        String requestHash = SecurityHashes.sha256(originalRunId + "|RETRY_FAILED");
         ScreeningRunDetail existing = existingRun(workspaceId, key, requestHash);
         if (existing != null) return existing;
-        if (quote.consumedAt() != null) throw new ApiException("SCREENING_QUOTE_CONSUMED", "费用报价已使用，请重新获取报价", HttpStatus.CONFLICT);
-        if (quote.expiresAt().isBefore(Instant.now())) throw new ApiException("SCREENING_QUOTE_EXPIRED", "费用报价已过期，请重新确认", HttpStatus.CONFLICT);
-        if (!quote.createdBy().equals(userId)) throw new ApiException("SCREENING_QUOTE_OWNER_MISMATCH", "只能使用本人确认的费用报价", HttpStatus.FORBIDDEN);
-        if (!java.util.Objects.equals(quote.planVersionId(), context.planVersionId())
-                || !java.util.Objects.equals(quote.jobVersionId(), context.jobVersionId())
-                || !java.util.Objects.equals(quote.candidateIdsHash(), candidateHash(failed.stream().map(QueuedCandidate::candidateId).toList()))
-                || !java.util.Objects.equals(quote.candidateVersionsHash(), queuedCandidateVersionHash(failed))
-                || quote.candidateCount() != failed.size()
-                || !quote.pricingVersion().equals(pricingVersion)
-                || quote.unitPriceMinor() != resolveUnitPriceMinor(scope.tenantId())) {
-            throw new ApiException("SCREENING_QUOTE_CHANGED", "重试范围、冻结版本或价格已变化，请重新确认", HttpStatus.CONFLICT);
-        }
         UUID rootRunId = context.rootRunId() == null ? originalRunId : context.rootRunId();
-        return createQueuedRun(scope, userId, key, requestHash, quote, context.jobId(), context.jobVersionId(),
+        return createQueuedRun(scope, userId, key, requestHash, context.jobId(), context.jobVersionId(),
                 context.planVersionId(), context.recruitmentTaskId(), "NORMAL", failed, originalRunId, rootRunId);
     }
 
     private ScreeningRunDetail createQueuedRun(TenantScope scope, UUID userId, String key, String requestHash,
-                                                QuoteRow quote, UUID jobId, UUID jobVersionId,
+                                                UUID jobId, UUID jobVersionId,
                                                 UUID planVersionId, UUID recruitmentTaskId, String scenario,
                                                 List<QueuedCandidate> candidates, UUID parentRunId, UUID rootRunId) {
         UUID runId = UUID.randomUUID();
         Instant now = Instant.now();
-        long availableAmountMinor = billing.view(userId, scope.tenantId()).availableAmountMinor();
-        PolicyDecision policyDecision = flowCoordinator.evaluateAuthoritative(FlowCapability.CANDIDATE_SCREENING, scope, userId,
-                quote.estimatedAmountMinor(), quote.id(), true);
+        PolicyDecision policyDecision = flowCoordinator.evaluateAuthoritative(FlowCapability.CANDIDATE_SCREENING, scope, userId);
         List<ExecutionContext.InputVersion> inputVersions = new ArrayList<>();
         inputVersions.add(new ExecutionContext.InputVersion("job_version", jobVersionId.toString(), "frozen", null));
         inputVersions.add(new ExecutionContext.InputVersion("screening_plan_version", planVersionId.toString(), "frozen", null));
@@ -293,30 +190,23 @@ public class ScreeningService {
                 "screening-run:" + runId, inputVersions, false);
         jdbc.update("""
                 INSERT INTO screening_runs
-                (id,company_id,workspace_id,recruitment_task_id,job_id,job_version_id,plan_version_id,quote_id,parent_run_id,
-                 root_run_id,status,progress,scenario,pricing_version,unit_price_minor,estimated_amount_minor,
-                 idempotency_key,request_hash,created_by,created_at,policy_decision,execution_context)
-                VALUES (?,?,?,?,?,?,?,?,?,?,'RUNNING',5,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb)
-                """, runId, scope.tenantId(), scope.tenantId(), recruitmentTaskId, jobId, jobVersionId, planVersionId, quote.id(),
-                parentRunId, rootRunId, scenario, quote.pricingVersion(), quote.unitPriceMinor(),
-                quote.estimatedAmountMinor(), key, requestHash, userId, timestamp(now), json(policyDecision),
+                (id,tenant_id,workspace_id,recruitment_task_id,job_id,job_version_id,plan_version_id,parent_run_id,
+                 root_run_id,status,progress,scenario,idempotency_key,request_hash,created_by,created_at,
+                 policy_decision,execution_context)
+                VALUES (?,?,?,?,?,?,?,?,?,'RUNNING',5,?,?,?,?,?::jsonb,?::jsonb)
+                """, runId, scope.tenantId(), scope.tenantId(), recruitmentTaskId, jobId, jobVersionId, planVersionId,
+                parentRunId, rootRunId, scenario, key, requestHash, userId, timestamp(now), json(policyDecision),
                 json(executionContext));
         for (QueuedCandidate candidate : candidates) {
             jdbc.update("""
                     INSERT INTO screening_run_items
-                    (id,company_id,workspace_id,run_id,candidate_id,parse_version_id,source_run_item_id,
+                    (id,tenant_id,workspace_id,run_id,candidate_id,parse_version_id,source_run_item_id,
                      status,attempt_number,created_at,updated_at)
                     VALUES (?,?,?,?,?,?,?,'PENDING',?,?,?)
                     """, UUID.randomUUID(), scope.tenantId(), scope.tenantId(), runId, candidate.candidateId(),
                     candidate.parseVersionId(), candidate.sourceRunItemId(), candidate.attemptNumber(),
                     timestamp(now), timestamp(now));
         }
-        billing.reserve(userId, scope.tenantId(), "screening-run:" + runId, quote.estimatedAmountMinor());
-        int consumed = jdbc.update("""
-                UPDATE screening_quotes SET consumed_at=?,consumed_by_run_id=?
-                WHERE id=? AND workspace_id=? AND consumed_at IS NULL
-                """, timestamp(now), runId, quote.id(), scope.tenantId());
-        if (consumed != 1) throw new ApiException("SCREENING_QUOTE_CONSUMED", "费用报价已使用，请重新获取报价", HttpStatus.CONFLICT);
         jdbc.update("""
                 INSERT INTO outbox_events
                 (id,aggregate_type,aggregate_id,event_type,payload,status,attempts,next_attempt_at,created_at)
@@ -402,10 +292,11 @@ public class ScreeningService {
         Instant now = Instant.now();
         if ("PENDING".equals(item.status())) {
             try {
+                ExecutionContext itemContext = itemExecutionContext(executionContext(run.executionContext()), item.id(), item.parseVersionId());
                 var aiTask = aiPlatform.startTask(new StartAiTaskCommand(run.tenantId().toString(),
                         run.tenantId() == null ? null : run.tenantId().toString(), run.createdBy().toString(),
                         item.id().toString(), "screening-item:" + item.id(), AiCapability.CANDIDATE_SCREENING,
-                        screeningInput(run, item), executionContext(run.executionContext())));
+                        screeningInput(run, item), itemContext));
                 jdbc.update("UPDATE screening_run_items SET status='PROCESSING',provider_task_id=?,updated_at=? WHERE id=?",
                         aiTask.aiTaskId(), timestamp(now), item.id());
                 if (aiTask.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.COMPLETED) {
@@ -444,13 +335,11 @@ public class ScreeningService {
         Integer succeeded = jdbc.queryForObject("SELECT count(*) FROM screening_run_items WHERE run_id=? AND status='SUCCEEDED'",
                 Integer.class, runId);
         int successCount = succeeded == null ? 0 : succeeded;
-        long actual = Math.multiplyExact(run.unitPriceMinor(), successCount);
-        billing.settleSystemWithUnits(run.tenantId(), "screening-run:" + runId, actual, successCount);
         String status = successCount == run.totalItems() ? "COMPLETED" : successCount == 0 ? "FAILED" : "PARTIAL_FAILED";
         jdbc.update("""
-                UPDATE screening_runs SET status=?,progress=100,settled_amount_minor=?,completed_at=?
+                UPDATE screening_runs SET status=?,progress=100,completed_at=?
                 WHERE id=? AND status='RUNNING'
-                """, status, actual, timestamp(Instant.now()), runId);
+                """, status, timestamp(Instant.now()), runId);
         auditExecution(run, "SCREENING_RUN_" + status);
     }
 
@@ -484,13 +373,9 @@ public class ScreeningService {
                     UPDATE screening_run_items SET status='FAILED',error_code='SCREENING_WORKER_FAILED',updated_at=?
                     WHERE run_id=? AND status='PENDING'
                     """, timestamp(Instant.now()), run.id());
-            Integer succeeded = jdbc.queryForObject("SELECT count(*) FROM screening_run_items WHERE run_id=? AND status='SUCCEEDED'",
-                    Integer.class, run.id());
-            long actual = Math.multiplyExact(run.unitPriceMinor(), succeeded == null ? 0 : succeeded);
-            billing.settleSystemWithUnits(run.tenantId(), "screening-run:" + run.id(), actual, succeeded == null ? 0 : succeeded);
             jdbc.update("""
-                    UPDATE screening_runs SET status=?,progress=100,settled_amount_minor=?,completed_at=? WHERE id=?
-                    """, actual > 0 ? "PARTIAL_FAILED" : "FAILED", actual, timestamp(Instant.now()), run.id());
+                    UPDATE screening_runs SET status='FAILED',progress=100,completed_at=? WHERE id=?
+                    """, timestamp(Instant.now()), run.id());
             auditExecution(run, "SCREENING_RUN_WORKER_FAILED");
         }
         jdbc.update("UPDATE outbox_events SET status='FAILED',sent_at=?,payload=jsonb_set(payload,'{error}',to_jsonb(CAST(? AS text))) WHERE id=?",
@@ -506,13 +391,9 @@ public class ScreeningService {
                 UPDATE screening_run_items SET status='FAILED',error_code='SCREENING_WORKER_FAILED',updated_at=?
                 WHERE run_id=? AND status='PENDING'
                 """, timestamp(Instant.now()), run.id());
-        Integer succeeded = jdbc.queryForObject("SELECT count(*) FROM screening_run_items WHERE run_id=? AND status='SUCCEEDED'",
-                Integer.class, run.id());
-        long actual = Math.multiplyExact(run.unitPriceMinor(), succeeded == null ? 0 : succeeded);
-        billing.settleSystemWithUnits(run.tenantId(), "screening-run:" + run.id(), actual, succeeded == null ? 0 : succeeded);
         jdbc.update("""
-                UPDATE screening_runs SET status=?,progress=100,settled_amount_minor=?,completed_at=? WHERE id=?
-                """, actual > 0 ? "PARTIAL_FAILED" : "FAILED", actual, timestamp(Instant.now()), run.id());
+                UPDATE screening_runs SET status='FAILED',progress=100,completed_at=? WHERE id=?
+                """, timestamp(Instant.now()), run.id());
         auditExecution(run, "SCREENING_RUN_WORKER_FAILED");
     }
 
@@ -520,9 +401,9 @@ public class ScreeningService {
     public ScreeningRunDetail cancel(UUID userId, UUID workspaceId, UUID runId, String idempotencyKey) {
         TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
         List<CancelRow> rows = jdbc.query("""
-                SELECT status,provider_task_id,unit_price_minor FROM screening_runs
+                SELECT status,provider_task_id FROM screening_runs
                 WHERE id=? AND workspace_id=? FOR UPDATE
-                """, (rs, n) -> new CancelRow(rs.getString(1), rs.getString(2), rs.getLong(3)), runId, workspaceId);
+                """, (rs, n) -> new CancelRow(rs.getString(1), rs.getString(2)), runId, workspaceId);
         if (rows.isEmpty()) throw new ApiException("SCREENING_RUN_NOT_FOUND", "筛选任务不存在", HttpStatus.NOT_FOUND);
         CancelRow row = rows.getFirst();
         if ("CANCELLED".equals(row.status())) return runScoped(workspaceId, runId);
@@ -535,20 +416,15 @@ public class ScreeningService {
                 WHERE run_id=? AND workspace_id=? AND status='PROCESSING' AND provider_task_id IS NOT NULL
                 """, (rs, n) -> rs.getString(1), runId, workspaceId)
                 .forEach(taskId -> aiPlatform.cancelTask(taskId, requiredKey(idempotencyKey), userId.toString()));
-        Integer succeeded = jdbc.queryForObject("""
-                SELECT count(*) FROM screening_run_items WHERE run_id=? AND workspace_id=? AND status='SUCCEEDED'
-                """, Integer.class, runId, workspaceId);
-        long actual = Math.multiplyExact(row.unitPriceMinor(), succeeded == null ? 0 : succeeded);
-        billing.settle(userId, workspaceId, "screening-run:" + runId, actual);
         Instant now = Instant.now();
         jdbc.update("""
                 UPDATE screening_run_items SET status='CANCELLED',updated_at=?
                 WHERE run_id=? AND workspace_id=? AND status IN ('PENDING','PROCESSING')
                 """, timestamp(now), runId, workspaceId);
         jdbc.update("""
-                UPDATE screening_runs SET status='CANCELLED',progress=100,settled_amount_minor=?,completed_at=?
+                UPDATE screening_runs SET status='CANCELLED',progress=100,completed_at=?
                 WHERE id=? AND workspace_id=?
-                """, actual, timestamp(now), runId, workspaceId);
+                """, timestamp(now), runId, workspaceId);
         jdbc.update("""
                 UPDATE outbox_events SET status='SENT',sent_at=?
                 WHERE event_type='SCREENING_RUN_REQUESTED' AND aggregate_id=? AND status IN ('PENDING','PROCESSING')
@@ -565,8 +441,7 @@ public class ScreeningService {
         params.add(workspaceId);
         if (recruitmentTaskId != null) params.add(recruitmentTaskId);
         return jdbc.query("""
-                SELECT r.id,r.job_id,j.title AS job_title,r.status,r.progress,r.estimated_amount_minor,
-                       r.settled_amount_minor,r.created_at,r.completed_at,r.recruitment_task_id,
+                SELECT r.id,r.job_id,j.title AS job_title,r.status,r.progress,r.created_at,r.completed_at,r.recruitment_task_id,
                        count(i.id) AS total_items,count(i.id) FILTER (WHERE i.status='SUCCEEDED') AS succeeded_items
                 FROM screening_runs r JOIN jobs j ON j.id=r.job_id
                 JOIN screening_run_items i ON i.run_id=r.id WHERE r.workspace_id=?""" + taskFilter + """
@@ -574,7 +449,6 @@ public class ScreeningService {
                 """, (rs, n) -> new ScreeningRunSummary(rs.getObject("id", UUID.class),
                 rs.getObject("job_id", UUID.class), rs.getString("job_title"), rs.getString("status"),
                 rs.getInt("progress"), rs.getInt("total_items"), rs.getInt("succeeded_items"),
-                rs.getLong("estimated_amount_minor"), rs.getLong("settled_amount_minor"),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("completed_at") == null ? null :
                 rs.getTimestamp("completed_at").toInstant(), rs.getObject("recruitment_task_id", UUID.class)), params.toArray());
     }
@@ -587,16 +461,13 @@ public class ScreeningService {
     private ScreeningRunDetail runScoped(UUID workspaceId, UUID runId) {
         List<RunRow> runs = jdbc.query("""
                 SELECT r.id,r.job_id,j.title AS job_title,p.id AS plan_id,p.name AS plan_name,r.status,r.progress,
-                       r.scenario,r.pricing_version,r.unit_price_minor,r.estimated_amount_minor,
-                       r.settled_amount_minor,r.created_at,r.completed_at,r.recruitment_task_id
+                       r.scenario,r.created_at,r.completed_at,r.recruitment_task_id
                 FROM screening_runs r JOIN jobs j ON j.id=r.job_id
                 JOIN screening_plan_versions pv ON pv.id=r.plan_version_id JOIN screening_plans p ON p.id=pv.plan_id
                 WHERE r.id=? AND r.workspace_id=?
                 """, (rs, n) -> new RunRow(rs.getObject("id", UUID.class), rs.getObject("job_id", UUID.class),
                 rs.getString("job_title"), rs.getObject("plan_id", UUID.class), rs.getString("plan_name"),
                 rs.getString("status"), rs.getInt("progress"), rs.getString("scenario"),
-                rs.getString("pricing_version"), rs.getLong("unit_price_minor"),
-                rs.getLong("estimated_amount_minor"), rs.getLong("settled_amount_minor"),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("completed_at") == null ? null :
                 rs.getTimestamp("completed_at").toInstant(), rs.getObject("recruitment_task_id", UUID.class)), runId, workspaceId);
         if (runs.isEmpty()) throw new ApiException("SCREENING_RUN_NOT_FOUND", "筛选任务不存在", HttpStatus.NOT_FOUND);
@@ -616,8 +487,7 @@ public class ScreeningService {
                 strings(rs.getString("risks")), strings(rs.getString("evidence"))), runId, workspaceId);
         RunRow run = runs.getFirst();
         return new ScreeningRunDetail(run.id(), run.jobId(), run.jobTitle(), run.planId(), run.planName(),
-                run.status(), run.progress(), run.scenario(), run.pricingVersion(), run.unitPriceMinor(),
-                run.estimatedAmountMinor(), run.settledAmountMinor(), items, run.createdAt(), run.completedAt(),
+                run.status(), run.progress(), run.scenario(), items, run.createdAt(), run.completedAt(),
                 run.recruitmentTaskId());
     }
 
@@ -630,7 +500,7 @@ public class ScreeningService {
 
     private static String planSelect() {
         return """
-                SELECT p.id,p.company_id,p.workspace_id,p.recruitment_task_id,p.job_id,j.title AS job_title,p.current_version_id,
+                SELECT p.id,p.tenant_id,p.workspace_id,p.recruitment_task_id,p.job_id,j.title AS job_title,p.current_version_id,
                        pv.version_number,pv.rules_snapshot::text,p.name,p.status,p.created_at,p.updated_at
                 FROM screening_plans p JOIN jobs j ON j.id=p.job_id
                 JOIN screening_plan_versions pv ON pv.id=p.current_version_id
@@ -638,7 +508,7 @@ public class ScreeningService {
     }
 
     private ScreeningPlanView plan(java.sql.ResultSet rs) throws java.sql.SQLException {
-        return new ScreeningPlanView(rs.getObject("id", UUID.class), rs.getObject("company_id", UUID.class),
+        return new ScreeningPlanView(rs.getObject("id", UUID.class), rs.getObject("tenant_id", UUID.class),
                 rs.getObject("workspace_id", UUID.class), rs.getObject("recruitment_task_id", UUID.class), rs.getObject("job_id", UUID.class),
                 rs.getString("job_title"), rs.getObject("current_version_id", UUID.class),
                 rs.getInt("version_number"), dimensions(rs.getString("rules_snapshot")), rs.getString("name"),
@@ -723,38 +593,6 @@ public class ScreeningService {
         }
     }
 
-    private QuoteRow quoteForUpdate(UUID workspaceId, UUID quoteId) {
-        if (quoteId == null) throw validation("请先获取并确认费用报价");
-        List<QuoteRow> rows = jdbc.query("""
-                SELECT id,plan_version_id,job_version_id,candidate_ids_hash,candidate_versions_hash,
-                       candidate_count,pricing_version,unit_price_minor,estimated_amount_minor,expires_at,
-                       created_by,consumed_at
-                FROM screening_quotes WHERE id=? AND workspace_id=? FOR UPDATE
-                """, (rs, n) -> new QuoteRow(rs.getObject("id", UUID.class),
-                rs.getObject("plan_version_id", UUID.class), rs.getObject("job_version_id", UUID.class),
-                rs.getString("candidate_ids_hash"), rs.getString("candidate_versions_hash"),
-                rs.getInt("candidate_count"), rs.getString("pricing_version"), rs.getLong("unit_price_minor"),
-                rs.getLong("estimated_amount_minor"), rs.getTimestamp("expires_at").toInstant(),
-                rs.getObject("created_by", UUID.class), rs.getTimestamp("consumed_at") == null ? null
-                : rs.getTimestamp("consumed_at").toInstant()), quoteId, workspaceId);
-        if (rows.isEmpty()) throw new ApiException("SCREENING_QUOTE_NOT_FOUND", "费用报价不存在", HttpStatus.NOT_FOUND);
-        return rows.getFirst();
-    }
-
-    private static String candidateHash(List<UUID> ids) {
-        return SecurityHashes.sha256(ids.stream().sorted().map(UUID::toString).toList().toString());
-    }
-
-    private static String candidateVersionHash(List<CandidateRow> candidates) {
-        return SecurityHashes.sha256(candidates.stream()
-                .map(value -> value.id() + ":" + value.parseVersionId()).sorted().toList().toString());
-    }
-
-    private static String queuedCandidateVersionHash(List<QueuedCandidate> candidates) {
-        return SecurityHashes.sha256(candidates.stream()
-                .map(value -> value.candidateId() + ":" + value.parseVersionId()).sorted().toList().toString());
-    }
-
     private ScreeningRunDetail existingRun(UUID workspaceId, String key, String requestHash) {
         List<RunRef> existing = jdbc.query("""
                 SELECT id,request_hash FROM screening_runs WHERE workspace_id=? AND idempotency_key=?
@@ -795,8 +633,8 @@ public class ScreeningService {
 
     private List<ExecutionRow> executionRows(UUID runId, boolean lock) {
         return jdbc.query("""
-                SELECT r.id,r.company_id,r.workspace_id,r.job_version_id,r.plan_version_id,r.provider_task_id,
-                       r.status,r.scenario,r.unit_price_minor,r.created_by,jv.snapshot::text,
+                SELECT r.id,r.tenant_id,r.workspace_id,r.job_version_id,r.plan_version_id,r.provider_task_id,
+                       r.status,r.scenario,r.created_by,jv.snapshot::text,
                        pv.rules_snapshot::text,r.execution_context::text,
                        (SELECT count(*) FROM screening_run_items i WHERE i.run_id=r.id) AS total_items
                 FROM screening_runs r
@@ -804,11 +642,10 @@ public class ScreeningService {
                 JOIN screening_plan_versions pv ON pv.id=r.plan_version_id
                 WHERE r.id=?
                 """ + (lock ? " FOR UPDATE OF r" : ""), (rs, n) -> new ExecutionRow(
-                rs.getObject("id", UUID.class), rs.getObject("company_id", UUID.class),
+                rs.getObject("id", UUID.class), rs.getObject("tenant_id", UUID.class),
                 rs.getObject("workspace_id", UUID.class), rs.getObject("job_version_id", UUID.class),
                 rs.getObject("plan_version_id", UUID.class), rs.getString("provider_task_id"),
-                rs.getString("status"), rs.getString("scenario"), rs.getLong("unit_price_minor"),
-                rs.getObject("created_by", UUID.class), rs.getString("snapshot"),
+                rs.getString("status"), rs.getString("scenario"), rs.getObject("created_by", UUID.class), rs.getString("snapshot"),
                 rs.getString("rules_snapshot"), rs.getString("execution_context"),
                 rs.getInt("total_items")), runId);
     }
@@ -869,7 +706,7 @@ public class ScreeningService {
                                Map<String, Object> snapshot, Instant now) {
         jdbc.update("""
                 INSERT INTO screening_results
-                (id,company_id,workspace_id,run_item_id,score,level,matched_points,unmatched_points,
+                (id,tenant_id,workspace_id,run_item_id,score,level,matched_points,unmatched_points,
                  negotiable_points,missing_information,risks,evidence,result_snapshot,created_at)
                 VALUES (?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?)
                 """, UUID.randomUUID(), run.tenantId(), run.tenantId(), item.id(), result.score(), result.level(),
@@ -911,7 +748,7 @@ public class ScreeningService {
     private void auditExecution(ExecutionRow run, String action) {
         jdbc.update("""
                 INSERT INTO audit_logs
-                (id,actor_user_id,company_id,workspace_id,action,resource_type,resource_id,created_at)
+                (id,actor_user_id,tenant_id,workspace_id,action,resource_type,resource_id,created_at)
                 VALUES (?,?,?,?,?,'SCREENING_RUN',?,?)
                 """, UUID.randomUUID(), run.createdBy(), run.tenantId(), run.tenantId(), action,
                 run.id().toString(), timestamp(Instant.now()));
@@ -938,6 +775,17 @@ public class ScreeningService {
         }
     }
 
+    /** Each candidate is independently authorized and settled, so it needs its own durable idempotency scope. */
+    static ExecutionContext itemExecutionContext(ExecutionContext runContext, UUID itemId, UUID parseVersionId) {
+        String idempotencyKey = "screening-item:" + itemId;
+        List<ExecutionContext.InputVersion> versions = new ArrayList<>(runContext.inputVersions());
+        versions.add(new ExecutionContext.InputVersion("resume_parse_version", parseVersionId.toString(), "frozen", null));
+        return new ExecutionContext(UUID.randomUUID(), runContext.routeDecisionId(), runContext.requestId(),
+                runContext.traceId(), runContext.tenantId(), runContext.actorId(), itemId, idempotencyKey,
+                runContext.capability(), "screening-item:" + itemId, List.copyOf(versions),
+                runContext.policyDecision(), new ExecutionContext.DataHandling(true, "ephemeral", false), Instant.now());
+    }
+
     private List<DimensionInput> dimensions(String json) {
         try { return objectMapper.readValue(json, new TypeReference<>() {}); }
         catch (JsonProcessingException exception) { return List.of(); }
@@ -956,7 +804,7 @@ public class ScreeningService {
     private void audit(UUID actor, TenantScope scope, String action, String resourceType, UUID resourceId) {
         jdbc.update("""
                 INSERT INTO audit_logs
-                (id,actor_user_id,company_id,workspace_id,action,resource_type,resource_id,created_at)
+                (id,actor_user_id,tenant_id,workspace_id,action,resource_type,resource_id,created_at)
                 VALUES (?,?,?,?,?,?,?,?)
                 """, UUID.randomUUID(), actor, scope.tenantId(), scope.tenantId(), action, resourceType,
                 resourceId.toString(), timestamp(Instant.now()));
@@ -992,14 +840,9 @@ public class ScreeningService {
     private record CandidateRow(UUID id, UUID parseVersionId, String headline, int yearsExperience,
                                 String education, List<String> skills) { }
     private record RunRef(UUID id, String requestHash) { }
-    private record QuoteRow(UUID id, UUID planVersionId, UUID jobVersionId, String candidateIdsHash,
-                            String candidateVersionsHash, int candidateCount, String pricingVersion,
-                            long unitPriceMinor, long estimatedAmountMinor, Instant expiresAt,
-                            UUID createdBy, Instant consumedAt) { }
-    private record CancelRow(String status, String providerTaskId, long unitPriceMinor) { }
+    private record CancelRow(String status, String providerTaskId) { }
     private record RunRow(UUID id, UUID jobId, String jobTitle, UUID planId, String planName, String status,
-                          int progress, String scenario, String pricingVersion, long unitPriceMinor,
-                          long estimatedAmountMinor, long settledAmountMinor, Instant createdAt,
+                          int progress, String scenario, Instant createdAt,
                           Instant completedAt, UUID recruitmentTaskId) { }
     private record QueuedCandidate(UUID candidateId, UUID parseVersionId, UUID sourceRunItemId,
                                    int attemptNumber) { }
@@ -1008,7 +851,7 @@ public class ScreeningService {
                                 UUID rootRunId, String status) { }
     private record ExecutionRow(UUID id, UUID tenantId, UUID workspaceId, UUID jobVersionId,
                                 UUID planVersionId, String providerTaskId, String status, String scenario,
-                                long unitPriceMinor, UUID createdBy, String jobSnapshot, String rulesSnapshot,
+                                UUID createdBy, String jobSnapshot, String rulesSnapshot,
                                 String executionContext, int totalItems) { }
     private record ItemExecutionRow(UUID id, UUID candidateId, UUID parseVersionId, String status, String providerTaskId, String headline,
                                     int yearsExperience, String education, List<String> skills, String summary,
@@ -1018,20 +861,13 @@ public class ScreeningService {
                                  String exclusionRule, String missingPolicy) { }
     public record PlanInput(UUID jobId, String name, List<DimensionInput> dimensions, UUID recruitmentTaskId) { }
     public record PlanUpdateInput(UUID jobId, List<DimensionInput> dimensions) { }
-    public record QuoteInput(UUID planId, List<UUID> candidateIds) { }
-    public record RunInput(UUID planId, List<UUID> candidateIds, UUID quoteId) { }
-    public record RetryInput(UUID quoteId) { }
-    public record ScreeningPricingView(String pricingVersion, long unitPriceMinor, long quoteTtlSeconds) { }
+    public record RunInput(UUID planId, List<UUID> candidateIds) { }
     public record OutboxClaim(UUID eventId, UUID runId, int attempts) { }
-    public record ScreeningQuoteView(UUID id, UUID workspaceId, UUID planId, UUID planVersionId,
-                                     int candidateCount, String pricingVersion, long unitPriceMinor,
-                                     long estimatedAmountMinor, long availableAmountMinor, Instant expiresAt) { }
     public record ScreeningPlanView(UUID id, UUID tenantId, UUID workspaceId, UUID recruitmentTaskId, UUID jobId, String jobTitle,
                                     UUID currentVersionId, int versionNumber, List<DimensionInput> dimensions,
                                     String name, String status, Instant createdAt, Instant updatedAt) { }
     public record ScreeningRunSummary(UUID id, UUID jobId, String jobTitle, String status, int progress,
-                                      int totalItems, int succeededItems, long estimatedAmountMinor,
-                                      long settledAmountMinor, Instant createdAt, Instant completedAt,
+                                      int totalItems, int succeededItems, Instant createdAt, Instant completedAt,
                                       UUID recruitmentTaskId) { }
     public record ScreeningItemView(UUID id, UUID candidateId, String candidateName, String status,
                                     String errorCode, int attemptNumber, Integer score, String level,
@@ -1039,8 +875,7 @@ public class ScreeningService {
                                     List<String> negotiablePoints, List<String> missingInformation,
                                     List<String> risks, List<String> evidence) { }
     public record ScreeningRunDetail(UUID id, UUID jobId, String jobTitle, UUID planId, String planName,
-                                     String status, int progress, String scenario, String pricingVersion,
-                                     long unitPriceMinor, long estimatedAmountMinor, long settledAmountMinor,
-                                     List<ScreeningItemView> items, Instant createdAt, Instant completedAt,
+                                     String status, int progress, String scenario, List<ScreeningItemView> items,
+                                     Instant createdAt, Instant completedAt,
                                      UUID recruitmentTaskId) { }
 }
