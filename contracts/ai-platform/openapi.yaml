@@ -244,8 +244,8 @@ paths:
         default: { $ref: "#/components/responses/Error" }
 
   # ===================== 开放面 /ai/v1/*（经 API Gateway 转发）=====================
-  # 开放面与对内面能力一致，但请求上下文使用 external_company_id / external_user_id，
-  # 由 Gateway 解析凭证后注入可信主体。AI Platform 不信任调用方自报的 tenant/company。
+  # 开放面由 API Key 解析可信 API Tenant，external_user_id 仅作为调用终端用户归属。
+  # AI Platform 不信任调用方自报的 Tenant 或招聘企业上下文。
 
   /ai/v1/jd-generations:
     post:
@@ -260,9 +260,8 @@ paths:
           application/json:
             schema:
               type: object
-              required: [external_company_id, external_user_id, requirement]
+              required: [external_user_id, requirement]
               properties:
-                external_company_id: { type: string, minLength: 1 }
                 external_user_id: { type: string, minLength: 1 }
                 requirement: { type: object, additionalProperties: true }
       responses:
@@ -285,9 +284,8 @@ paths:
           application/json:
             schema:
               type: object
-              required: [external_company_id, external_user_id, files]
+              required: [external_user_id, files]
               properties:
-                external_company_id: { type: string, minLength: 1 }
                 external_user_id: { type: string, minLength: 1 }
                 files:
                   type: array
@@ -313,9 +311,8 @@ paths:
           application/json:
             schema:
               type: object
-              required: [external_company_id, external_user_id, job_version_ref, screening_plan_version_ref, candidates]
+              required: [external_user_id, job_version_ref, screening_plan_version_ref, candidates]
               properties:
-                external_company_id: { type: string, minLength: 1 }
                 external_user_id: { type: string, minLength: 1 }
                 job_version_ref: { type: string }
                 screening_plan_version_ref: { type: string }
@@ -514,4 +511,3 @@ webhooks:
       responses:
         "200":
           description: 业务方已接收。AIAgentPlatform 对非 2xx 会重试（指数退避，最多 5 次）。
-

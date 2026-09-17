@@ -5,7 +5,7 @@ import java.util.UUID;
 
 /**
  * AI 面试出题命令与结构化返回 DTO。
- * 走同步 DeepSeek JSON 接口（response_format=json_object），
+ * 由已授权的 AIAgentPlatform 执行并返回结构化结果，
  * 输出直接映射到 InterviewQuestionKit，供 InterviewService 写入 interview_kits / interview_questions 表。
  */
 public final class InterviewQuestionContract {
@@ -14,7 +14,7 @@ public final class InterviewQuestionContract {
 
     /** 传给 AI 平台的输入：职位快照 + 候选人上下文 + 期望题目数量 */
     public record GenerateInterviewQuestionsInput(
-            UUID workspaceId,        // 工作空间ID（仅用于审计/埋点，不参与 Prompt）
+            UUID tenantId,        // 工作空间ID（仅用于审计/埋点，不参与 Prompt）
             JobSnapshot job,         // 职位快照
             CandidateSnapshot candidate, // 候选人简历解析结果
             int requestedCount       // 期望题目数量（4~20，默认 8）

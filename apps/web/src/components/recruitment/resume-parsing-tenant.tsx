@@ -11,18 +11,18 @@ import {
   updateResumeParseDraft, uploadResumeSourceFile,
   type ResumeParseDraft, type ResumeSourceFile, type TaskDetail,
 } from "@/lib/recruitment-api";
-import { useWorkspace } from "@/lib/workspace-context";
+import { useTenant } from "@/lib/tenant-context";
 // docx 文件前端渲染：用于弹窗内预览 Word 简历
 import { renderAsync as renderDocxAsync } from "docx-preview";
 
 /**
- * AI简历解析承接页面（左侧主体，嵌入式，类似JdEditor与ScreeningWorkspace的组合）
+ * AI简历解析承接页面（左侧主体，嵌入式，类似JdEditor与ScreeningTenant的组合）
  *  - 顶部：职位信息卡片（如linkedJobId有值，只读不可修改）
  *  - 中部：原始简历文件列表，点击可预览
  *  - 底部：结构化解析阅读视图；需要人工修订时再切换到编辑模式
  * 右侧 AI招聘助手 由外层布局负责。
  */
-export function ResumeParsingWorkspace({
+export function ResumeParsingTenant({
   embedded = false,
   detail,
   onDetailUpdated,
@@ -31,7 +31,7 @@ export function ResumeParsingWorkspace({
   detail: TaskDetail;
   onDetailUpdated?: (next: TaskDetail) => void;
 }) {
-  const { workspaceId, workspace, loading: workspaceLoading, notAuthenticated } = useWorkspace();
+  const { tenantId, tenant, loading: tenantLoading, notAuthenticated } = useTenant();
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   // 发布到人才库请求中（后端会同步建人才库档案，耗时略长）
@@ -65,9 +65,9 @@ export function ResumeParsingWorkspace({
   useEffect(() => {
     let cancelled = false;
     const jobId = detail.task.linkedJobId;
-    if (workspaceId && jobId) {
+    if (tenantId && jobId) {
       setLoading(true);
-      void fetchJobs(workspaceId, { page: 1, pageSize: 50 })
+      void fetchJobs(tenantId, { page: 1, pageSize: 50 })
         .then((result) => {
           if (cancelled) return;
           const found = result.items.find((item) => item.id === jobId) ?? null;
@@ -84,15 +84,15 @@ export function ResumeParsingWorkspace({
     setDraftDirty(false);
     setEditingResult(false);
     return () => { cancelled = true; };
-  }, [workspaceId, detail.task.linkedJobId, detail.task.id, detail.resumeParseDraft?.id, detail.resumeParseDraft?.revision, detail.resumeParseDraft?.updatedAt]);
+  }, [tenantId, detail.task.linkedJobId, detail.task.id, detail.resumeParseDraft?.id, detail.resumeParseDraft?.revision, detail.resumeParseDraft?.updatedAt]);
 
   // 根据 linkedCandidateId 拉人才基本信息（选人才库人才时触发）
   useEffect(() => {
     let cancelled = false;
     const candidateId = detail.task.linkedCandidateId;
-    if (workspaceId && candidateId) {
+    if (tenantId && candidateId) {
       setCandidateLoading(true);
-      void fetchCandidate(workspaceId, candidateId)
+      void fetchCandidate(tenantId, candidateId)
         .then((item) => { if (!cancelled) setLinkedCandidate(item); })
         .catch((cause) => { if (!cancelled) { setLinkedCandidate(null); setError(`人才加载失败：${messageOf(cause)}`); } })
         .finally(() => { if (!cancelled) setCandidateLoading(false); });
@@ -100,17 +100,17 @@ export function ResumeParsingWorkspace({
       setLinkedCandidate(null);
     }
     return () => { cancelled = true; };
-  }, [workspaceId, detail.task.linkedCandidateId]);
+  }, [tenantId, detail.task.linkedCandidateId]);
 
   useEffect(() => { if (notAuthenticated) window.location.replace("/login"); }, [notAuthenticated]);
 
   /** 保存解析草稿 */
   async function handleSave() {
-    if (!workspaceId || busy) return;
+    if (!tenantId || busy) return;
     setBusy(true); setError(null);
     try {
       const revision = detail.resumeParseDraft?.revision ?? 1;
-      const next = await updateResumeParseDraft(workspaceId, detail.task.id, { revision, content: draftContent });
+      const next = await updateResumeParseDraft(tenantId, detail.task.id, { revision, content: draftContent });
       setDraftDirty(false);
       onDetailUpdated?.(next);
     } catch (cause) { setError(messageOf(cause)); }
@@ -122,19 +122,19 @@ export function ResumeParsingWorkspace({
    * 后端幂等：已发布或任务本就关联人才库人才时，仅把草稿置为 CONFIRMED。
    */
   async function handleConfirmToPool() {
-    if (!workspaceId || busy || confirming) return;
+    if (!tenantId || busy || confirming) return;
     // 发布前若有未保存修改，先落盘，避免人才库拿到旧内容
     if (draftDirty) {
       const revision = detail.resumeParseDraft?.revision ?? 1;
       try {
-        const saved = await updateResumeParseDraft(workspaceId, detail.task.id, { revision, content: draftContent });
+        const saved = await updateResumeParseDraft(tenantId, detail.task.id, { revision, content: draftContent });
         onDetailUpdated?.(saved);
         setDraftDirty(false);
       } catch (cause) { setError(messageOf(cause)); return; }
     }
     setConfirming(true); setError(null);
     try {
-      const next = await confirmResumeParseDraft(workspaceId, detail.task.id);
+      const next = await confirmResumeParseDraft(tenantId, detail.task.id);
       onDetailUpdated?.(next);
     } catch (cause) { setError(messageOf(cause)); }
     finally { setConfirming(false); }
@@ -142,17 +142,17 @@ export function ResumeParsingWorkspace({
 
   /** 上传新的简历文件（补充更多简历或重试） */
   async function handleUploadFiles(files: FileList | null) {
-    if (!workspaceId || !files || files.length === 0) return;
+    if (!tenantId || !files || files.length === 0) return;
     setBusy(true); setError(null);
     try {
       let current = detail;
       for (let i = 0; i < files.length; i += 1) {
         const file = files[i];
-        await uploadResumeSourceFile(workspaceId, current.task.id, file);
+        await uploadResumeSourceFile(tenantId, current.task.id, file);
       }
       // 重新拉取一次详情，保证文件列表与草稿刷新
       const { fetchTask } = await import("@/lib/recruitment-api");
-      const refreshed = await fetchTask(workspaceId, current.task.id);
+      const refreshed = await fetchTask(tenantId, current.task.id);
       onDetailUpdated?.(refreshed);
     } catch (cause) { setError(messageOf(cause)); }
     finally { setBusy(false); }
@@ -165,10 +165,10 @@ export function ResumeParsingWorkspace({
    *   3) 每 1.5s 轮询一次 TaskDetail 最新进度，直到 latestAiRun.status ∈ {COMPLETED, FAILED}。
    */
   async function handleAiParse() {
-    if (!workspaceId || busy) return;
+    if (!tenantId || busy) return;
     setBusy(true); setError(null);
     try {
-      const first = await generateResumeParse(workspaceId, detail.task.id);
+      const first = await generateResumeParse(tenantId, detail.task.id);
       onDetailUpdated?.(first);
       // 简易轮询：最多 60 秒；也可以用 SSE（当前 jd-runs/events 不区分 capability）。
       let attempts = 0;
@@ -177,7 +177,7 @@ export function ResumeParsingWorkspace({
       while (attempts < MAX_ATTEMPTS) {
         attempts += 1;
         await new Promise((resolve) => setTimeout(resolve, 1500));
-        const refreshed = await fetchTask(workspaceId, detail.task.id);
+        const refreshed = await fetchTask(tenantId, detail.task.id);
         onDetailUpdated?.(refreshed);
         const status = refreshed.latestAiRun?.status;
         if (status === "COMPLETED" || status === "FAILED") {
@@ -191,12 +191,12 @@ export function ResumeParsingWorkspace({
 
   /** 预览按钮：调用下载接口获取预签名 URL，在当前页面弹窗内联预览 */
   async function handlePreview(item: ResumeSourceFile) {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     setBusy(true); setError(null); setPreviewUrl(null); setPreviewDocxError(null);
     // 先打开弹窗（显示加载中状态），再异步获取URL
     setPreview(item);
     try {
-      const data = await getResumeSourceFileDownload(workspaceId, detail.task.id, item.id);
+      const data = await getResumeSourceFileDownload(tenantId, detail.task.id, item.id);
       if (!data?.url) { setError("预览链接生成失败，请稍后再试"); return; }
       setPreviewUrl(data.url);
     } catch (cause) {
@@ -262,8 +262,8 @@ export function ResumeParsingWorkspace({
   const published = detail.resumeParseDraft?.status === "CONFIRMED" || Boolean(detail.task.linkedCandidateId);
   const presentation = buildResumePresentation(draftContent);
 
-  if (workspaceLoading) return <Loading text="正在加载工作空间..."/>;
-  if (!workspaceId) return <Loading text="请先进入一个可访问的工作空间"/>;
+  if (tenantLoading) return <Loading text="正在加载工作空间..."/>;
+  if (!tenantId) return <Loading text="请先进入一个可访问的工作空间"/>;
 
   const body = <>
     {error && <div className="mb-4 flex items-center gap-2 rounded-lg border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#b42318]"><AlertCircle size={17}/>{error}</div>}
@@ -666,7 +666,7 @@ export function ResumeParsingWorkspace({
         <section className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="m-0 text-[25px] font-bold text-[#09245d]">AI简历解析</h1>
-            <p className="mb-0 mt-1 text-sm text-[#60799f]">{workspace?.name ?? "当前工作空间"} · 上传简历后由 AI 提取关键内容，可与职位匹配度一起查看编辑</p>
+            <p className="mb-0 mt-1 text-sm text-[#60799f]">{tenant?.name ?? "当前工作空间"} · 上传简历后由 AI 提取关键内容，可与职位匹配度一起查看编辑</p>
           </div>
         </section>
       }

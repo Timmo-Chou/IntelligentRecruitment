@@ -4,8 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.pools.application.EnterprisePoolService;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.TenantScope;
+import com.intelligentrecruitment.tenancy.application.TenantAccessService;
+import com.intelligentrecruitment.tenancy.application.TenantAccessService.TenantScope;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -23,39 +23,39 @@ public class JobService {
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
-    private final WorkspaceAccessService workspaceAccess;
+    private final TenantAccessService tenantAccess;
     private final EnterprisePoolService enterprisePools;
 
-    public JobService(JdbcTemplate jdbc, ObjectMapper objectMapper, WorkspaceAccessService workspaceAccess, EnterprisePoolService enterprisePools) {
+    public JobService(JdbcTemplate jdbc, ObjectMapper objectMapper, TenantAccessService tenantAccess, EnterprisePoolService enterprisePools) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
-        this.workspaceAccess = workspaceAccess;
+        this.tenantAccess = tenantAccess;
         this.enterprisePools = enterprisePools;
     }
 
-    public JobStats stats(UUID userId, UUID workspaceId) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+    public JobStats stats(UUID userId, UUID tenantId) {
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
         String owner = scope.enterprise() ? " AND created_by=?" : "";
-        Object[] p = scope.enterprise() ? new Object[]{workspaceId, userId} : new Object[]{workspaceId};
+        Object[] p = scope.enterprise() ? new Object[]{tenantId, userId} : new Object[]{tenantId};
         Integer total = jdbc.queryForObject(
-                "SELECT count(*) FROM jobs WHERE workspace_id=? AND status<>'ARCHIVED'" + owner, Integer.class, p);
+                "SELECT count(*) FROM jobs WHERE tenant_id=? AND status<>'ARCHIVED'" + owner, Integer.class, p);
         Integer active = jdbc.queryForObject(
-                "SELECT count(*) FROM jobs WHERE workspace_id=? AND status='ACTIVE'" + owner, Integer.class, p);
+                "SELECT count(*) FROM jobs WHERE tenant_id=? AND status='ACTIVE'" + owner, Integer.class, p);
         Integer closed = jdbc.queryForObject(
-                "SELECT count(*) FROM jobs WHERE workspace_id=? AND status='CLOSED'" + owner, Integer.class, p);
+                "SELECT count(*) FROM jobs WHERE tenant_id=? AND status='CLOSED'" + owner, Integer.class, p);
         Integer draft = jdbc.queryForObject(
-                "SELECT count(*) FROM jobs WHERE workspace_id=? AND status='DRAFT'" + owner, Integer.class, p);
+                "SELECT count(*) FROM jobs WHERE tenant_id=? AND status='DRAFT'" + owner, Integer.class, p);
         return new JobStats(value(total), value(active), value(closed), value(draft));
     }
 
-    public JobListResult list(UUID userId, UUID workspaceId, String search, String status, int page, int pageSize) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+    public JobListResult list(UUID userId, UUID tenantId, String search, String status, int page, int pageSize) {
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
         int safePage = Math.max(1, page);
         int safePageSize = Math.min(100, Math.max(1, pageSize));
         int offset = (safePage - 1) * safePageSize;
-        StringBuilder where = new StringBuilder("WHERE workspace_id=? AND status<>'ARCHIVED'");
+        StringBuilder where = new StringBuilder("WHERE tenant_id=? AND status<>'ARCHIVED'");
         List<Object> params = new ArrayList<>();
-        params.add(workspaceId);
+        params.add(tenantId);
         if (scope.enterprise()) { where.append(" AND created_by=?"); params.add(userId); }
         if (search != null && !search.isBlank()) {
             where.append(" AND (title ILIKE ? OR company_name ILIKE ? OR location ILIKE ? OR skills ILIKE ?)");
@@ -75,80 +75,80 @@ public class JobService {
         return new JobListResult(items, value(total), safePage, safePageSize);
     }
 
-    public JobView get(UUID userId, UUID workspaceId, UUID jobId) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+    public JobView get(UUID userId, UUID tenantId, UUID jobId) {
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
         requireSourceOwner(scope, userId, jobId);
-        return getScoped(workspaceId, jobId);
+        return getScoped(tenantId, jobId);
     }
 
     @Transactional
-    public JobView create(UUID userId, UUID workspaceId, JobInput input) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+    public JobView create(UUID userId, UUID tenantId, JobInput input) {
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
         UUID jobId = UUID.randomUUID();
         Instant now = Instant.now();
         JobInput clean = clean(input);
         jdbc.update("""
                 INSERT INTO jobs
-                (id,tenant_id,workspace_id,title,company_name,location,salary_range,description,requirements,skills,
+                (id,tenant_id,title,company_name,location,salary_range,description,requirements,skills,
                  experience_level,education,job_type,nice_to_haves,benefits,status,source,talent_profile,warnings,created_by,created_at,updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT','MANUAL','', '[]'::jsonb, ?, ?, ?)
-                """, jobId, scope.tenantId(), workspaceId, clean.title(), clean.companyName(), clean.location(),
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT','MANUAL','', '[]'::jsonb, ?, ?, ?)
+                """, jobId, scope.tenantId(), clean.title(), clean.companyName(), clean.location(),
                 clean.salaryRange(), clean.description(), clean.requirements(), clean.skills(), clean.experienceLevel(), clean.education(),
                 clean.jobType(), clean.niceToHaves(), clean.benefits(), userId, timestamp(now), timestamp(now));
         UUID versionId = saveSnapshot(scope, jobId, 1, clean, "手工创建职位", userId, now, null);
         jdbc.update("UPDATE jobs SET current_version_id=? WHERE id=?", versionId, jobId);
         audit(userId, scope, "JOB_CREATED", jobId);
-        JobView detail=getScoped(workspaceId, jobId); enterprisePools.syncJob(scope,userId,jobId); return detail;
+        JobView detail=getScoped(tenantId, jobId); enterprisePools.syncJob(scope,userId,jobId); return detail;
     }
 
     @Transactional
-    public JobView createFromConfirmedJd(UUID userId, UUID workspaceId, UUID recruitmentTaskId, UUID jdDraftId, UUID sourceAiRunId,
+    public JobView createFromConfirmedJd(UUID userId, UUID tenantId, UUID recruitmentTaskId, UUID jdDraftId, UUID sourceAiRunId,
                                          JobInput input, String talentProfile, String warningsJson) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
         JobInput clean = clean(input);
         String cleanProfile = optional(talentProfile, 10_000);
         String safeWarnings = warningsJson == null || warningsJson.isBlank() ? "[]" : warningsJson;
         List<UUID> existing = jdbc.query("""
-                SELECT id FROM jobs WHERE jd_draft_id=? AND workspace_id=? AND status<>'ARCHIVED'
-                """, (rs, n) -> rs.getObject("id", UUID.class), jdDraftId, workspaceId);
+                SELECT id FROM jobs WHERE jd_draft_id=? AND tenant_id=? AND status<>'ARCHIVED'
+                """, (rs, n) -> rs.getObject("id", UUID.class), jdDraftId, tenantId);
         if (!existing.isEmpty()) {
-            JobView updated = update(userId, workspaceId, existing.getFirst(), clean);
-            jdbc.update("UPDATE jobs SET talent_profile=?,warnings=?::jsonb,updated_at=? WHERE id=? AND workspace_id=?",
-                    cleanProfile, safeWarnings, timestamp(Instant.now()), updated.id(), workspaceId);
-            return getScoped(workspaceId, updated.id());
+            JobView updated = update(userId, tenantId, existing.getFirst(), clean);
+            jdbc.update("UPDATE jobs SET talent_profile=?,warnings=?::jsonb,updated_at=? WHERE id=? AND tenant_id=?",
+                    cleanProfile, safeWarnings, timestamp(Instant.now()), updated.id(), tenantId);
+            return getScoped(tenantId, updated.id());
         }
         UUID jobId = UUID.randomUUID();
         Instant now = Instant.now();
         jdbc.update("""
                 INSERT INTO jobs
-                (id,tenant_id,workspace_id,title,company_name,location,salary_range,description,requirements,skills,
+                (id,tenant_id,title,company_name,location,salary_range,description,requirements,skills,
                  experience_level,education,job_type,nice_to_haves,benefits,status,source,recruitment_task_id,jd_draft_id,talent_profile,warnings,
                  created_by,created_at,updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT','AI_GENERATED', ?, ?, ?, ?::jsonb, ?, ?, ?)
-                """, jobId, scope.tenantId(), workspaceId, clean.title(), clean.companyName(), clean.location(),
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT','AI_GENERATED', ?, ?, ?, ?::jsonb, ?, ?, ?)
+                """, jobId, scope.tenantId(), clean.title(), clean.companyName(), clean.location(),
                 clean.salaryRange(), clean.description(), clean.requirements(), clean.skills(), clean.experienceLevel(), clean.education(),
                 clean.jobType(), clean.niceToHaves(), clean.benefits(), recruitmentTaskId, jdDraftId, cleanProfile, safeWarnings, userId, timestamp(now), timestamp(now));
         ConfirmedJdSnapshot snapshot = new ConfirmedJdSnapshot(clean, cleanProfile, safeWarnings);
         UUID versionId = saveSnapshot(scope, jobId, 1, snapshot, "确认 AI JD 草稿", userId, now, sourceAiRunId);
         jdbc.update("UPDATE jobs SET current_version_id=? WHERE id=?", versionId, jobId);
         audit(userId, scope, "AI_JD_CONFIRMED", jobId);
-        JobView detail=getScoped(workspaceId, jobId); enterprisePools.syncJob(scope,userId,jobId); return detail;
+        JobView detail=getScoped(tenantId, jobId); enterprisePools.syncJob(scope,userId,jobId); return detail;
     }
 
     @Transactional
-    public JobView update(UUID userId, UUID workspaceId, UUID jobId, JobInput input) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
-        JobView existing = getScoped(workspaceId, jobId);
+    public JobView update(UUID userId, UUID tenantId, UUID jobId, JobInput input) {
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        JobView existing = getScoped(tenantId, jobId);
         requireSourceOwner(scope, userId, jobId);
         JobInput clean = clean(input);
         Instant now = Instant.now();
         int updated = jdbc.update("""
                 UPDATE jobs SET title=?,company_name=?,location=?,salary_range=?,description=?,requirements=?,skills=?,
                   experience_level=?,education=?,job_type=?,nice_to_haves=?,benefits=?,lock_version=lock_version+1,updated_at=?
-                WHERE id=? AND workspace_id=? AND lock_version=? AND status<>'ARCHIVED'
+                WHERE id=? AND tenant_id=? AND lock_version=? AND status<>'ARCHIVED'
                 """, clean.title(), clean.companyName(), clean.location(), clean.salaryRange(), clean.description(), clean.requirements(),
                 clean.skills(), clean.experienceLevel(), clean.education(), clean.jobType(), clean.niceToHaves(), clean.benefits(), timestamp(now), jobId,
-                workspaceId, existing.lockVersion());
+                tenantId, existing.lockVersion());
         if (updated == 0) {
             throw new ApiException("JOB_VERSION_CONFLICT", "职位已被其他成员修改，请刷新后重试", HttpStatus.CONFLICT);
         }
@@ -156,99 +156,99 @@ public class JobService {
         jdbc.update("UPDATE jobs SET current_version_id=? WHERE id=?", versionId, jobId);
         audit(userId, scope, "JOB_UPDATED", jobId);
         enterprisePools.syncJob(scope, userId, jobId);
-        return getScoped(workspaceId, jobId);
+        return getScoped(tenantId, jobId);
     }
 
     /** Keeps the published job and its immutable version history aligned with an edited AI JD. */
     @Transactional
-    public void updateFromRecruitmentJd(UUID userId, UUID workspaceId, UUID jdDraftId, JobInput input) {
+    public void updateFromRecruitmentJd(UUID userId, UUID tenantId, UUID jdDraftId, JobInput input) {
         List<UUID> jobIds = jdbc.query("""
-                SELECT id FROM jobs WHERE jd_draft_id=? AND workspace_id=? AND status<>'ARCHIVED'
-                """, (rs, n) -> rs.getObject("id", UUID.class), jdDraftId, workspaceId);
-        if (!jobIds.isEmpty()) update(userId, workspaceId, jobIds.getFirst(), input);
+                SELECT id FROM jobs WHERE jd_draft_id=? AND tenant_id=? AND status<>'ARCHIVED'
+                """, (rs, n) -> rs.getObject("id", UUID.class), jdDraftId, tenantId);
+        if (!jobIds.isEmpty()) update(userId, tenantId, jobIds.getFirst(), input);
     }
 
     @Transactional
-    public JobView updateStatus(UUID userId, UUID workspaceId, UUID jobId, String status) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+    public JobView updateStatus(UUID userId, UUID tenantId, UUID jobId, String status) {
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
         String normalized = normalizedStatus(status);
         requireSourceOwner(scope, userId, jobId);
-        JobView existing = getScoped(workspaceId, jobId);
+        JobView existing = getScoped(tenantId, jobId);
         if ("ACTIVE".equals(normalized)) requireReadyForPublication(existing);
         int updated = jdbc.update("""
                 UPDATE jobs SET status=?,lock_version=lock_version+1,updated_at=?
-                WHERE id=? AND workspace_id=? AND status<>'ARCHIVED'
-                """, normalized, timestamp(Instant.now()), jobId, workspaceId);
+                WHERE id=? AND tenant_id=? AND status<>'ARCHIVED'
+                """, normalized, timestamp(Instant.now()), jobId, tenantId);
         if (updated == 0) throw notFound();
         audit(userId, scope, "JOB_STATUS_CHANGED", jobId);
         enterprisePools.syncJob(scope, userId, jobId);
-        return getScoped(workspaceId, jobId);
+        return getScoped(tenantId, jobId);
     }
 
     @Transactional
-    public void delete(UUID userId, UUID workspaceId, UUID jobId) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+    public void delete(UUID userId, UUID tenantId, UUID jobId) {
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
         requireSourceOwner(scope, userId, jobId);
         int updated = jdbc.update("""
                 UPDATE jobs SET status='ARCHIVED',lock_version=lock_version+1,updated_at=?
-                WHERE id=? AND workspace_id=? AND status<>'ARCHIVED'
-                """, timestamp(Instant.now()), jobId, workspaceId);
+                WHERE id=? AND tenant_id=? AND status<>'ARCHIVED'
+                """, timestamp(Instant.now()), jobId, tenantId);
         if (updated == 0) throw notFound();
         audit(userId, scope, "JOB_ARCHIVED", jobId);
     }
 
     @Transactional
-    public void batchUpdateStatus(UUID userId, UUID workspaceId, List<UUID> jobIds, String status) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+    public void batchUpdateStatus(UUID userId, UUID tenantId, List<UUID> jobIds, String status) {
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
         String normalized = normalizedStatus(status);
         for (UUID jobId : safeIds(jobIds)) {
             requireSourceOwner(scope, userId, jobId);
             jdbc.update("""
                     UPDATE jobs SET status=?,lock_version=lock_version+1,updated_at=?
-                    WHERE id=? AND workspace_id=? AND status<>'ARCHIVED'
-                    """, normalized, timestamp(Instant.now()), jobId, workspaceId);
+                    WHERE id=? AND tenant_id=? AND status<>'ARCHIVED'
+                    """, normalized, timestamp(Instant.now()), jobId, tenantId);
             enterprisePools.syncJob(scope, userId, jobId);
         }
-        audit(userId, scope, "JOBS_BATCH_STATUS_CHANGED", workspaceId);
+        audit(userId, scope, "JOBS_BATCH_STATUS_CHANGED", tenantId);
     }
 
     @Transactional
-    public void batchDelete(UUID userId, UUID workspaceId, List<UUID> jobIds) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+    public void batchDelete(UUID userId, UUID tenantId, List<UUID> jobIds) {
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
         for (UUID jobId : safeIds(jobIds)) {
             requireSourceOwner(scope, userId, jobId);
             jdbc.update("""
                     UPDATE jobs SET status='ARCHIVED',lock_version=lock_version+1,updated_at=?
-                    WHERE id=? AND workspace_id=? AND status<>'ARCHIVED'
-                    """, timestamp(Instant.now()), jobId, workspaceId);
+                    WHERE id=? AND tenant_id=? AND status<>'ARCHIVED'
+                    """, timestamp(Instant.now()), jobId, tenantId);
         }
-        audit(userId, scope, "JOBS_BATCH_ARCHIVED", workspaceId);
+        audit(userId, scope, "JOBS_BATCH_ARCHIVED", tenantId);
     }
 
-    public List<JobVersionView> versions(UUID userId, UUID workspaceId, UUID jobId) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
+    public List<JobVersionView> versions(UUID userId, UUID tenantId, UUID jobId) {
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
         requireSourceOwner(scope, userId, jobId);
-        getScoped(workspaceId, jobId);
+        getScoped(tenantId, jobId);
         return jdbc.query("""
                 SELECT id,job_id,version_number,status,snapshot,change_summary,created_by,confirmed_at,created_at
-                FROM job_versions WHERE job_id=? AND workspace_id=? ORDER BY version_number DESC
+                FROM job_versions WHERE job_id=? AND tenant_id=? ORDER BY version_number DESC
                 """, (rs, n) -> new JobVersionView(rs.getObject("id", UUID.class),
                 rs.getObject("job_id", UUID.class), rs.getInt("version_number"), rs.getString("status"),
                 rs.getString("snapshot"), rs.getString("change_summary"), rs.getObject("created_by", UUID.class),
                 rs.getTimestamp("confirmed_at") == null ? null : rs.getTimestamp("confirmed_at").toInstant(),
-                rs.getTimestamp("created_at").toInstant()), jobId, workspaceId);
+                rs.getTimestamp("created_at").toInstant()), jobId, tenantId);
     }
 
-    private JobView getScoped(UUID workspaceId, UUID jobId) {
-        List<JobView> rows = jdbc.query(jobSelect() + " WHERE id=? AND workspace_id=? AND status<>'ARCHIVED'",
-                (rs, n) -> job(rs), jobId, workspaceId);
+    private JobView getScoped(UUID tenantId, UUID jobId) {
+        List<JobView> rows = jdbc.query(jobSelect() + " WHERE id=? AND tenant_id=? AND status<>'ARCHIVED'",
+                (rs, n) -> job(rs), jobId, tenantId);
         if (rows.isEmpty()) throw notFound();
         return rows.getFirst();
     }
 
     private void requireSourceOwner(TenantScope scope, UUID userId, UUID jobId) {
         if (!scope.enterprise()) return;
-        Integer count = jdbc.queryForObject("SELECT count(*) FROM jobs WHERE id=? AND workspace_id=? AND created_by=? AND status<>'ARCHIVED'",
+        Integer count = jdbc.queryForObject("SELECT count(*) FROM jobs WHERE id=? AND tenant_id=? AND created_by=? AND status<>'ARCHIVED'",
                 Integer.class, jobId, scope.tenantId(), userId);
         if (count == null || count == 0) throw new ApiException("JOB_NOT_FOUND", "职位不存在或不属于当前账号", HttpStatus.NOT_FOUND);
     }
@@ -259,10 +259,10 @@ public class JobService {
             UUID versionId = UUID.randomUUID();
             jdbc.update("""
                     INSERT INTO job_versions
-                    (id,tenant_id,workspace_id,job_id,version_number,status,snapshot,change_summary,
+                    (id,tenant_id,job_id,version_number,status,snapshot,change_summary,
                      source_ai_run_id,created_by,confirmed_at,created_at)
-                    VALUES (?,?,?,?,?,'CONFIRMED',?::jsonb,?,?,?,?,?)
-                    """, versionId, scope.tenantId(), scope.tenantId(), jobId, version,
+                    VALUES (?,?,?,?,'CONFIRMED',?::jsonb,?,?,?,?,?)
+                    """, versionId, scope.tenantId(), jobId, version,
                     objectMapper.writeValueAsString(input), summary, sourceAiRunId, userId,
                     timestamp(now), timestamp(now));
             return versionId;
@@ -280,15 +280,15 @@ public class JobService {
     private void audit(UUID actor, TenantScope scope, String action, UUID resourceId) {
         jdbc.update("""
                 INSERT INTO audit_logs
-                (id,actor_user_id,tenant_id,workspace_id,action,resource_type,resource_id,created_at)
+                (id,actor_user_id,tenant_id,action,resource_type,resource_id,created_at)
                 VALUES (?,?,?,?,?,'JOB',?,?)
-                """, UUID.randomUUID(), actor, scope.tenantId(), scope.tenantId(), action,
+                """, UUID.randomUUID(), actor, scope.tenantId(), action,
                 resourceId.toString(), timestamp(Instant.now()));
     }
 
     private static String jobSelect() {
         return """
-                SELECT id,tenant_id,workspace_id,title,company_name,location,salary_range,description,requirements,skills,
+                SELECT id,tenant_id,title,company_name,location,salary_range,description,requirements,skills,
                        experience_level,education,job_type,nice_to_haves,benefits,status,source,current_version_id,lock_version,
                        talent_profile,warnings::text,created_by,created_at,updated_at FROM jobs
                 """;
@@ -296,7 +296,7 @@ public class JobService {
 
     private static JobView job(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new JobView(rs.getObject("id", UUID.class), rs.getObject("tenant_id", UUID.class),
-                rs.getObject("workspace_id", UUID.class), rs.getString("title"), rs.getString("company_name"),
+                rs.getString("title"), rs.getString("company_name"),
                 rs.getString("location"), rs.getString("salary_range"), rs.getString("description"), rs.getString("requirements"),
                 rs.getString("skills"), rs.getString("experience_level"), rs.getString("education"),
                 rs.getString("job_type"), rs.getString("nice_to_haves"), rs.getString("benefits"), rs.getString("status"), rs.getString("source"),
@@ -386,7 +386,7 @@ public class JobService {
                            String education, String jobType, String niceToHaves, String benefits) {
     }
 
-    public record JobView(UUID id, UUID tenantId, UUID workspaceId, String title, String companyName,
+    public record JobView(UUID id, UUID tenantId, String title, String companyName,
                           String location, String salaryRange, String description, String requirements, String skills,
                           String experienceLevel, String education, String jobType, String niceToHaves, String benefits, String status, String source,
                           UUID currentVersionId, long lockVersion, String talentProfile, String warnings,

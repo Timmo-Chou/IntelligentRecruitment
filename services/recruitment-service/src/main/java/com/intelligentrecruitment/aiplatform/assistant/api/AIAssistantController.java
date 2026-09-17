@@ -45,7 +45,8 @@ public class AIAssistantController {
                         request.stage(),
                         request.context(),
                         userId,
-                        userName
+                        userName,
+                        request.tenantId()
                 )
         );
     }

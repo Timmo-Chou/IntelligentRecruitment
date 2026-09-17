@@ -30,12 +30,10 @@ public class PlatformUserService {
             String userId, String displayName, String phone, String status,
             String verificationStatus, String realNameMasked,
             String identityHash, String reviewedBy, String reviewedAt, String rejectionReason,
-            List<TenantMembership> tenantMemberships, List<WorkspaceMembership> workspaces,
+            List<TenantMembership> tenantMemberships,
             String createdAt) {}
 
     public record TenantMembership(String tenantId, String tenantName, String role, String status) {}
-
-    public record WorkspaceMembership(String workspaceId, String workspaceName, String role, String status) {}
 
     public record PagedResult<T>(List<T> items, long total, int page, int pageSize) {}
 
@@ -67,15 +65,12 @@ public class PlatformUserService {
         }
 
         List<TenantMembership> tenantMemberships = new ArrayList<>();
-        List<WorkspaceMembership> workspaces = new ArrayList<>();
         for (JsonNode membership : result.path("memberships")) {
             String tenantId = text(membership, "tenant_id");
             String tenantName = text(membership, "tenant_name");
             String role = text(membership, "role");
             String membershipStatus = text(membership, "status");
             tenantMemberships.add(new TenantMembership(tenantId, tenantName, role, membershipStatus));
-            // 招聘 Tenant 替代已删除的 Workspace 实体。
-            workspaces.add(new WorkspaceMembership(tenantId, tenantName, role, membershipStatus));
         }
 
         return new UserDetail(
@@ -90,7 +85,6 @@ public class PlatformUserService {
                 text(u, "reviewed_at"),
                 text(u, "rejection_reason"),
                 tenantMemberships,
-                workspaces,
                 text(u, "created_at")
         );
     }

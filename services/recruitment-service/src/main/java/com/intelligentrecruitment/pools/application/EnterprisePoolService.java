@@ -6,8 +6,8 @@ import com.intelligentrecruitment.candidates.infrastructure.ResumeObjectStorage;
 import com.intelligentrecruitment.boss.application.BossControlPlaneClient;
 import com.intelligentrecruitment.boss.application.BossRequestContext;
 import com.intelligentrecruitment.shared.error.ApiException;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.TenantScope;
+import com.intelligentrecruitment.tenancy.application.TenantAccessService;
+import com.intelligentrecruitment.tenancy.application.TenantAccessService.TenantScope;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -20,34 +20,34 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** Immutable enterprise-pool copies. Source users can only change their own records, then re-sync the copy. */
 @Service public class EnterprisePoolService {
-  private final JdbcTemplate jdbc; private final WorkspaceAccessService access; private final PiiCipher pii; private final ResumeObjectStorage storage; private final BossControlPlaneClient boss; private final ObjectMapper objectMapper;
-  public EnterprisePoolService(JdbcTemplate jdbc,WorkspaceAccessService access,PiiCipher pii,ResumeObjectStorage storage,BossControlPlaneClient boss,ObjectMapper objectMapper){this.jdbc=jdbc;this.access=access;this.pii=pii;this.storage=storage;this.boss=boss;this.objectMapper=objectMapper;}
+  private final JdbcTemplate jdbc; private final TenantAccessService access; private final PiiCipher pii; private final ResumeObjectStorage storage; private final BossControlPlaneClient boss; private final ObjectMapper objectMapper;
+  public EnterprisePoolService(JdbcTemplate jdbc,TenantAccessService access,PiiCipher pii,ResumeObjectStorage storage,BossControlPlaneClient boss,ObjectMapper objectMapper){this.jdbc=jdbc;this.access=access;this.pii=pii;this.storage=storage;this.boss=boss;this.objectMapper=objectMapper;}
   @Transactional public void syncCandidate(TenantScope scope,UUID ownerId,UUID candidateId){
     if(!scope.enterprise())return;
     if(!scope.talentPoolSharingEnabled()){jdbc.update("UPDATE enterprise_talent_pool_copies SET sync_status='PENDING_UPDATE' WHERE tenant_id=? AND source_candidate_id=? AND lifecycle_status='ACTIVE'",scope.tenantId(),candidateId);return;}
     int updated=jdbc.update("""
       INSERT INTO enterprise_talent_pool_copies(id,tenant_id,source_candidate_id,source_owner_user_id,snapshot,source_updated_at)
-      SELECT ?,c.workspace_id,c.id,c.created_by,jsonb_build_object('display_name_masked',c.display_name_masked,'full_name_ciphertext',c.full_name_ciphertext,'email_ciphertext',c.email_ciphertext,'phone_ciphertext',c.phone_ciphertext,'profile',c.profile,'search_text',c.search_text,'status',c.status),c.updated_at
-      FROM candidates c WHERE c.id=? AND c.workspace_id=? AND c.created_by=? AND c.status<>'DELETED'
+      SELECT ?,c.tenant_id,c.id,c.created_by,jsonb_build_object('display_name_masked',c.display_name_masked,'full_name_ciphertext',c.full_name_ciphertext,'email_ciphertext',c.email_ciphertext,'phone_ciphertext',c.phone_ciphertext,'profile',c.profile,'search_text',c.search_text,'status',c.status),c.updated_at
+      FROM candidates c WHERE c.id=? AND c.tenant_id=? AND c.created_by=? AND c.status<>'DELETED'
       ON CONFLICT(tenant_id,source_candidate_id) DO UPDATE SET snapshot=EXCLUDED.snapshot,source_updated_at=EXCLUDED.source_updated_at,synchronized_at=CURRENT_TIMESTAMP,lifecycle_status='ACTIVE',deleted_at=NULL,sync_status='SYNCED'
       """,UUID.randomUUID(),candidateId,scope.tenantId(),ownerId);
     if(updated!=1)throw new ApiException("CANDIDATE_SOURCE_NOT_FOUND","人才源数据不存在或不属于当前账号",HttpStatus.NOT_FOUND);
     UUID copyId=jdbc.queryForObject("SELECT id FROM enterprise_talent_pool_copies WHERE tenant_id=? AND source_candidate_id=?",UUID.class,scope.tenantId(),candidateId);
     copyCandidateAttachments(scope.tenantId(),copyId,candidateId);
   }
-  @Transactional public void syncAllCandidates(UUID userId,UUID tenantId){TenantScope s=access.requireBusinessAccess(userId,tenantId);if(!s.enterprise()||!s.talentPoolSharingEnabled())throw forbidden("企业人才池未开启共享");List<UUID> ids=jdbc.query("SELECT id FROM candidates WHERE workspace_id=? AND created_by=? AND status<>'DELETED'",(rs,n)->rs.getObject(1,UUID.class),tenantId,userId);for(UUID id:ids)syncCandidate(s,userId,id);}
+  @Transactional public void syncAllCandidates(UUID userId,UUID tenantId){TenantScope s=access.requireBusinessAccess(userId,tenantId);if(!s.enterprise()||!s.talentPoolSharingEnabled())throw forbidden("企业人才池未开启共享");List<UUID> ids=jdbc.query("SELECT id FROM candidates WHERE tenant_id=? AND created_by=? AND status<>'DELETED'",(rs,n)->rs.getObject(1,UUID.class),tenantId,userId);for(UUID id:ids)syncCandidate(s,userId,id);}
   @Transactional public void syncJob(TenantScope scope,UUID ownerId,UUID jobId){
     if(!scope.enterprise())return;
     if(!scope.jobPoolSharingEnabled()){jdbc.update("UPDATE enterprise_job_pool_copies SET sync_status='PENDING_UPDATE' WHERE tenant_id=? AND source_job_id=? AND lifecycle_status='ACTIVE'",scope.tenantId(),jobId);return;}
     int updated=jdbc.update("""
       INSERT INTO enterprise_job_pool_copies(id,tenant_id,source_job_id,source_owner_user_id,snapshot,source_updated_at)
-      SELECT ?,j.workspace_id,j.id,j.created_by,jsonb_build_object('title',j.title,'company_name',j.company_name,'location',j.location,'salary_range',j.salary_range,'description',j.description,'requirements',j.requirements,'skills',j.skills,'experience_level',j.experience_level,'education',j.education,'job_type',j.job_type,'status',j.status,'source',j.source),j.updated_at
-      FROM jobs j WHERE j.id=? AND j.workspace_id=? AND j.created_by=? AND j.status<>'ARCHIVED'
+      SELECT ?,j.tenant_id,j.id,j.created_by,jsonb_build_object('title',j.title,'company_name',j.company_name,'location',j.location,'salary_range',j.salary_range,'description',j.description,'requirements',j.requirements,'skills',j.skills,'experience_level',j.experience_level,'education',j.education,'job_type',j.job_type,'status',j.status,'source',j.source),j.updated_at
+      FROM jobs j WHERE j.id=? AND j.tenant_id=? AND j.created_by=? AND j.status<>'ARCHIVED'
       ON CONFLICT(tenant_id,source_job_id) DO UPDATE SET snapshot=EXCLUDED.snapshot,source_updated_at=EXCLUDED.source_updated_at,synchronized_at=CURRENT_TIMESTAMP,lifecycle_status='ACTIVE',deleted_at=NULL,sync_status='SYNCED'
       """,UUID.randomUUID(),jobId,scope.tenantId(),ownerId);
     if(updated!=1)throw new ApiException("JOB_SOURCE_NOT_FOUND","职位源数据不存在或不属于当前账号",HttpStatus.NOT_FOUND);
   }
-  @Transactional public void syncAllJobs(UUID userId,UUID tenantId){TenantScope s=access.requireBusinessAccess(userId,tenantId);if(!s.enterprise()||!s.jobPoolSharingEnabled())throw forbidden("企业职位池未开启共享");List<UUID> ids=jdbc.query("SELECT id FROM jobs WHERE workspace_id=? AND created_by=? AND status<>'ARCHIVED'",(rs,n)->rs.getObject(1,UUID.class),tenantId,userId);for(UUID id:ids)syncJob(s,userId,id);}
+  @Transactional public void syncAllJobs(UUID userId,UUID tenantId){TenantScope s=access.requireBusinessAccess(userId,tenantId);if(!s.enterprise()||!s.jobPoolSharingEnabled())throw forbidden("企业职位池未开启共享");List<UUID> ids=jdbc.query("SELECT id FROM jobs WHERE tenant_id=? AND created_by=? AND status<>'ARCHIVED'",(rs,n)->rs.getObject(1,UUID.class),tenantId,userId);for(UUID id:ids)syncJob(s,userId,id);}
   @Transactional(readOnly=true) public List<TalentCopy> talents(UUID userId,UUID tenantId){TenantScope s=access.requireEnterprisePoolReadAccess(userId,tenantId);if(!s.talentPoolSharingEnabled())throw forbidden("企业人才池未开启共享");requirePermission(userId,tenantId,"TALENT_POOL_VIEW");return jdbc.query("SELECT id,source_candidate_id,source_owner_user_id,snapshot->>'full_name_ciphertext',snapshot->>'email_ciphertext',snapshot->>'phone_ciphertext',snapshot->>'display_name_masked',(snapshot->'profile')::text,source_updated_at,synchronized_at,sync_status FROM enterprise_talent_pool_copies WHERE tenant_id=? AND lifecycle_status='ACTIVE' ORDER BY synchronized_at DESC",(rs,n)->{UUID copyId=rs.getObject(1,UUID.class);return new TalentCopy(copyId,rs.getObject(2,UUID.class),rs.getObject(3,UUID.class),pii.decrypt(rs.getString(4)),pii.decrypt(rs.getString(5)),pii.decrypt(rs.getString(6)),rs.getString(7),rs.getString(8),rs.getTimestamp(9).toInstant(),rs.getTimestamp(10).toInstant(),rs.getString(11),attachments(copyId));},tenantId);}
   @Transactional(readOnly=true) public List<JobCopy> jobs(UUID userId,UUID tenantId){TenantScope s=access.requireEnterprisePoolReadAccess(userId,tenantId);if(!s.jobPoolSharingEnabled())throw forbidden("企业职位池未开启共享");requirePermission(userId,tenantId,"JOB_POOL_VIEW");return jdbc.query("SELECT id,source_job_id,source_owner_user_id,snapshot::text,source_updated_at,synchronized_at FROM enterprise_job_pool_copies WHERE tenant_id=? AND lifecycle_status='ACTIVE' ORDER BY synchronized_at DESC",(rs,n)->new JobCopy(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),rs.getObject(3,UUID.class),rs.getString(4),rs.getTimestamp(5).toInstant(),rs.getTimestamp(6).toInstant()),tenantId);}
   @Transactional(readOnly=true) public PoolAccess poolAccess(UUID userId,UUID tenantId){TenantScope s=access.requireEnterprisePoolReadAccess(userId,tenantId);return new PoolAccess(s.talentPoolSharingEnabled(),s.jobPoolSharingEnabled(),s.talentPoolSharingEnabled()&&hasPermission(userId,tenantId,"TALENT_POOL_VIEW"),s.jobPoolSharingEnabled()&&hasPermission(userId,tenantId,"JOB_POOL_VIEW"));}

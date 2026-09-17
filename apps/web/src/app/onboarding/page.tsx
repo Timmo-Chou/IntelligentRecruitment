@@ -4,13 +4,13 @@ import { Building2, CheckCircle2, Search, UserRound } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api-client";
-import { useWorkspace } from "@/lib/workspace-context";
+import { useTenant } from "@/lib/tenant-context";
 
 type Enterprise = { tenantId: string; tenantName: string; legalName: string };
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { refresh } = useWorkspace();
+  const { refresh } = useTenant();
   const [tab, setTab] = useState<"personal" | "create" | "join">("personal");
   return <main className="login-canvas min-h-screen p-5 text-[#10285b] lg:p-10"><div className="mx-auto max-w-3xl rounded-[26px] border border-white/80 bg-white/95 p-7 shadow-[0_18px_60px_rgba(39,100,180,0.09)] sm:p-10">
     <div className="flex items-center gap-3 text-xl font-bold text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>iFoundX 智能招聘工作台</div>

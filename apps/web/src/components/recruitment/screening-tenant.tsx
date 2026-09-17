@@ -7,37 +7,37 @@ import { ApiError } from "@/lib/api-client";
 import { fetchCandidates, type CandidateSummary } from "@/lib/candidate-api";
 import { fetchJobs, type Job } from "@/lib/job-api";
 import { cancelScreeningRun, createScreeningPlan, defaultScreeningDimensions, fetchScreeningPlans, fetchScreeningRun, fetchScreeningRuns, retryFailedScreening, startScreeningRun, updateScreeningPlan, type ScreeningDimension, type ScreeningPlan, type ScreeningRun, type ScreeningRunSummary } from "@/lib/screening-api";
-import { useWorkspace } from "@/lib/workspace-context";
+import { useTenant } from "@/lib/tenant-context";
 
-export function ScreeningWorkspace({ embedded = false, recruitmentTaskId, initialJobId }: { embedded?: boolean; recruitmentTaskId?: string; initialJobId?: string | null }) {
-  const { workspaceId, workspace, loading: workspaceLoading, notAuthenticated } = useWorkspace();
+export function ScreeningTenant({ embedded = false, recruitmentTaskId, initialJobId }: { embedded?: boolean; recruitmentTaskId?: string; initialJobId?: string | null }) {
+  const { tenantId, tenant, loading: tenantLoading, notAuthenticated } = useTenant();
   const [jobs, setJobs] = useState<Job[]>([]), [candidates, setCandidates] = useState<CandidateSummary[]>([]);
   const [plans, setPlans] = useState<ScreeningPlan[]>([]), [runs, setRuns] = useState<ScreeningRunSummary[]>([]);
   const [jobId, setJobId] = useState(""), [planId, setPlanId] = useState("");
   const [dimensions, setDimensions] = useState<ScreeningDimension[]>(defaultScreeningDimensions), [selected, setSelected] = useState<Set<string>>(new Set());
   const [result, setResult] = useState<ScreeningRun | null>(null), [busy, setBusy] = useState(false), [loading, setLoading] = useState(false), [error, setError] = useState<string | null>(null);
   const [editingJob, setEditingJob] = useState(false), [pickerOpen, setPickerOpen] = useState(false), [candidateFilter, setCandidateFilter] = useState("");
-  const workspaceRef = useRef<string | null>(null), selectedInitialised = useRef(false), inFlight = useRef(false);
+  const tenantRef = useRef<string | null>(null), selectedInitialised = useRef(false), inFlight = useRef(false);
 
   const load = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     setLoading(true); setError(null);
     try {
       const [jobData, candidateData, planData, runData] = await Promise.all([
-        fetchJobs(workspaceId, { page: 1, pageSize: 100 }),
-        fetchCandidates(workspaceId, { status: "PARSED", pageSize: 200 }),
-        fetchScreeningPlans(workspaceId, recruitmentTaskId), fetchScreeningRuns(workspaceId, recruitmentTaskId),
+        fetchJobs(tenantId, { page: 1, pageSize: 100 }),
+        fetchCandidates(tenantId, { status: "PARSED", pageSize: 200 }),
+        fetchScreeningPlans(tenantId, recruitmentTaskId), fetchScreeningRuns(tenantId, recruitmentTaskId),
       ]);
-      if (workspaceRef.current !== workspaceId) return;
+      if (tenantRef.current !== tenantId) return;
       const plan = planData[0];
       setJobs(jobData.items); setCandidates(candidateData.items); setPlans(planData); setRuns(runData);
       setJobId(current => current || initialJobId || plan?.jobId || jobData.items[0]?.id || "");
       setPlanId(plan?.id || ""); setDimensions(plan?.dimensions || defaultScreeningDimensions);
       if (!selectedInitialised.current) { selectedInitialised.current = true; setSelected(new Set(candidateData.items.map(item => item.id))); }
     } catch (cause) { setError(messageOf(cause)); } finally { setLoading(false); }
-  }, [workspaceId, recruitmentTaskId, initialJobId]);
+  }, [tenantId, recruitmentTaskId, initialJobId]);
 
-  useEffect(() => { workspaceRef.current = workspaceId; selectedInitialised.current = false; setResult(null); void load(); }, [workspaceId, load]);
+  useEffect(() => { tenantRef.current = tenantId; selectedInitialised.current = false; setResult(null); void load(); }, [tenantId, load]);
   useEffect(() => { if (notAuthenticated) window.location.replace("/login"); }, [notAuthenticated]);
   const selectedJob = jobs.find(job => job.id === jobId), resultMode = result !== null;
   const visibleCandidates = candidates.filter(item => `${item.displayNameMasked} ${item.headline} ${item.skills.join(" ")}`.toLowerCase().includes(candidateFilter.toLowerCase()));
@@ -46,43 +46,43 @@ export function ScreeningWorkspace({ embedded = false, recruitmentTaskId, initia
   function patchDimension(index: number, patch: Partial<ScreeningDimension>) { setDimensions(current => current.map((item, i) => i === index ? { ...item, ...patch } : item)); }
   function toggleCandidate(id: string) { setSelected(current => { const next = new Set(current); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
   async function ensurePlan() {
-    if (!workspaceId || !jobId) throw new Error("请先选择职位");
+    if (!tenantId || !jobId) throw new Error("请先选择职位");
     const title = jobs.find(item => item.id === jobId)?.title || "职位";
     const plan = planId
-      ? await updateScreeningPlan(workspaceId, planId, dimensions, jobId)
-      : await createScreeningPlan(workspaceId, { jobId, name: `${title}筛选方案`, dimensions, recruitmentTaskId });
+      ? await updateScreeningPlan(tenantId, planId, dimensions, jobId)
+      : await createScreeningPlan(tenantId, { jobId, name: `${title}筛选方案`, dimensions, recruitmentTaskId });
     setPlanId(plan.id); setDimensions(plan.dimensions); setPlans(current => [plan, ...current.filter(item => item.id !== plan.id)]);
     return plan;
   }
   async function savePlan() { setBusy(true); setError(null); try { await ensurePlan(); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
   async function poll(runId: string) {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     for (let i = 0; i < 240; i += 1) {
       await new Promise(resolve => window.setTimeout(resolve, 500));
-      if (workspaceRef.current !== workspaceId) return;
-      const next = await fetchScreeningRun(workspaceId, runId); setResult(next);
-      if (next.status !== "RUNNING") { setRuns(await fetchScreeningRuns(workspaceId, recruitmentTaskId)); return; }
+      if (tenantRef.current !== tenantId) return;
+      const next = await fetchScreeningRun(tenantId, runId); setResult(next);
+      if (next.status !== "RUNNING") { setRuns(await fetchScreeningRuns(tenantId, recruitmentTaskId)); return; }
     }
   }
   async function start() {
-    if (!workspaceId || !jobId || !selected.size || inFlight.current) return;
+    if (!tenantId || !jobId || !selected.size || inFlight.current) return;
     inFlight.current = true; setBusy(true); setError(null);
     try {
       const plan = await ensurePlan(), ids = [...selected];
-      const run = await startScreeningRun(workspaceId, plan.id, ids, crypto.randomUUID());
-      setResult(run); setRuns(await fetchScreeningRuns(workspaceId, recruitmentTaskId)); void poll(run.id);
+      const run = await startScreeningRun(tenantId, plan.id, ids, crypto.randomUUID());
+      setResult(run); setRuns(await fetchScreeningRuns(tenantId, recruitmentTaskId)); void poll(run.id);
     } catch (cause) { setError(messageOf(cause)); } finally { inFlight.current = false; setBusy(false); }
   }
-  async function openRun(id: string) { if (!workspaceId) return; setBusy(true); try { setResult(await fetchScreeningRun(workspaceId, id)); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
+  async function openRun(id: string) { if (!tenantId) return; setBusy(true); try { setResult(await fetchScreeningRun(tenantId, id)); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
   async function retry() {
-    if (!workspaceId || !result) return; setBusy(true);
-    try { const next = await retryFailedScreening(workspaceId, result.id, crypto.randomUUID()); setResult(next); void poll(next.id); }
+    if (!tenantId || !result) return; setBusy(true);
+    try { const next = await retryFailedScreening(tenantId, result.id, crypto.randomUUID()); setResult(next); void poll(next.id); }
     catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); }
   }
-  async function cancel() { if (!workspaceId || !result || !window.confirm("确定取消该筛选任务吗？")) return; setBusy(true); try { setResult(await cancelScreeningRun(workspaceId, result.id, crypto.randomUUID())); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
+  async function cancel() { if (!tenantId || !result || !window.confirm("确定取消该筛选任务吗？")) return; setBusy(true); try { setResult(await cancelScreeningRun(tenantId, result.id, crypto.randomUUID())); } catch (cause) { setError(messageOf(cause)); } finally { setBusy(false); } }
 
-  if (workspaceLoading) return embedded ? <Loading text="正在加载工作空间..."/> : <PageState text="正在加载工作空间..."/>;
-  if (!workspaceId) return embedded ? <Loading text="请先进入一个可访问的工作空间"/> : <PageState text="请先进入一个可访问的工作空间"/>;
+  if (tenantLoading) return embedded ? <Loading text="正在加载工作空间..."/> : <PageState text="正在加载工作空间..."/>;
+  if (!tenantId) return embedded ? <Loading text="请先进入一个可访问的工作空间"/> : <PageState text="请先进入一个可访问的工作空间"/>;
   const body = <>{error && <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#b42318]"><AlertCircle size={17}/>{error}</div>}
     {loading ? <Loading text="正在读取筛选数据..."/> : <section className="mt-4 rounded-xl border border-[#d6e5f5] bg-white p-5 shadow-[0_6px_20px_rgba(30,92,160,0.04)]">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e4edf6] pb-4"><div><h2 className="m-0 flex items-center gap-2 text-base text-[#173568]"><Target className="text-[#13977e]" size={18}/>{resultMode ? "筛选结果" : "简历筛选"}</h2><p className="mb-0 mt-1 text-xs text-[#7185a3]">{selectedJob ? `${selectedJob.title} · ${selectedJob.location || "工作地点待确认"} · ${selectedJob.experienceLevel || "经验待确认"}` : "请确认本次筛选对应的职位"}</p></div>

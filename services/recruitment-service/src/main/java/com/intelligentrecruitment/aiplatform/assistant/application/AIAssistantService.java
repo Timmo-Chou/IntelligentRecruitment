@@ -1,16 +1,17 @@
 package com.intelligentrecruitment.aiplatform.assistant.application;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.intelligentrecruitment.agentflow.application.RecruitmentFlowCoordinator;
+import com.intelligentrecruitment.agentflow.domain.ExecutionContext;
+import com.intelligentrecruitment.agentflow.domain.FlowCapability;
+import com.intelligentrecruitment.aiplatform.application.AiPlatformClient;
+import com.intelligentrecruitment.aiplatform.application.ConversationAgentCommand;
 import com.intelligentrecruitment.platform.ticket.application.TicketService;
-import com.intelligentrecruitment.shared.error.ApiException;
+import com.intelligentrecruitment.shared.security.SecurityHashes;
+import com.intelligentrecruitment.tenancy.application.TenantAccessService;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -19,13 +20,16 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * AI咨询助手服务
  * 管理对话会话、阶段流转和回复生成。
- * 所有 AI 对话回复均由 DeepSeek 生成；模型不可用时明确返回可重试错误。
+ * 所有 AI 对话回复均经 BOSS 授权后由 AIAgentPlatform 生成与结算。
  * 用户反馈会自动创建工单到平台工单系统。
  */
 @Service
 public class AIAssistantService {
 
     private final TicketService ticketService;
+    private final AiPlatformClient aiPlatform;
+    private final TenantAccessService tenantAccess;
+    private final RecruitmentFlowCoordinator flowCoordinator;
 
     // ---- 配置：AI助手基本配置 ----
     @Value("${app.ai-assistant.help-manual-url:https://help.intelligentrecruitment.com}")
@@ -40,26 +44,12 @@ public class AIAssistantService {
     @Value("${app.ai-assistant.cooperation-email:support@intelligentrecruitment.com}")
     private String cooperationEmail;
 
-    // ---- 配置：DeepSeek LLM ----
-    @Value("${app.ai-assistant.use-llm:false}")
-    private boolean useLlm;
-
-    @Value("${app.ai-platform.deepseek.base-url:https://api.deepseek.com}")
-    private String deepseekBaseUrl;
-
-    @Value("${app.ai-platform.deepseek.api-key:}")
-    private String deepseekApiKey;
-
-    @Value("${app.ai-platform.deepseek.model:deepseek-v4-flash}")
-    private String deepseekModel;
-
-    private final RestClient restClient;
-    private final ObjectMapper objectMapper;
-
-    public AIAssistantService(RestClient.Builder restClientBuilder, ObjectMapper objectMapper, TicketService ticketService) {
-        this.restClient = restClientBuilder.build();
-        this.objectMapper = objectMapper;
+    public AIAssistantService(TicketService ticketService, AiPlatformClient aiPlatform,
+                              TenantAccessService tenantAccess, RecruitmentFlowCoordinator flowCoordinator) {
         this.ticketService = ticketService;
+        this.aiPlatform = aiPlatform;
+        this.tenantAccess = tenantAccess;
+        this.flowCoordinator = flowCoordinator;
     }
 
     /**
@@ -125,11 +115,12 @@ public class AIAssistantService {
             String stage,
             Map<String, Object> context,
             UUID userId,      // 用户ID（用于创建工单）
-            String userName    // 用户名（用于创建工单）
+            String userName,   // 用户名（用于创建工单）
+            UUID tenantId      // 当前招聘 Tenant，作为 AI 授权归属
     ) {
         // 向后兼容：允许不传用户信息
         public ChatRequest(String message, String sessionId, String stage, Map<String, Object> context) {
-            this(message, sessionId, stage, context, null, null);
+            this(message, sessionId, stage, context, null, null, null);
         }
     }
 
@@ -178,6 +169,7 @@ public class AIAssistantService {
         Map<String, Object> context = request.context() != null
                 ? new ConcurrentHashMap<>(request.context())
                 : new ConcurrentHashMap<>(session.context());
+        context.put("_sessionId", session.sessionId());
 
         // 将用户信息存入上下文，供后续创建工单使用
         if (request.userId() != null) {
@@ -185,6 +177,9 @@ public class AIAssistantService {
         }
         if (request.userName() != null) {
             context.put("_userName", request.userName());
+        }
+        if (request.tenantId() != null) {
+            context.put("_tenantId", request.tenantId());
         }
 
         String message = request.message();
@@ -199,47 +194,6 @@ public class AIAssistantService {
             case COOPERATION -> handleCooperation(message, session, context);
             case TICKET_CREATED -> handleTicketCreated(message, session, context);
         };
-    }
-
-    // ==================== DeepSeek LLM 调用 ====================
-
-    /**
-     * 调用DeepSeek大模型进行自然语言对话
-     * @param systemPrompt 系统提示词
-     * @param userMessage 用户消息
-     * @return AI回复文本
-     */
-    private String callLlm(String systemPrompt, String userMessage) {
-        if (!useLlm || deepseekApiKey == null || deepseekApiKey.isBlank()) {
-            return null;
-        }
-        try {
-            Map<String, Object> payload = Map.of(
-                    "model", deepseekModel,
-                    "messages", List.of(
-                            Map.of("role", "system", "content", systemPrompt),
-                            Map.of("role", "user", "content", userMessage)
-                    ),
-                    "stream", false,
-                    "max_tokens", 1000,
-                    "temperature", 0.7
-            );
-            String response = restClient.post()
-                    .uri(deepseekBaseUrl + "/chat/completions")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .header("Authorization", "Bearer " + deepseekApiKey)
-                    .body(payload)
-                    .retrieve()
-                    .body(String.class);
-
-            JsonNode root = objectMapper.readTree(response);
-            String content = root.path("choices").path(0).path("message").path("content").asText("");
-            return content.isBlank() ? null : content.trim();
-        } catch (RestClientException e) {
-            return null;
-        } catch (Exception e) {
-            return null;
-        }
     }
 
     /**
@@ -341,7 +295,7 @@ public class AIAssistantService {
                     语气友好、简洁、专业。
                     """,
                     "用户首次进入助手，请打招呼并介绍自己。",
-                    () -> "你好！我是AI咨询助手，很高兴为你服务。请选择你需要的帮助类型："
+                    context
             );
             // 保持在GREETING阶段，让用户通过按钮选择
             sessions.put(session.sessionId(), new AssistantSession(session.sessionId(), nextStage, context));
@@ -373,7 +327,7 @@ public class AIAssistantService {
             nextStage = AssistantStage.HELP_QA;
             reply = callLlmOrDefault(helpSystemPrompt(),
                     "用户问：" + message + "。请给出专业回答。",
-                    () -> "收到你的问题！让我来帮你解答。关于「" + message + "」，你可以尝试以下操作：\n\n1. 查看帮助手册获取详细说明\n2. 告诉我更多细节，我来为你提供针对性建议");
+                    context);
             attachments = List.of(
                     new ChatAttachment("link", cfg.helpManualUrl(), cfg.helpManualUrl(), "查看帮助手册")
             );
@@ -396,7 +350,7 @@ public class AIAssistantService {
         String reply = callLlmOrDefault(
                 helpSystemPrompt(),
                 "用户问题：" + message,
-                () -> getFallbackHelpReply(message)
+                context
         );
 
         List<ChatAction> actions = List.of(
@@ -424,7 +378,7 @@ public class AIAssistantService {
         String reply = callLlmOrDefault(
                 feedbackSummaryPrompt(),
                 "用户反馈内容：" + message,
-                () -> "感谢你的反馈！我总结一下你描述的问题：\n\n「" + message + "」\n\n请确认以上描述是否准确？如果需要修改，可以直接告诉我。确认后我会为你创建工单提交到平台处理。"
+                context
         );
 
         List<ChatAction> actions = List.of(
@@ -448,7 +402,7 @@ public class AIAssistantService {
             reply = callLlmOrDefault(
                     feedbackContactPrompt(),
                     "用户已确认反馈，请引导留下联系方式。",
-                    () -> "好的，最后一步：请留下你的联系方式（手机号或邮箱），方便处理进度反馈和问题沟通。我们承诺严格保护你的隐私信息。"
+                    context
             );
             actions = List.of(
                     new ChatAction("skip", "暂不提供", "__SKIP_CONTACT__", "secondary")
@@ -489,7 +443,7 @@ public class AIAssistantService {
             reply = callLlmOrDefault(
                     feedbackSuccessPrompt(),
                     "用户反馈内容：" + String.valueOf(context.get("feedbackContent")) + "，联系方式：" + message,
-                    () -> "✅ 你的反馈和联系方式已提交成功！\n我们会在1-3个工作日内处理你的问题，并通过你留下的联系方式进行反馈。\n\n感谢你的反馈，它帮助我们变得更好！"
+                    context
             );
         }
 
@@ -504,6 +458,7 @@ public class AIAssistantService {
         try {
             UUID userId = (UUID) context.get("_userId");
             String userName = (String) context.get("_userName");
+            UUID tenantId = (UUID) context.get("_tenantId");
             String feedbackContent = (String) context.get("feedbackContent");
             String contactInfo = (String) context.get("contactInfo");
 
@@ -523,16 +478,17 @@ public class AIAssistantService {
             }
 
             // 创建工单
-            if (userId != null && userName != null) {
+            if (userId != null && userName != null && tenantId != null) {
                 ticketService.createTicket(
                         userId,
+                        tenantId,
                         userName,
                         title,
                         "FEEDBACK",
                         "NORMAL",
                         body
                 );
-            } else {
+            } else if (userId == null) {
                 // 没有用户信息时，由管理员创建
                 ticketService.createTicketByAdmin(
                         userName != null ? userName : "匿名用户",
@@ -566,7 +522,7 @@ public class AIAssistantService {
         String reply = callLlmOrDefault(
                 cooperationPrompt(),
                 "用户合作需求：" + message,
-                () -> "感谢你的合作意向！我已记录你的需求：\n\n「" + message + "」\n\n📞 联系电话：" + cfg.cooperationPhone() + "\n📧 邮箱：" + cfg.cooperationEmail() + "\n\n我们的商务团队会在1-2个工作日内与你联系。你也可以通过上方联系方式直接联系我们。期待与你的合作！"
+                context
         );
 
         List<ChatAttachment> attachments = List.of();
@@ -592,6 +548,7 @@ public class AIAssistantService {
         try {
             UUID userId = (UUID) context.get("_userId");
             String userName = (String) context.get("_userName");
+            UUID tenantId = (UUID) context.get("_tenantId");
             String cooperationInfo = (String) context.get("cooperationInfo");
 
             if (cooperationInfo == null || cooperationInfo.isBlank()) {
@@ -607,16 +564,17 @@ public class AIAssistantService {
             String body = cooperationInfo;
 
             // 创建工单
-            if (userId != null && userName != null) {
+            if (userId != null && userName != null && tenantId != null) {
                 ticketService.createTicket(
                         userId,
+                        tenantId,
                         userName,
                         title,
                         "OTHER",
                         "NORMAL",
                         body
                 );
-            } else {
+            } else if (userId == null) {
                 // 没有用户信息时，由管理员创建
                 ticketService.createTicketByAdmin(
                         userName != null ? userName : "匿名用户",
@@ -646,7 +604,7 @@ public class AIAssistantService {
         if ("我需要帮助".equals(message) || message.startsWith("如何") || message.startsWith("怎么")) {
             nextStage = AssistantStage.HELP_QA;
             reply = callLlmOrDefault(helpSystemPrompt(), "用户问题：" + message,
-                    () -> "好的，让我来帮你解答新的问题。");
+                    context);
             actions = List.of();
         } else if ("我想要反馈问题".equals(message)) {
             nextStage = AssistantStage.FEEDBACK_COLLECT;
@@ -663,31 +621,36 @@ public class AIAssistantService {
     // ==================== 辅助方法 ====================
 
     /**
-     * 调用 DeepSeek 获取回复。业务流程可保留固定的非 AI 提示文案，
-     * 但任何请求 AI 生成的内容都不得退回本地模板。
+     * Customer-facing AI replies are ordinary billable Agent executions: BOSS
+     * evaluates membership, entitlement and credits before the model receives
+     * any content, and Agent reports the resulting model usage afterwards.
      */
-    private String callLlmOrDefault(String systemPrompt, String userMessage, java.util.function.Supplier<String> ignoredFallback) {
-        String llmReply = callLlm(systemPrompt, userMessage);
-        if (llmReply != null && !llmReply.isBlank()) return llmReply;
-        throw new ApiException("AI_PROVIDER_UNAVAILABLE", "DeepSeek 助手暂不可用，请稍后重试", HttpStatus.SERVICE_UNAVAILABLE);
+    private String callLlmOrDefault(String systemPrompt, String userMessage, Map<String, Object> context) {
+        UUID actorId = requiredUuid(context, "_userId");
+        UUID tenantId = requiredUuid(context, "_tenantId");
+        var scope = tenantAccess.requireBusinessAccess(actorId, tenantId);
+        var policy = flowCoordinator.evaluateAuthoritative(FlowCapability.CONVERSATION_CONTINUE, scope, actorId);
+        UUID conversationId = UUID.nameUUIDFromBytes(("ai-assistant:" + context.getOrDefault("_sessionId", "new"))
+                .getBytes(StandardCharsets.UTF_8));
+        String idempotencyKey = "ai-assistant:" + UUID.randomUUID();
+        ExecutionContext execution = flowCoordinator.createExecutionContext(policy, conversationId, idempotencyKey,
+                "ai-assistant:" + conversationId,
+                List.of(new ExecutionContext.InputVersion("assistant_message", conversationId.toString(), "current",
+                        SecurityHashes.sha256(userMessage))), true);
+        return aiPlatform.continueConversation(new ConversationAgentCommand(tenantId.toString(), actorId.toString(),
+                conversationId.toString(), List.of(
+                Map.of("role", "system", "content", systemPrompt),
+                Map.of("role", "user", "content", userMessage)), Map.of(), execution));
     }
 
-    /**
-     * 关键词匹配的降级帮助回复
-     */
-    private String getFallbackHelpReply(String message) {
-        String lowerMsg = message.toLowerCase();
-        if (lowerMsg.contains("jd") || lowerMsg.contains("职位") || lowerMsg.contains("岗位")) {
-            return "关于生成JD的操作指引：\n\n1. 进入「智能招聘」页面\n2. 点击「创建招聘任务」\n3. 在对话框中描述岗位需求\n4. AI会自动生成JD草稿\n5. 确认或调整后保存\n\n如需更详细的说明，请查看帮助手册。也可以继续提问，我随时为你解答！";
-        } else if (lowerMsg.contains("筛选") || lowerMsg.contains("简历") || lowerMsg.contains("匹配")) {
-            return "关于简历筛选的操作指引：\n\n1. 进入「简历筛选」页面\n2. 选择或上传候选人简历\n3. 设定筛选条件（如技能、经验、学历）\n4. AI自动匹配并排序候选人\n5. 查看筛选结果并导出\n\n如需更详细的说明，请查看帮助手册。也可以继续提问，我随时为你解答！";
-        } else if (lowerMsg.contains("面试") || lowerMsg.contains("题库")) {
-            return "关于面试题库的操作指引：\n\n1. 进入「面试题库」页面\n2. 选择对应岗位的JD\n3. AI会基于JD生成面试题\n4. 支持调整题目和难度\n5. 确认后用于面试环节\n\n如需更详细的说明，请查看帮助手册。也可以继续提问，我随时为你解答！";
-        } else if (lowerMsg.contains("价格") || lowerMsg.contains("计费") || lowerMsg.contains("费用")) {
-            return "关于计费的说明：\n\n1. 账户采用预充值模式\n2. 每次AI调用按能力计费\n3. 可在「设置 → 账单」查看余额和消费明细\n4. 支持在线充值\n\n如需更详细的说明，请查看帮助手册。也可以继续提问，我随时为你解答！";
-        } else {
-            return "关于「" + message + "」：\n\n我理解你的问题。目前系统支持以下主要功能：\n\n• 智能招聘：AI生成JD、筛选候选人\n• 简历管理：解析、筛选、匹配简历\n• 面试题库：AI生成结构化面试题\n• 账单管理：余额查询、充值\n\n请告诉我更多细节，我来为你提供更精准的建议。你也可以查看帮助手册获取完整说明。";
+    private static UUID requiredUuid(Map<String, Object> context, String key) {
+        Object value = context.get(key);
+        if (value instanceof UUID id) return id;
+        if (value != null) {
+            try { return UUID.fromString(String.valueOf(value)); }
+            catch (IllegalArgumentException ignored) { }
         }
+        throw new IllegalArgumentException("AI 咨询助手缺少 " + key + " 上下文");
     }
 
     /**

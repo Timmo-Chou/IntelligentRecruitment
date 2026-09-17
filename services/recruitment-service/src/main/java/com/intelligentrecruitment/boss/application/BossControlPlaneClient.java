@@ -24,7 +24,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 /**
  * Anti-corruption layer for the BOSS control plane.  Recruitment business code must use this
- * class instead of reading a local identity, workspace or billing table as an authority source.
+ * class instead of reading a local identity, tenant or billing table as an authority source.
  */
 @Component
 public class BossControlPlaneClient {
@@ -54,7 +54,7 @@ public class BossControlPlaneClient {
 
     public Session verify(UUID challengeId, String phone, String code, String userAgent) {
         return session(request("POST", "/api/v1/auth/verify", null,
-                "{\"challengeId\":\"" + challengeId + "\",\"phone\":" + quoted(phone)
+                "{\"challenge_id\":\"" + challengeId + "\",\"phone\":" + quoted(phone)
                         + ",\"code\":" + quoted(code) + "}", userAgent));
     }
 
@@ -69,14 +69,14 @@ public class BossControlPlaneClient {
 
     public Session resetPassword(UUID challengeId, String phone, String code, String newPassword, String userAgent) {
         return session(request("POST", "/api/v1/auth/password-reset", null,
-                "{\"challengeId\":\"" + challengeId + "\",\"phone\":" + quoted(phone)
-                        + ",\"code\":" + quoted(code) + ",\"newPassword\":" + quoted(newPassword) + "}", userAgent));
+                "{\"challenge_id\":\"" + challengeId + "\",\"phone\":" + quoted(phone)
+                        + ",\"code\":" + quoted(code) + ",\"new_password\":" + quoted(newPassword) + "}", userAgent));
     }
 
     public void setPassword(String accessToken, String password, String currentPassword) {
         String current = currentPassword == null ? "null" : quoted(currentPassword);
         request("POST", "/api/v1/auth/password", accessToken,
-                "{\"password\":" + quoted(password) + ",\"currentPassword\":" + current + "}", null);
+                "{\"password\":" + quoted(password) + ",\"current_password\":" + current + "}", null);
     }
 
     public void logout(String accessToken) {
@@ -90,7 +90,7 @@ public class BossControlPlaneClient {
 
     public User updateDisplayName(String accessToken, String displayName) {
         JsonNode body = request("PUT", "/api/v1/me", accessToken,
-                "{\"displayName\":" + quoted(displayName) + "}", null).body();
+                "{\"display_name\":" + quoted(displayName) + "}", null).body();
         return new User(uuid(body, "user_id"), text(body, "display_name"), text(body, "masked_phone"), text(body, "status"));
     }
 
@@ -145,8 +145,8 @@ public class BossControlPlaneClient {
     public JsonNode submitEnterpriseRegistration(String accessToken, String legalName, String creditCode, UUID licenseDocumentId,
                                                   String contactName, String contactPhone) {
         return request("POST", "/api/v1/recruitment/enterprise-registrations", accessToken,
-                "{\"legalName\":" + quoted(legalName) + ",\"creditCode\":" + quoted(creditCode) + ",\"licenseDocumentId\":\"" + licenseDocumentId
-                        + "\",\"contactName\":" + quoted(contactName) + ",\"contactPhone\":" + quoted(contactPhone) + "}", null).body();
+                "{\"legal_name\":" + quoted(legalName) + ",\"credit_code\":" + quoted(creditCode) + ",\"license_document_id\":\"" + licenseDocumentId
+                        + "\",\"contact_name\":" + quoted(contactName) + ",\"contact_phone\":" + quoted(contactPhone) + "}", null).body();
     }
 
     public List<DirectoryTenant> searchEnterprises(String accessToken, String keyword) {
@@ -156,24 +156,26 @@ public class BossControlPlaneClient {
         return result;
     }
 
-    public JsonNode applyToJoin(String accessToken, UUID tenantId, String roleCode, String reason) { return request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/join-applications", accessToken, "{\"roleCode\":" + quoted(roleCode) + ",\"reason\":" + quoted(reason) + "}", null).body(); }
+    public JsonNode applyToJoin(String accessToken, UUID tenantId, String roleCode, String reason) { return request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/join-applications", accessToken, "{\"role_code\":" + quoted(roleCode) + ",\"reason\":" + quoted(reason) + "}", null).body(); }
     public JsonNode enterpriseOverview(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "overview"); }
     public JsonNode enterpriseMembers(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "members"); }
     public JsonNode enterpriseInvitations(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "invitations"); }
     public JsonNode enterpriseJoinApplications(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "join-applications"); }
     public JsonNode enterpriseBilling(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "billing"); }
+    public JsonNode myCreditConsumptions(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "my-credit-consumptions"); }
+    public JsonNode enterpriseCreditConsumptions(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "credit-consumptions"); }
     public JsonNode enterpriseRoles(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "roles"); }
     public JsonNode permissionCatalog(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "permission-catalog"); }
-    public JsonNode createInvitation(String accessToken, UUID tenantId, String roleCode, int maxUses, Instant expiresAt, String note) { return request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/invitations", accessToken, "{\"roleCode\":" + quoted(roleCode) + ",\"maxUses\":" + maxUses + ",\"expiresAt\":" + quoted(expiresAt.toString()) + ",\"note\":" + quoted(note) + "}", null).body(); }
-    public void claimInvitation(String accessToken, String invitationToken) { request("POST", "/api/v1/recruitment/invitations/claim", accessToken, "{\"invitationToken\":" + quoted(invitationToken) + "}", null); }
+    public JsonNode createInvitation(String accessToken, UUID tenantId, String roleCode, int maxUses, Instant expiresAt, String note) { return request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/invitations", accessToken, "{\"role_code\":" + quoted(roleCode) + ",\"max_uses\":" + maxUses + ",\"expires_at\":" + quoted(expiresAt.toString()) + ",\"note\":" + quoted(note) + "}", null).body(); }
+    public void claimInvitation(String accessToken, String invitationToken) { request("POST", "/api/v1/recruitment/invitations/claim", accessToken, "{\"invitation_token\":" + quoted(invitationToken) + "}", null); }
     public void decideJoinApplication(String accessToken, UUID applicationId, boolean approve, String reason) { request("POST", "/api/v1/recruitment/join-applications/" + applicationId + "/decision", accessToken, "{\"approve\":" + approve + ",\"reason\":" + quoted(reason) + "}", null); }
     public void assignOwnerSeat(String accessToken, UUID tenantId) { request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/owner-seat/assign", accessToken, "{}", null); }
     public void releaseOwnerSeat(String accessToken, UUID tenantId) { request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/owner-seat/release", accessToken, "{}", null); }
     public void removeMember(String accessToken, UUID tenantId, UUID userId) { request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/members/" + userId + "/remove", accessToken, "{}", null); }
-    public void updateFeatureSettings(String accessToken, UUID tenantId, boolean talent, boolean jobs) { request("PUT", "/api/v1/recruitment/tenants/" + tenantId + "/feature-settings", accessToken, "{\"talentPoolSharingEnabled\":" + talent + ",\"jobPoolSharingEnabled\":" + jobs + "}", null); }
-    public JsonNode createRole(String accessToken, UUID tenantId, String code, String displayName, JsonNode permissionCodes) { return request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/roles", accessToken, "{\"code\":" + quoted(code) + ",\"displayName\":" + quoted(displayName) + ",\"permissionCodes\":" + permissionCodes + "}", null).body(); }
-    public void updateRolePermissions(String accessToken, UUID tenantId, UUID roleId, JsonNode permissionCodes) { request("PUT", "/api/v1/recruitment/tenants/" + tenantId + "/roles/" + roleId + "/permissions", accessToken, "{\"permissionCodes\":" + permissionCodes + "}", null); }
-    public void updateMemberRole(String accessToken, UUID tenantId, UUID userId, String roleCode) { request("PUT", "/api/v1/recruitment/tenants/" + tenantId + "/members/" + userId + "/role", accessToken, "{\"roleCode\":" + quoted(roleCode) + "}", null); }
+    public void updateFeatureSettings(String accessToken, UUID tenantId, boolean talent, boolean jobs) { request("PUT", "/api/v1/recruitment/tenants/" + tenantId + "/feature-settings", accessToken, "{\"talent_pool_sharing_enabled\":" + talent + ",\"job_pool_sharing_enabled\":" + jobs + "}", null); }
+    public JsonNode createRole(String accessToken, UUID tenantId, String code, String displayName, JsonNode permissionCodes) { return request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/roles", accessToken, "{\"code\":" + quoted(code) + ",\"display_name\":" + quoted(displayName) + ",\"permission_codes\":" + permissionCodes + "}", null).body(); }
+    public void updateRolePermissions(String accessToken, UUID tenantId, UUID roleId, JsonNode permissionCodes) { request("PUT", "/api/v1/recruitment/tenants/" + tenantId + "/roles/" + roleId + "/permissions", accessToken, "{\"permission_codes\":" + permissionCodes + "}", null); }
+    public void updateMemberRole(String accessToken, UUID tenantId, UUID userId, String roleCode) { request("PUT", "/api/v1/recruitment/tenants/" + tenantId + "/members/" + userId + "/role", accessToken, "{\"role_code\":" + quoted(roleCode) + "}", null); }
     private JsonNode recruitmentGet(String accessToken, UUID tenantId, String resource) { return request("GET", "/api/v1/recruitment/tenants/" + tenantId + "/" + resource, accessToken, null, null).body(); }
 
     private Session session(Response response) {
@@ -207,6 +209,13 @@ public class BossControlPlaneClient {
     /** Internal, read-only BOSS operations data. Never expose this machine credential to browsers. */
     public JsonNode internalRecruitmentPlatformQuery(String path) {
         return request("GET", "/internal/v1/recruitment-platform" + path, machineAccessToken(), null, null).body();
+    }
+
+    /** Resolves a Recruitment tenant name for local records that persist only tenant_id. */
+    public TenantIdentity internalTenantIdentity(UUID tenantId) {
+        JsonNode body = internalRecruitmentPlatformQuery("/tenant?tenantId=" + tenantId);
+        return new TenantIdentity(uuid(body, "tenant_id"), text(body, "tenant_name"),
+                text(body, "tenant_type"), text(body, "tenant_status"));
     }
 
     /** 用户列表（内部）：BOSS 作为身份权威源，替代本地 users 投影表查询。 */
@@ -245,10 +254,8 @@ public class BossControlPlaneClient {
             if (clientId == null || clientId.isBlank() || clientSecret == null || clientSecret.isBlank()) {
                 throw new ApiException("BOSS_INTERNAL_CLIENT_NOT_CONFIGURED", "BOSS 集成尚未完成配置", HttpStatus.SERVICE_UNAVAILABLE);
             }
-            String form = "grant_type=client_credentials&client_id=" + encode(clientId)
-                    + "&client_secret=" + encode(clientSecret);
             Response response = request("POST", "/internal/v1/oauth/token", null,
-                    "{\"clientId\":" + quoted(clientId) + ",\"clientSecret\":" + quoted(clientSecret) + "}", null);
+                    "{\"client_id\":" + quoted(clientId) + ",\"client_secret\":" + quoted(clientSecret) + "}", null);
             String token = text(response.body(), "access_token");
             long expires = response.body().path("expires_in").asLong(900);
             machineToken = new MachineToken(token, null, Instant.now().plusSeconds(expires));
@@ -319,6 +326,7 @@ public class BossControlPlaneClient {
                           boolean passwordSetupRequired, String setCookie) { }
     public record User(UUID userId, String displayName, String maskedPhone, String status) { }
     public record Contexts(UUID userId, List<Tenant> tenants) { }
+    public record TenantIdentity(UUID tenantId, String tenantName, String tenantType, String tenantStatus) { }
     public record Tenant(UUID tenantId, String productDomain, String tenantType, String tenantName, String tenantStatus,
                          String roleCode, boolean owner, boolean seatAssigned) { }
     public record TenantOverview(UUID tenantId, String tenantType, String tenantStatus, boolean talentPoolSharingEnabled, boolean jobPoolSharingEnabled) { }

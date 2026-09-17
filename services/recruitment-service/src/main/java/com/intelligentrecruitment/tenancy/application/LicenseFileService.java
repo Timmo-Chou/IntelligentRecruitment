@@ -16,7 +16,7 @@ import java.util.UUID;
  * 企业认证营业执照文件服务。
  * <p>
  * 企业认证提交时，企业和工作空间尚未创建（需平台审核通过后才创建），
- * 因此不依赖 file_assets 表（其要求 workspace_id NOT NULL），
+ * 因此不依赖 file_assets 表（其要求 tenant_id NOT NULL），
  * 直接把文件存入对象存储，返回可追踪的 objectKey 作为引用。
  * licenseReference 字段存储 objectKey 字符串，兼容旧数据（纯文件名）。
  */

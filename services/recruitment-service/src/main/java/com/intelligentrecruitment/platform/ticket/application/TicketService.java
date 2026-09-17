@@ -1,7 +1,10 @@
 package com.intelligentrecruitment.platform.ticket.application;
 
+import com.intelligentrecruitment.boss.application.BossControlPlaneClient;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.PlatformAdminGuard.PlatformAdminInfo;
+import com.intelligentrecruitment.tenancy.application.TenantAccessService;
+import com.intelligentrecruitment.tenancy.application.TenantAccessService.TenantScope;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -25,9 +28,13 @@ import static com.intelligentrecruitment.shared.database.SqlTimes.timestamp;
 public class TicketService {
 
     private final JdbcTemplate jdbc;
+    private final TenantAccessService tenantAccess;
+    private final BossControlPlaneClient boss;
 
-    public TicketService(JdbcTemplate jdbc) {
+    public TicketService(JdbcTemplate jdbc, TenantAccessService tenantAccess, BossControlPlaneClient boss) {
         this.jdbc = jdbc;
+        this.tenantAccess = tenantAccess;
+        this.boss = boss;
     }
 
     /**
@@ -35,7 +42,7 @@ public class TicketService {
      */
     public PagedResult<TicketRow> listTickets(String status, String category, String priority,
                                                UUID assignedTo, String q, int page, int size) {
-        return listTickets(status, category, priority, assignedTo, null, q, page, size);
+        return listTickets(status, category, priority, assignedTo, null, null, q, page, size);
     }
 
     /**
@@ -43,6 +50,17 @@ public class TicketService {
      */
     public PagedResult<TicketRow> listTickets(String status, String category, String priority,
                                                UUID assignedTo, UUID creatorUserId, String q, int page, int size) {
+        return listTickets(status, category, priority, assignedTo, creatorUserId, null, q, page, size);
+    }
+
+    public PagedResult<TicketRow> listUserTickets(UUID userId, UUID tenantId, int page, int size) {
+        tenantAccess.requireBusinessAccess(userId, tenantId);
+        return listTickets(null, null, null, null, userId, tenantId, null, page, size);
+    }
+
+    private PagedResult<TicketRow> listTickets(String status, String category, String priority,
+                                                UUID assignedTo, UUID creatorUserId, UUID tenantId,
+                                                String q, int page, int size) {
         int offset = (page - 1) * size;
 
         // 动态构建查询条件
@@ -69,6 +87,10 @@ public class TicketService {
             whereClause.append(" AND st.creator_user_id = ?");
             params.add(creatorUserId);
         }
+        if (tenantId != null) {
+            whereClause.append(" AND st.tenant_id = ?");
+            params.add(tenantId);
+        }
         if (q != null && !q.isBlank()) {
             whereClause.append(" AND (st.title ILIKE ? OR st.ticket_number ILIKE ?)");
             String likeQ = "%" + q.trim() + "%";
@@ -89,7 +111,7 @@ public class TicketService {
                        COALESCE(NULLIF(u.display_name, ''),
                                 NULLIF('用户****' || u.phone_last_four, '用户****'),
                                 st.creator_name) AS creator_name,
-                       st.tenant_id, st.tenant_id::text AS company_name,
+                       st.tenant_id,
                        st.title, st.category, st.priority, st.status, st.assigned_to_id, st.closed_at,
                        st.created_at, st.updated_at
                 FROM support_tickets st
@@ -105,7 +127,7 @@ public class TicketService {
                 rs.getObject("creator_user_id", UUID.class),
                 rs.getString("creator_name"),
                 rs.getObject("tenant_id", UUID.class),
-                rs.getString("company_name"),
+                null,
                 rs.getString("title"),
                 rs.getString("category"),
                 rs.getString("priority"),
@@ -116,7 +138,7 @@ public class TicketService {
                 rs.getTimestamp("updated_at") != null ? rs.getTimestamp("updated_at").toInstant() : null
         ), queryParams.toArray());
 
-        return new PagedResult<>(rows, total != null ? total : 0, page, size);
+        return new PagedResult<>(rows.stream().map(this::withTenantName).toList(), total != null ? total : 0, page, size);
     }
 
     /**
@@ -129,7 +151,7 @@ public class TicketService {
                        COALESCE(NULLIF(u.display_name, ''),
                                 NULLIF('用户****' || u.phone_last_four, '用户****'),
                                 st.creator_name) AS creator_name,
-                       st.tenant_id, st.tenant_id::text AS company_name,
+                       st.tenant_id,
                        st.title, st.category, st.priority, st.status, st.assigned_to_id, st.closed_at,
                        st.created_at, st.updated_at
                 FROM support_tickets st
@@ -141,7 +163,7 @@ public class TicketService {
                 rs.getObject("creator_user_id", UUID.class),
                 rs.getString("creator_name"),
                 rs.getObject("tenant_id", UUID.class),
-                rs.getString("company_name"),
+                null,
                 rs.getString("title"),
                 rs.getString("category"),
                 rs.getString("priority"),
@@ -172,37 +194,36 @@ public class TicketService {
                 rs.getTimestamp("created_at") != null ? rs.getTimestamp("created_at").toInstant() : null
         ), ticketId);
 
-        return new TicketDetail(ticketRows.getFirst(), messages);
+        return new TicketDetail(withTenantName(ticketRows.getFirst()), messages);
     }
 
     /**
      * 用户创建工单。
      * 自动生成工单编号：TK-YYYYMMDD-XXXX（按天自增）。
-     * 自动查找用户昵称和关联企业信息。
+     * Tenant 必须由调用方显式指定，避免多租户用户的工单被错误归属。
      */
     @Transactional
-    public TicketRow createTicket(UUID creatorUserId, String creatorName, String title,
+    public TicketRow createTicket(UUID creatorUserId, UUID tenantId, String creatorName, String title,
                                    String category, String priority, String body) {
         String ticketNumber = generateTicketNumber();
         Instant now = Instant.now();
         UUID ticketId = UUID.randomUUID();
 
-        // 查找用户实际昵称和企业信息
-        UserInfo userInfo = lookupUserInfo(creatorUserId);
-        String displayName = userInfo.displayName() != null ? userInfo.displayName() : creatorName;
+        TenantScope scope = tenantAccess.requireBusinessAccess(creatorUserId, tenantId);
+        String displayName = required(creatorName, "创建者名称不能为空");
 
         jdbc.update("""
                 INSERT INTO support_tickets (id, ticket_number, creator_user_id, creator_name, tenant_id, title, category, priority, status, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
-                """, ticketId, ticketNumber, creatorUserId, displayName, userInfo.tenantId(),
+                """, ticketId, ticketNumber, creatorUserId, displayName, scope.tenantId(),
                 required(title, "工单标题不能为空"), required(category, "工单分类不能为空"),
                 required(priority, "优先级不能为空"), timestamp(now), timestamp(now));
 
         // 插入第一条消息
         addMessageInternal(ticketId, "USER", creatorUserId, displayName, required(body, "工单内容不能为空"), now);
 
-        return new TicketRow(ticketId, ticketNumber, creatorUserId, displayName, userInfo.tenantId(),
-                userInfo.companyName(), title, category, priority,
+        return new TicketRow(ticketId, ticketNumber, creatorUserId, displayName, scope.tenantId(),
+                scope.name(), title, category, priority,
                 "OPEN", null, null, now, now);
     }
 
@@ -342,40 +363,13 @@ public class TicketService {
     }
 
     /**
-     * 查找用户信息（昵称和关联企业）。
-     * 优先级：display_name > phone_last_four > null
-     */
-    private UserInfo lookupUserInfo(UUID userId) {
-        if (userId == null) {
-            return new UserInfo(null, null, null);
-        }
-        // 企业成员关系由 BOSS 管理；本地工单只保留创建人的显示信息。
-        List<UserInfo> results = jdbc.query("""
-                SELECT CASE
-                         WHEN NULLIF(u.display_name, '') IS NOT NULL THEN u.display_name
-                         WHEN NULLIF('用户****' || u.phone_last_four, '用户****') IS NOT NULL THEN '用户****' || u.phone_last_four
-                         ELSE NULL
-                       END AS display_name,
-                       NULL::uuid AS tenant_id,
-                       NULL::text AS company_name
-                FROM users u
-                WHERE u.id = ?
-                LIMIT 1
-                """, (rs, n) -> new UserInfo(
-                        rs.getString("display_name"),
-                        rs.getObject("tenant_id", UUID.class),
-                        rs.getString("company_name")
-                ), userId);
-        return results.isEmpty() ? new UserInfo(null, null, null) : results.getFirst();
-    }
-
-    /**
      * 校验用户是否为工单创建者。
      */
-    public void verifyTicketOwner(UUID ticketId, UUID userId) {
+    public void verifyTicketOwner(UUID ticketId, UUID userId, UUID tenantId) {
+        tenantAccess.requireBusinessAccess(userId, tenantId);
         List<UUID> creators = jdbc.query("""
-                SELECT creator_user_id FROM support_tickets WHERE id = ?
-                """, (rs, n) -> rs.getObject("creator_user_id", UUID.class), ticketId);
+                SELECT creator_user_id FROM support_tickets WHERE id = ? AND tenant_id = ?
+                """, (rs, n) -> rs.getObject("creator_user_id", UUID.class), ticketId, tenantId);
         if (creators.isEmpty()) {
             throw new ApiException("TICKET_NOT_FOUND", "工单不存在", HttpStatus.NOT_FOUND);
         }
@@ -392,6 +386,14 @@ public class TicketService {
         return value.trim();
     }
 
+    private TicketRow withTenantName(TicketRow ticket) {
+        if (ticket.tenantId() == null) return ticket;
+        var tenant = boss.internalTenantIdentity(ticket.tenantId());
+        return new TicketRow(ticket.id(), ticket.ticketNumber(), ticket.creatorUserId(), ticket.creatorName(),
+                ticket.tenantId(), tenant.tenantName(), ticket.title(), ticket.category(), ticket.priority(),
+                ticket.status(), ticket.assignedToId(), ticket.closedAt(), ticket.createdAt(), ticket.updatedAt());
+    }
+
     // ---- 数据记录 ----
 
     /**
@@ -403,7 +405,7 @@ public class TicketService {
             UUID creatorUserId,
             String creatorName,
             UUID tenantId,
-            String companyName,
+            String tenantName,
             String title,
             String category,
             String priority,
@@ -412,15 +414,6 @@ public class TicketService {
             Instant closedAt,
             Instant createdAt,
             Instant updatedAt
-    ) {}
-
-    /**
-     * 用户信息（昵称+企业）。
-     */
-    private record UserInfo(
-            String displayName,
-            UUID tenantId,
-            String companyName
     ) {}
 
     /**

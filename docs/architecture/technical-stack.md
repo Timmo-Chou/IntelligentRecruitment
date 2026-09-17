@@ -1,7 +1,7 @@
 # 第一阶段技术栈设计（历史基线）
 
 状态：历史架构基线；业务身份、Company/Tenant、权限和计费已由 BOSS 控制面统一承载，当前对接规则以 [Recruitment SaaS 对接 BOSS 实施契约](recruitment-saas-boss-integration.md) 为准。
-范围：① Web 客户端、② AI 招聘业务服务、③ 临时 DeepSeek 适配器
+范围：① Web 客户端、② AI 招聘业务服务、③ AIAgentPlatform 内部 AI 能力调用
 不包含：正式伙伴 AI Platform、模型网关、MCP/Provider 的生产化运营实现。
 
 ## 1. 选型目标
@@ -19,7 +19,7 @@ AI Recruitment Business Service
     ├── RabbitMQ / Spring Worker
     ├── S3-compatible Object Storage
     └── AIPlatformClient
-            ├── DeepSeek adapter（运行时实现，受数据处理授权约束）
+            ├── AIAgentPlatform HTTP client（运行时调用边界，受 BOSS 授权约束）
             └── Partner HTTP adapter（后续正式联调阶段）
 ```
 
@@ -100,7 +100,7 @@ AI Recruitment Business Service
 - 文件通过短效签名 URL 或双方确认的受控文件接口传递。
 - AI Platform 返回供应商用量；业务服务独立完成用户定价和账本结算。
 
-当前实现中 DeepSeek、Mock 和规则兜底并存，且简历解析、筛选、面试题在故障时尚可能返回本地结果；完整边界和退役计划见 [AI 运行现状与 Mock 退役方案](ai-runtime-and-mock-retirement.md)。
+当前实现中招聘服务不直连模型，所有 AI 能力经 BOSS 授权后调用 AIAgentPlatform；模型执行、用量上报和失败释放由 AIAgentPlatform 与 BOSS 契约处理。运行边界见 [AI 运行现状与 Mock 退役方案](ai-runtime-and-mock-retirement.md)。
 
 ## 5. 数据与基础设施
 

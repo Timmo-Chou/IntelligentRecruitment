@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { apiFetch, ApiError, setAccessToken } from "@/lib/api-client";
-import { useWorkspace } from "@/lib/workspace-context";
+import { useTenant } from "@/lib/tenant-context";
 
 const features = [["智能生成JD", "对话式生成，自助修改", BriefcaseBusiness], ["精准筛选简历", "多重匹配，智能评分", ScanSearch], ["专业面试出题", "个性化出题，智能复用", FileCheck2], ["自动化工作流", "一键生成流程，高效省心", Workflow]] as const;
 type LoginMode = "code" | "password";
@@ -13,7 +13,7 @@ type AuthResponse = { access_token: string; onboarding_required: boolean; passwo
 
 export default function LoginPage() {
   const router = useRouter();
-  const { refresh: refreshWorkspaces } = useWorkspace();
+  const { refresh: refreshTenants } = useTenant();
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [challengeId, setChallengeId] = useState<string | null>(null);
@@ -35,9 +35,9 @@ export default function LoginPage() {
   }, [seconds]);
 
   async function continueAfterAuthentication(requiresOnboarding: boolean) {
-    // WorkspaceProvider 会在登录页首次挂载时收到 401。认证成功后必须重新加载，
+    // TenantProvider 会在登录页首次挂载时收到 401。认证成功后必须重新加载，
     // 否则跳转后的业务页仍会读取到旧的 notAuthenticated 状态并回到登录页。
-    await refreshWorkspaces();
+    await refreshTenants();
     router.replace(requiresOnboarding ? "/onboarding" : "/recruitment");
   }
 

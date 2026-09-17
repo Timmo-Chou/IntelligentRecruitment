@@ -11,12 +11,14 @@ import {
   type ChatAttachment,
   type AIAssistantStage,
 } from "@/lib/ai-assistant-api";
+import { useTenant } from "@/lib/tenant-context";
 
 /**
  * AI咨询助手对话弹窗
  * 支持三种场景：帮助、反馈问题、合作需求
  */
 export function AIChatDialog({ onClose }: { onClose: () => void }) {
+  const { tenantId } = useTenant();
   // 对话消息列表
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // 用户输入框内容
@@ -49,7 +51,8 @@ export function AIChatDialog({ onClose }: { onClose: () => void }) {
 
   // 进入弹窗时初始化：加载配置并发送问候
   useEffect(() => {
-    initChat();
+    if (!tenantId) return;
+    void initChat();
     // 聚焦输入框
     setTimeout(() => inputRef.current?.focus(), 100);
     // 键盘ESC关闭
@@ -58,7 +61,7 @@ export function AIChatDialog({ onClose }: { onClose: () => void }) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [tenantId]);
 
   /**
    * 初始化对话：获取配置并发送问候语
@@ -71,7 +74,7 @@ export function AIChatDialog({ onClose }: { onClose: () => void }) {
       if (configData) setConfig(configData);
 
       // 发送初始问候
-      const response = await sendAssistantMessage("__GREETING__");
+      const response = await sendAssistantMessage("__GREETING__", undefined, undefined, undefined, tenantId);
       setSessionId(response.sessionId);
       if (response.nextStage) setStage(response.nextStage);
 
@@ -134,7 +137,7 @@ export function AIChatDialog({ onClose }: { onClose: () => void }) {
       }
 
       // 普通对话
-      const response = await sendAssistantMessage(content, sessionId ?? undefined, stage, context);
+      const response = await sendAssistantMessage(content, sessionId ?? undefined, stage, context, tenantId);
       setSessionId(response.sessionId);
       if (response.nextStage) setStage(response.nextStage);
 
@@ -178,12 +181,16 @@ export function AIChatDialog({ onClose }: { onClose: () => void }) {
    * 提交反馈工单
    */
   const submitFeedbackTicket = async (_confirmText: string) => {
+    if (!tenantId) {
+      return;
+    }
     setTicketSubmitting(true);
     try {
       const feedbackContent = (context.feedbackContent as string) || "用户反馈";
       const contactInfo = (context.contactInfo as string) || "";
 
       const ticket = await createTicket({
+        tenantId,
         title: feedbackContent.slice(0, 50) || "用户反馈",
         body: `${feedbackContent}${contactInfo ? "\n\n联系方式：" + contactInfo : ""}`,
         category: "FEEDBACK",
@@ -219,12 +226,16 @@ export function AIChatDialog({ onClose }: { onClose: () => void }) {
    * 提交合作需求
    */
   const handleCooperationSubmit = async (_submitText: string) => {
+    if (!tenantId) {
+      return;
+    }
     setTicketSubmitting(true);
     try {
       const cooperationInfo = (context.cooperationInfo as string) || "合作咨询";
 
       // 创建合作工单
       const ticket = await createTicket({
+        tenantId,
         title: cooperationInfo.slice(0, 50) || "合作咨询",
         body: cooperationInfo,
         category: "COOPERATION",

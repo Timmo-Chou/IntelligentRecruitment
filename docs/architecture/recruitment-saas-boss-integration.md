@@ -77,23 +77,19 @@ Recruitment SaaS Backend（BFF + 业务服务）
 
 ### 4.2 Recruitment SaaS 本地模型调整（当前基线）
 
-> 本项目没有历史迁移任务。下表中的旧 `Company`/`workspace_id` 兼容描述已失效；新代码和新数据库基线必须使用 BOSS `tenant_id`。本地招聘表只保存业务数据及其 Tenant 归属，不得把旧兼容列当作组织或授权事实源。
+> 本项目没有历史迁移任务。Recruitment 不保留 Company、Workspace 或其兼容映射；新代码和数据库基线均只使用 BOSS `tenant_id`。本地招聘表只保存业务数据及其 Tenant 归属，不得保存本地组织、成员或授权投影。
 
-Recruitment 已完成增量迁移和投影表创建；投影可重建，不能用于绕过 BOSS 授权：
+Recruitment 仅保存招聘业务数据；每次受保护请求均以 BOSS 实时上下文为准：
 
 | 数据 | 最低字段/约束 | 说明 |
 | --- | --- | --- |
-| `boss_company_projections` | `company_id` 主键、`tenant_id`、`company_status`、`tenant_status`、`synchronized_at` | 本地准入缓存，不能覆盖 BOSS 最终结论。 |
-| Personal Tenant 上下文 | BOSS `tenant_id`、当前 `user_id`、`tenant_status` | 个人使用没有 `company_id`；Recruitment 仅以同一 BOSS Tenant UUID 映射历史物理 `workspace_id`，不得创建或伪造 Company。 |
-| `boss_event_inbox` | `event_id` 主键、`event_type`、`aggregate_id`、`payload`、`received_at`、`processed_at`、`failure_reason` | 事件去重、审计和失败重放。 |
-| `boss_legacy_workspace_links` | `legacy_workspace_id`、`company_id` 唯一、`tenant_id`、`migration_source` | 仅用于历史物理列兼容，不是授权边界。 |
+| Tenant 上下文 | BOSS `tenant_id`、当前 `user_id`、`tenant_status`、角色和席位状态 | 个人与企业均直接使用 BOSS Tenant UUID；不得创建或伪造本地组织标识。 |
+| `boss_event_inbox` | `event_id` 主键、`event_type`、`aggregate_id`、`payload`、`received_at`、`processed_at`、`failure_reason` | 事件去重、审计和失败重放；不能替代实时授权。 |
 | `boss_usage_reports` | `usage_event_id` 主键、`occurred_at` | 保证 Recruitment 重试 usage 上报使用稳定时间戳。 |
-| 业务共享数据 | `tenant_id`、`company_id`、索引 `(tenant_id, company_id)` | 职位、人才库、流程模板、公司共享统计等。 |
+| 业务共享数据 | `tenant_id` | 职位、人才库、流程模板和企业共享副本均按 Tenant 隔离。 |
 | 私有业务数据 | 共享字段外加 `private_owner_user_id` | 招聘任务、JD 草稿、AI 会话、筛选草稿和个人结果。 |
 
-目标隔离规则：公司共享数据的键为 `tenant_id + company_id`；私有数据再加 `private_owner_user_id`。Company/Tenant Owner 也不能因角色而直接读取其他用户的私有草稿、任务或结果，除非产品另行定义显式的共享/转交机制。
-
-现有数据库中的 `workspace_id` 是历史物理列：企业记录以 BOSS `company_id` 兼容承载，个人记录以 BOSS Personal `tenant_id` 兼容承载且 `company_id=NULL`。这两个值均来自 BOSS，不是 Recruitment 创建的组织实体。对外企业 BFF URL 使用 `/companies/{companyId}`；后续仅在完成历史数据回填、Worker 对账和数据迁移后再物理重命名列。
+目标隔离规则：共享与私有招聘数据均以 `tenant_id` 为边界；私有数据再加 `private_owner_user_id`。Tenant Owner 也不能因角色而直接读取其他用户的私有草稿、任务或结果，除非产品另行定义显式的共享/转交机制。
 
 ## 5. BFF 与 BOSS API 调用规范
 

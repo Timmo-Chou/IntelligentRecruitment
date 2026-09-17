@@ -8,7 +8,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { AppShell } from "@/components/layout/app-shell";
-import { ApiError, apiDownload, apiFetch } from "@/lib/api-client";
+import { ApiError } from "@/lib/api-client";
 import {
   deleteCandidate, downloadResume, fetchCandidate, fetchCandidateStats, fetchCandidates, parseProfile,
   revealCandidate, retryResumeParse, updateCandidateTags, uploadResume,
@@ -19,7 +19,7 @@ import {
   ACTIVITY_OPTIONS, EDUCATION_OPTIONS, LEVEL_OPTIONS, REGION_TREE, TALENT_INDUSTRIES, TALENT_SOURCES,
   TALENT_STATUS_OPTIONS, TALENT_TAGS, YEARS_OPTIONS,
 } from "@/lib/talent-constants";
-import { useWorkspace } from "@/lib/workspace-context";
+import { useTenant } from "@/lib/tenant-context";
 
 type StatKey = "total" | "active" | "highMatch" | "dormant" | "inPool";
 type DetailTab = "ai" | "basic" | "work" | "edu" | "skills" | "files" | "activity";
@@ -72,12 +72,12 @@ const STAT_CARDS: {
 ];
 
 export default function CandidatesPage() {
-  return <CandidatesWorkspace />;
+  return <CandidatesTenant />;
 }
 
-function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
+function CandidatesTenant({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter();
-  const { workspaceId, workspace, loading: workspaceLoading, notAuthenticated } = useWorkspace();
+  const { tenantId, loading: tenantLoading, notAuthenticated } = useTenant();
   const [items, setItems] = useState<CandidateSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -108,11 +108,6 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
   const [batchBusy, setBatchBusy] = useState(false);
   const [rowMoreId, setRowMoreId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [poolTab, setPoolTab] = useState<"mine" | "enterprise">("mine");
-  const [enterprisePool, setEnterprisePool] = useState<Array<{ copyId: string; sourceOwnerUserId: string; fullName: string; email: string; phone: string; maskedName: string; profileJson: string }>>([]);
-  const [enterprisePoolError, setEnterprisePoolError] = useState<string | null>(null);
-  const [talentPoolSharingEnabled, setTalentPoolSharingEnabled] = useState(false);
-  const [talentPoolAllowed, setTalentPoolAllowed] = useState(false);
   const batchMenuRef = useRef<HTMLDivElement>(null);
   const filterBarRef = useRef<HTMLDivElement>(null);
 
@@ -127,16 +122,16 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
   const cityFilterValue = district || city || province;
 
   const loadStats = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     try {
-      setStats(await fetchCandidateStats(workspaceId));
+      setStats(await fetchCandidateStats(tenantId));
     } catch {
       /* ignore */
     }
-  }, [workspaceId]);
+  }, [tenantId]);
 
   const load = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     setLoading(true);
     setError(null);
     try {
@@ -167,7 +162,7 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
         page,
         pageSize,
       };
-      const result = await fetchCandidates(workspaceId, query);
+      const result = await fetchCandidates(tenantId, query);
       setItems(result.items);
       setTotal(result.total);
     } catch (cause) {
@@ -176,42 +171,14 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
       setLoading(false);
     }
   }, [
-    workspaceId, search, status, segment, stats?.highMatchThreshold, industryFilter, cityFilterValue,
+    tenantId, search, status, segment, stats?.highMatchThreshold, industryFilter, cityFilterValue,
     selectedTags, sourceFilter, moreFilters, page, pageSize,
   ]);
-
-  useEffect(() => {
-    if (workspace?.type !== "ENTERPRISE" || !workspaceId) {
-      setTalentPoolAllowed(false);
-      setTalentPoolSharingEnabled(false);
-      setPoolTab("mine");
-      return;
-    }
-    void apiFetch<{ talentPoolSharingEnabled: boolean; talentPoolAllowed: boolean }>(`/tenants/${workspaceId}/enterprise-pools/access`)
-      .then((access) => {
-        setTalentPoolAllowed(access.talentPoolAllowed);
-        setTalentPoolSharingEnabled(access.talentPoolSharingEnabled);
-        if (!access.talentPoolAllowed) setPoolTab("mine");
-      })
-      .catch(() => {
-        setTalentPoolAllowed(false);
-        setTalentPoolSharingEnabled(false);
-        setPoolTab("mine");
-      });
-  }, [workspace?.type, workspaceId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
-
-  useEffect(() => {
-    if (poolTab !== "enterprise" || workspace?.type !== "ENTERPRISE" || !workspaceId || !talentPoolAllowed) return;
-    setEnterprisePoolError(null);
-    void apiFetch<typeof enterprisePool>(`/tenants/${workspaceId}/enterprise-pools/talents`)
-      .then(setEnterprisePool)
-      .catch((cause) => setEnterprisePoolError(messageOf(cause)));
-  }, [poolTab, workspace?.type, workspaceId, talentPoolAllowed]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -283,12 +250,12 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
   }
 
   async function openDetail(candidateId: string) {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     setBusy(true);
     setRevealed(null);
     setDetailTab("ai");
     try {
-      setSelected(await fetchCandidate(workspaceId, candidateId));
+      setSelected(await fetchCandidate(tenantId, candidateId));
     } catch (cause) {
       setError(messageOf(cause));
     } finally {
@@ -297,10 +264,10 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
   }
 
   async function handleReveal() {
-    if (!workspaceId || !selected) return;
+    if (!tenantId || !selected) return;
     setBusy(true);
     try {
-      setRevealed(await revealCandidate(workspaceId, selected.id));
+      setRevealed(await revealCandidate(tenantId, selected.id));
     } catch (cause) {
       setError(messageOf(cause));
     } finally {
@@ -309,10 +276,10 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
   }
 
   async function handleRetry() {
-    if (!workspaceId || !selected) return;
+    if (!tenantId || !selected) return;
     setBusy(true);
     try {
-      const next = await retryResumeParse(workspaceId, selected.id);
+      const next = await retryResumeParse(tenantId, selected.id);
       setSelected(next);
       await Promise.all([load(), loadStats()]);
     } catch (cause) {
@@ -324,11 +291,11 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
 
   async function handleDelete(candidate?: CandidateDetail | CandidateSummary) {
     const target = candidate ?? selected;
-    if (!workspaceId || !target) return;
+    if (!tenantId || !target) return;
     if (!window.confirm(`确定删除「${target.displayNameMasked}」及原简历吗？`)) return;
     setBusy(true);
     try {
-      await deleteCandidate(workspaceId, target.id);
+      await deleteCandidate(tenantId, target.id);
       if (selected?.id === target.id) {
         setSelected(null);
         setRevealed(null);
@@ -368,13 +335,13 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
   }
 
   async function handleBatchDelete() {
-    if (!workspaceId || selectedIds.size === 0) return;
+    if (!tenantId || selectedIds.size === 0) return;
     if (!window.confirm(`确定批量删除选中的 ${selectedIds.size} 位人才吗？`)) return;
     setBatchBusy(true);
     setBatchMenuOpen(false);
     try {
       const ids = Array.from(selectedIds);
-      await Promise.allSettled(ids.map((id) => deleteCandidate(workspaceId, id)));
+      await Promise.allSettled(ids.map((id) => deleteCandidate(tenantId, id)));
       if (selected && ids.includes(selected.id)) {
         setSelected(null);
         setRevealed(null);
@@ -411,15 +378,15 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
     URL.revokeObjectURL(url);
   }
 
-  if (workspaceLoading) {
+  if (tenantLoading) {
     return embedded
-      ? <div className="grid h-64 place-items-center text-sm text-[#7085a4]">正在加载工作空间...</div>
-      : <State text="正在加载工作空间..." />;
+      ? <div className="grid h-64 place-items-center text-sm text-[#7085a4]">正在加载 Tenant...</div>
+      : <State text="正在加载 Tenant..." />;
   }
-  if (!workspaceId) {
+  if (!tenantId) {
     return embedded
-      ? <div className="grid h-64 place-items-center text-sm text-[#7085a4]">请先登录并进入一个可访问的工作空间</div>
-      : <State text="请先登录并进入一个可访问的工作空间" />;
+      ? <div className="grid h-64 place-items-center text-sm text-[#7085a4]">请先登录并选择一个可访问的 Tenant</div>
+      : <State text="请先登录并选择一个可访问的 Tenant" />;
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -428,20 +395,6 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
 
   const content = (
     <>
-      {workspace?.type === "ENTERPRISE" && (
-        <div className="mb-4 flex gap-2 border-b border-[#dbe7f3]">
-          <button type="button" className={`border-b-2 px-3 py-2 text-sm font-semibold ${poolTab === "mine" ? "border-[#2f6bff] text-[#2f6bff]" : "border-transparent text-[#7187a8]"}`} onClick={() => setPoolTab("mine")}>我的人才库</button>
-          {talentPoolAllowed && <button type="button" className={`border-b-2 px-3 py-2 text-sm font-semibold ${poolTab === "enterprise" ? "border-[#2f6bff] text-[#2f6bff]" : "border-transparent text-[#7187a8]"}`} onClick={() => setPoolTab("enterprise")}>企业人才池</button>}
-        </div>
-      )}
-      {poolTab === "enterprise" ? (
-        <section className="rounded-xl border border-[#d6e5f5] bg-white p-5">
-          <div className="flex items-center justify-between"><div><h1 className="m-0 text-[25px] font-bold text-[#09245d]">企业人才池</h1><p className="mb-0 mt-1 text-sm text-[#60799f]">企业成员共享的只读副本；源数据更新后自动同步。</p></div><div className="flex gap-2"><button type="button" className="outline-button" onClick={async () => { if (!workspaceId) return; try { const blob = await apiDownload(`/tenants/${workspaceId}/enterprise-pools/talents/export`); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "enterprise-talent-pool.csv"; link.click(); URL.revokeObjectURL(url); } catch { setEnterprisePoolError("导出权限不足"); } }}>导出 CSV</button></div></div>
-          {enterprisePoolError && <p className="mt-4 text-sm text-[#b42318]">{enterprisePoolError}</p>}
-          {!enterprisePoolError && !enterprisePool.length && <p className="mt-8 text-center text-sm text-[#7187a8]">企业人才池暂无已同步数据。</p>}
-          {!!enterprisePool.length && <div className="mt-5 divide-y divide-[#e4edf7]">{enterprisePool.map((item) => <div key={item.copyId} className="grid gap-1 py-3 text-sm text-[#36527f]"><strong>{item.maskedName || item.fullName}</strong><span>{item.email || ""} {item.phone || ""}</span><span className="text-xs text-[#7187a8]">只读副本 · 来源账号 {item.sourceOwnerUserId}</span></div>)}</div>}
-        </section>
-      ) : (
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
         <div className="min-w-0 flex-1 space-y-4">
           <section>
@@ -497,7 +450,6 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
             >
               <Plus size={16} /> 新增人才
             </button>
-            {workspace?.type === "ENTERPRISE" && talentPoolSharingEnabled && workspace?.status !== "EXPIRED_READONLY" && <button type="button" className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-[#d9e2ec] bg-white px-4 text-sm font-medium text-[#334155] hover:bg-[#f8fafc]" onClick={() => { if (workspaceId) void apiFetch(`/tenants/${workspaceId}/enterprise-pools/talents/sync`, { method: "POST" }).catch((cause) => setError(messageOf(cause))); }}>同步至企业池</button>}
             <div className="relative" ref={batchMenuRef}>
               <button
                 type="button"
@@ -951,23 +903,22 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
               onClose={() => { setSelected(null); setRevealed(null); }}
               onReveal={() => void handleReveal()}
               onRetry={() => void handleRetry()}
-              onDownload={() => void downloadResume(workspaceId, selected)}
+              onDownload={() => void downloadResume(tenantId, selected)}
               onDelete={() => void handleDelete(selected)}
               onUpdated={(next) => {
                 setSelected(next);
                 void load();
               }}
               onOpenPortrait={() => router.push(`/candidates/${selected.id}/portrait`)}
-              workspaceId={workspaceId}
+              tenantId={tenantId}
             />
           </div>
         )}
       </div>
-      )}
 
       {importOpen && (
         <ImportTalentModal
-          workspaceId={workspaceId}
+          tenantId={tenantId}
           onClose={() => setImportOpen(false)}
           onImported={async () => {
             await Promise.all([load(), loadStats()]);
@@ -981,11 +932,11 @@ function CandidatesWorkspace({ embedded = false }: { embedded?: boolean }) {
 }
 
 function ImportTalentModal({
-  workspaceId,
+  tenantId,
   onClose,
   onImported,
 }: {
-  workspaceId: string;
+  tenantId: string;
   onClose: () => void;
   onImported: () => Promise<void>;
 }) {
@@ -1010,7 +961,7 @@ function ImportTalentModal({
       const next: { name: string; ok: boolean; message: string }[] = [];
       for (const file of allowed) {
         try {
-          const value = await uploadResume(workspaceId, file);
+          const value = await uploadResume(tenantId, file);
           next.push({
             name: file.name,
             ok: true,
@@ -1119,7 +1070,7 @@ function ImportTalentModal({
 }
 
 function TalentDetailDrawer({
-  candidate, revealed, tab, busy, duplicateCount, workspaceId,
+  candidate, revealed, tab, busy, duplicateCount, tenantId,
   onTabChange, onClose, onReveal, onRetry, onDownload, onDelete, onUpdated, onOpenPortrait,
 }: {
   candidate: CandidateDetail;
@@ -1127,7 +1078,7 @@ function TalentDetailDrawer({
   tab: DetailTab;
   busy: boolean;
   duplicateCount: number;
-  workspaceId: string;
+  tenantId: string;
   onTabChange: (tab: DetailTab) => void;
   onClose: () => void;
   onReveal: () => void;
@@ -1174,7 +1125,7 @@ function TalentDetailDrawer({
   async function persistTags(next: string[]) {
     setTagBusy(true);
     try {
-      const updated = await updateCandidateTags(workspaceId, candidate.id, next);
+      const updated = await updateCandidateTags(tenantId, candidate.id, next);
       setTags(Array.isArray(parseProfile(updated.profileJson).tags) ? parseProfile(updated.profileJson).tags!.map(String) : next);
       onUpdated(updated);
       setToast("标签已更新");

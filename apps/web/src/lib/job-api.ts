@@ -6,7 +6,7 @@ export type JobStatus = "DRAFT" | "ACTIVE" | "CLOSED";
 
 export type Job = {
   id: string;
-  workspaceId: string;
+  tenantId: string;
   title: string;
   companyName: string;
   location: string;
@@ -77,9 +77,9 @@ export type JobsPageCache = {
 
 const JOBS_CACHE_PREFIX = "ir-jobs-cache:";
 
-export function readJobsCache(workspaceId: string): JobsPageCache | null {
+export function readJobsCache(tenantId: string): JobsPageCache | null {
   try {
-    const raw = sessionStorage.getItem(JOBS_CACHE_PREFIX + workspaceId);
+    const raw = sessionStorage.getItem(JOBS_CACHE_PREFIX + tenantId);
     if (!raw) return null;
     return JSON.parse(raw) as JobsPageCache;
   } catch {
@@ -87,18 +87,18 @@ export function readJobsCache(workspaceId: string): JobsPageCache | null {
   }
 }
 
-export function writeJobsCache(workspaceId: string, cache: JobsPageCache) {
+export function writeJobsCache(tenantId: string, cache: JobsPageCache) {
   try {
-    sessionStorage.setItem(JOBS_CACHE_PREFIX + workspaceId, JSON.stringify(cache));
+    sessionStorage.setItem(JOBS_CACHE_PREFIX + tenantId, JSON.stringify(cache));
   } catch {
     // ignore quota / private mode
   }
 }
 
-export function upsertJobInCache(workspaceId: string, job: Job) {
-  const cache = readJobsCache(workspaceId);
+export function upsertJobInCache(tenantId: string, job: Job) {
+  const cache = readJobsCache(tenantId);
   if (!cache) {
-    writeJobsCache(workspaceId, {
+    writeJobsCache(tenantId, {
       stats: {
         total: 1,
         active: job.status === "ACTIVE" ? 1 : 0,
@@ -115,17 +115,17 @@ export function upsertJobInCache(workspaceId: string, job: Job) {
     return;
   }
   const exists = cache.items.some((item) => item.id === job.id);
-  writeJobsCache(workspaceId, {
+  writeJobsCache(tenantId, {
     ...cache,
     items: [job, ...cache.items.filter((item) => item.id !== job.id)],
     total: exists ? cache.total : cache.total + 1,
   });
 }
 
-export function removeJobFromCache(workspaceId: string, jobId: string) {
-  const cache = readJobsCache(workspaceId);
+export function removeJobFromCache(tenantId: string, jobId: string) {
+  const cache = readJobsCache(tenantId);
   if (!cache) return;
-  writeJobsCache(workspaceId, {
+  writeJobsCache(tenantId, {
     ...cache,
     items: cache.items.filter((item) => item.id !== jobId),
     total: Math.max(0, cache.total - (cache.items.some((item) => item.id === jobId) ? 1 : 0)),
@@ -135,13 +135,13 @@ export function removeJobFromCache(workspaceId: string, jobId: string) {
 // --- API 函数 ---
 
 /** 获取职位统计 */
-export async function fetchJobStats(workspaceId: string): Promise<JobStats> {
-  return apiFetch<JobStats>(`/tenants/${workspaceId}/jobs/stats`);
+export async function fetchJobStats(tenantId: string): Promise<JobStats> {
+  return apiFetch<JobStats>(`/tenants/${tenantId}/jobs/stats`);
 }
 
 /** 分页查询职位列表 */
 export async function fetchJobs(
-  workspaceId: string,
+  tenantId: string,
   params: { search?: string; status?: string; page?: number; pageSize?: number } = {},
 ): Promise<JobListResult> {
   const searchParams = new URLSearchParams();
@@ -150,63 +150,63 @@ export async function fetchJobs(
   searchParams.set("page", String(params.page ?? 1));
   searchParams.set("pageSize", String(params.pageSize ?? 10));
   return apiFetch<JobListResult>(
-    `/tenants/${workspaceId}/jobs?${searchParams.toString()}`,
+    `/tenants/${tenantId}/jobs?${searchParams.toString()}`,
   );
 }
 
 /** 获取职位详情 */
-export async function fetchJob(workspaceId: string, jobId: string): Promise<Job> {
-  return apiFetch<Job>(`/tenants/${workspaceId}/jobs/${jobId}`);
+export async function fetchJob(tenantId: string, jobId: string): Promise<Job> {
+  return apiFetch<Job>(`/tenants/${tenantId}/jobs/${jobId}`);
 }
 
 /** 创建职位 */
-export async function createJob(workspaceId: string, input: JobInput): Promise<Job> {
-  return apiFetch<Job>(`/tenants/${workspaceId}/jobs`, {
+export async function createJob(tenantId: string, input: JobInput): Promise<Job> {
+  return apiFetch<Job>(`/tenants/${tenantId}/jobs`, {
     method: "POST",
     body: JSON.stringify(input),
   });
 }
 
 /** 更新职位 */
-export async function updateJob(workspaceId: string, jobId: string, input: JobInput): Promise<Job> {
-  return apiFetch<Job>(`/tenants/${workspaceId}/jobs/${jobId}`, {
+export async function updateJob(tenantId: string, jobId: string, input: JobInput): Promise<Job> {
+  return apiFetch<Job>(`/tenants/${tenantId}/jobs/${jobId}`, {
     method: "PUT",
     body: JSON.stringify(input),
   });
 }
 
 /** 更新职位状态 */
-export async function updateJobStatus(workspaceId: string, jobId: string, status: string): Promise<Job> {
-  return apiFetch<Job>(`/tenants/${workspaceId}/jobs/${jobId}/status`, {
+export async function updateJobStatus(tenantId: string, jobId: string, status: string): Promise<Job> {
+  return apiFetch<Job>(`/tenants/${tenantId}/jobs/${jobId}/status`, {
     method: "PATCH",
     body: JSON.stringify({ status }),
   });
 }
 
 /** 删除职位 */
-export async function deleteJob(workspaceId: string, jobId: string): Promise<void> {
-  return apiFetch<void>(`/tenants/${workspaceId}/jobs/${jobId}`, {
+export async function deleteJob(tenantId: string, jobId: string): Promise<void> {
+  return apiFetch<void>(`/tenants/${tenantId}/jobs/${jobId}`, {
     method: "DELETE",
   });
 }
 
 /** 批量更新状态 */
-export async function batchUpdateStatus(workspaceId: string, jobIds: string[], status: string): Promise<void> {
-  return apiFetch<void>(`/tenants/${workspaceId}/jobs/batch/status`, {
+export async function batchUpdateStatus(tenantId: string, jobIds: string[], status: string): Promise<void> {
+  return apiFetch<void>(`/tenants/${tenantId}/jobs/batch/status`, {
     method: "POST",
     body: JSON.stringify({ jobIds, status }),
   });
 }
 
 /** 批量删除 */
-export async function batchDelete(workspaceId: string, jobIds: string[]): Promise<void> {
-  return apiFetch<void>(`/tenants/${workspaceId}/jobs/batch/delete`, {
+export async function batchDelete(tenantId: string, jobIds: string[]): Promise<void> {
+  return apiFetch<void>(`/tenants/${tenantId}/jobs/batch/delete`, {
     method: "POST",
     body: JSON.stringify({ jobIds }),
   });
 }
 
 /** 获取职位版本历史 */
-export async function fetchJobVersions(workspaceId: string, jobId: string): Promise<JobVersion[]> {
-  return apiFetch<JobVersion[]>(`/tenants/${workspaceId}/jobs/${jobId}/versions`);
+export async function fetchJobVersions(tenantId: string, jobId: string): Promise<JobVersion[]> {
+  return apiFetch<JobVersion[]>(`/tenants/${tenantId}/jobs/${jobId}/versions`);
 }

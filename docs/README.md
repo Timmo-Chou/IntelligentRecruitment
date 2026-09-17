@@ -26,4 +26,4 @@
 - Phase 0、Phase 1 已完成，当前基线以 BOSS 为身份、产品租户、成员席位、权限、套餐、积分和账单权威。
 - Recruitment SaaS 仅保留招聘业务数据；对外上下文使用 BOSS Recruitment Tenant ID。企业 Tenant 直接对应企业，不存在 Company 中间层；开发环境无历史数据迁移，数据库基线可直接替换。
 - Phase 3、Phase 4、Phase 5 已形成可运行的 MVP 代码基线；Phase 6—8 计划已按最新租户、数据隔离和账本规则修订。
-- AI Platform Contract V1 已形成文档基线；当前实现与契约之间的 DeepSeek/Mock 兜底差异见 [AI 运行现状与 Mock 退役方案](architecture/ai-runtime-and-mock-retirement.md)。
+- AI Platform Contract V1 已形成文档基线；招聘服务通过 BOSS 授权调用 AIAgentPlatform，模型执行与用量结算边界见 [AI 运行现状与 Mock 退役方案](architecture/ai-runtime-and-mock-retirement.md)。

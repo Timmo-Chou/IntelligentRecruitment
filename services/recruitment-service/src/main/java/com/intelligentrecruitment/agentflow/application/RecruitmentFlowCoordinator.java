@@ -4,7 +4,7 @@ import com.intelligentrecruitment.agentflow.domain.ExecutionContext;
 import com.intelligentrecruitment.agentflow.domain.FlowCapability;
 import com.intelligentrecruitment.agentflow.domain.PolicyDecision;
 import com.intelligentrecruitment.shared.error.ApiException;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.TenantScope;
+import com.intelligentrecruitment.tenancy.application.TenantAccessService.TenantScope;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;

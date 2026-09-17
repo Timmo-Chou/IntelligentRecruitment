@@ -7,12 +7,12 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { ApiError } from "@/lib/api-client";
 import { fetchCandidate, parseProfile, type CandidateDetail } from "@/lib/candidate-api";
-import { useWorkspace } from "@/lib/workspace-context";
+import { useTenant } from "@/lib/tenant-context";
 
 export default function TalentPortraitPage() {
   const params = useParams<{ id: string }>();
   const candidateId = params?.id;
-  const { workspaceId, loading: wsLoading, notAuthenticated } = useWorkspace();
+  const { tenantId, loading: wsLoading, notAuthenticated } = useTenant();
   const [candidate, setCandidate] = useState<CandidateDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -22,13 +22,13 @@ export default function TalentPortraitPage() {
   }, [notAuthenticated]);
 
   useEffect(() => {
-    if (!workspaceId || !candidateId) return;
+    if (!tenantId || !candidateId) return;
     setLoading(true);
-    void fetchCandidate(workspaceId, candidateId)
+    void fetchCandidate(tenantId, candidateId)
       .then(setCandidate)
       .catch((cause) => setError(cause instanceof ApiError ? cause.message : "加载失败"))
       .finally(() => setLoading(false));
-  }, [workspaceId, candidateId]);
+  }, [tenantId, candidateId]);
 
   if (wsLoading || loading) {
     return <AppShell activeItem="人才库"><div className="grid h-64 place-items-center"><Loader2 className="animate-spin text-[#6b80a4]" /></div></AppShell>;

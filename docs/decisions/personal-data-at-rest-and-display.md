@@ -14,4 +14,4 @@
 - `PII_ENCRYPTION_KEY` 必须由部署环境注入、定期轮换，禁止使用应用中的本地开发默认值。
 - `PII_REENCRYPT_ON_STARTUP=true` 会将已存在的可识别明文改写为版本化密文，并回填姓名/手机号检索令牌；首次上线应在备份和维护窗口内执行。
 - 对象存储生产环境设置 `S3_SERVER_SIDE_ENCRYPTION=true`，并在 MinIO/S3 侧启用 SSE-S3 或 KMS。新对象 Key 不包含文件名；旧对象 Key 应通过单独的数据迁移重命名。
-- 外部模型调用仅在 `DEEPSEEK_ALLOW_EXTERNAL_DATA=true` 且取得相应授权时临时解密、发送；不得记录完整 Prompt、简历正文或响应原文到日志、监控、埋点。
+- 外部模型调用仅由 AIAgentPlatform 在取得相应授权后临时解密、发送；招聘服务不得记录完整 Prompt、简历正文或响应原文到日志、监控、埋点。

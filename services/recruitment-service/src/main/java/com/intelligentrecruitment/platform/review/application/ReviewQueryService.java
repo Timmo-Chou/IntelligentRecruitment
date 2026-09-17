@@ -79,7 +79,7 @@ public class ReviewQueryService {
 
         List<CompanyVerificationRow> rows = jdbc.query("""
                 SELECT cvr.id, cvr.applicant_user_id, cvr.tenant_id, cvr.request_type, cvr.legal_name, cvr.display_name,
-                       cvr.credit_code_hash, cvr.credit_code_masked, cvr.license_reference, cvr.first_workspace_name,
+                       cvr.credit_code_hash, cvr.credit_code_masked, cvr.license_reference, cvr.first_tenant_name,
                        cvr.status, cvr.reviewed_by, cvr.reviewed_at, cvr.rejection_reason, cvr.created_at,
                        u.display_name AS applicant_display_name
                 FROM enterprise_registration_projections cvr
@@ -102,7 +102,7 @@ public class ReviewQueryService {
                     licenseRef,
                     licenseFileService.extractFilename(licenseRef),
                     null, // 列表不生成预览 URL，仅详情页生成
-                    rs.getString("first_workspace_name"),
+                    rs.getString("first_tenant_name"),
                     rs.getString("status"),
                     rs.getString("reviewed_by"),
                     rs.getTimestamp("reviewed_at") != null ? rs.getTimestamp("reviewed_at").toInstant() : null,
@@ -208,7 +208,7 @@ public class ReviewQueryService {
     public CompanyVerificationRow getCompanyVerificationDetail(UUID requestId) {
         List<CompanyVerificationRow> rows = jdbc.query("""
                 SELECT cvr.id, cvr.applicant_user_id, cvr.tenant_id, cvr.request_type, cvr.legal_name, cvr.display_name,
-                       cvr.credit_code_hash, cvr.credit_code_masked, cvr.license_reference, cvr.first_workspace_name,
+                       cvr.credit_code_hash, cvr.credit_code_masked, cvr.license_reference, cvr.first_tenant_name,
                        cvr.status, cvr.reviewed_by, cvr.reviewed_at, cvr.rejection_reason, cvr.created_at,
                        u.display_name AS applicant_display_name
                 FROM enterprise_registration_projections cvr
@@ -228,7 +228,7 @@ public class ReviewQueryService {
                     licenseRef,
                     licenseFileService.extractFilename(licenseRef),
                     licenseFileService.previewUrl(licenseRef),
-                    rs.getString("first_workspace_name"),
+                    rs.getString("first_tenant_name"),
                     rs.getString("status"),
                     rs.getString("reviewed_by"),
                     rs.getTimestamp("reviewed_at") != null ? rs.getTimestamp("reviewed_at").toInstant() : null,
@@ -308,7 +308,7 @@ public class ReviewQueryService {
             String licenseReference,
             String licenseOriginalFilename, // 原始文件名（从 objectKey 还原或原样返回）
             String licensePreviewUrl,        // 预签名预览 URL，旧数据为 null
-            String firstWorkspaceName,
+            String firstTenantName,
             String status,
             String reviewedBy,
             Instant reviewedAt,

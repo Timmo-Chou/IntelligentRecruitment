@@ -15,8 +15,8 @@ type Ticket = {
   ticketNumber: string;
   creatorUserId?: string;
   creatorName: string;
-  companyId?: string;
-  companyName?: string;
+  tenantId?: string;
+  tenantName?: string;
   title: string;
   category: string;
   priority: string;
@@ -161,8 +161,8 @@ export default function TicketsPage() {
                   <td className="px-4 py-3">{getStatusBadge(ticket.status)}</td>
                   <td className="px-4 py-3 text-sm">
                     <div className="font-medium text-slate-700">{ticket.creatorName}</div>
-                    {ticket.companyName && (
-                      <div className="text-xs text-slate-400">🏢 {ticket.companyName}</div>
+                    {ticket.tenantName && (
+                      <div className="text-xs text-slate-400">🏢 {ticket.tenantName}</div>
                     )}
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-500">{ticket.createdAt}</td>

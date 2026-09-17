@@ -4,5 +4,5 @@ ALTER TABLE resume_files
     ADD COLUMN IF NOT EXISTS parse_attempts INTEGER NOT NULL DEFAULT 0;
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_resume_files_parse_idempotency
-    ON resume_files(workspace_id, parse_idempotency_key)
+    ON resume_files(tenant_id, parse_idempotency_key)
     WHERE parse_idempotency_key IS NOT NULL;

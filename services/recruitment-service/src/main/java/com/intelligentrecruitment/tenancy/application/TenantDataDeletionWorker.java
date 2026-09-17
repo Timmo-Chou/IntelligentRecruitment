@@ -42,10 +42,10 @@ public class TenantDataDeletionWorker {
     @Transactional
     void logicallyDelete(UUID tenantId) {
         ai.logicallyDeleteTenantBusinessData(tenantId);
-        jdbc.update("UPDATE candidates SET status='DELETED',updated_at=CURRENT_TIMESTAMP WHERE workspace_id=? AND status<>'DELETED'", tenantId);
-        jdbc.update("UPDATE jobs SET status='ARCHIVED',updated_at=CURRENT_TIMESTAMP WHERE workspace_id=? AND status<>'ARCHIVED'", tenantId);
-        jdbc.update("UPDATE resume_files SET status='DELETED',error_code='TENANT_DATA_DELETED',updated_at=CURRENT_TIMESTAMP WHERE workspace_id=?", tenantId);
-        jdbc.update("UPDATE file_assets SET lifecycle_status='DELETED' WHERE workspace_id=? AND lifecycle_status<>'DELETED'", tenantId);
+        jdbc.update("UPDATE candidates SET status='DELETED',updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND status<>'DELETED'", tenantId);
+        jdbc.update("UPDATE jobs SET status='ARCHIVED',updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND status<>'ARCHIVED'", tenantId);
+        jdbc.update("UPDATE resume_files SET status='DELETED',error_code='TENANT_DATA_DELETED',updated_at=CURRENT_TIMESTAMP WHERE tenant_id=?", tenantId);
+        jdbc.update("UPDATE file_assets SET lifecycle_status='DELETED' WHERE tenant_id=? AND lifecycle_status<>'DELETED'", tenantId);
         jdbc.update("UPDATE enterprise_pool_attachment_assets SET lifecycle_status='DELETED',updated_at=CURRENT_TIMESTAMP WHERE tenant_id=?", tenantId);
         jdbc.update("UPDATE enterprise_talent_pool_copies SET lifecycle_status='DELETED',deleted_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND lifecycle_status<>'DELETED'", tenantId);
         jdbc.update("UPDATE enterprise_job_pool_copies SET lifecycle_status='DELETED',deleted_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND lifecycle_status<>'DELETED'", tenantId);

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { AppShell } from "@/components/layout/app-shell";
 import { apiDownload, apiFetch } from "@/lib/api-client";
 import { CategoryTreePanel } from "@/components/jobs/category-tree-panel";
-import { useWorkspace } from "@/lib/workspace-context";
+import { useTenant } from "@/lib/tenant-context";
 import {
   fetchJobStats, fetchJobs, fetchJob, createJob, updateJob, deleteJob,
   batchUpdateStatus, batchDelete, updateJobStatus,
@@ -121,7 +121,7 @@ function writeJobExtras(next: Record<string, JobUiExtra>) {
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
 export default function JobsPage() {
-  const { workspaceId, workspace, loading: wsLoading, notAuthenticated, error: wsError, refresh: refreshWorkspace } = useWorkspace();
+  const { tenantId, tenant, loading: wsLoading, notAuthenticated, error: wsError, refresh: refreshTenant } = useTenant();
 
   useEffect(() => {
     if (notAuthenticated) window.location.replace("/login");
@@ -164,12 +164,13 @@ export default function JobsPage() {
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchMenuOpen, setBatchMenuOpen] = useState(false);
   const [categoryManageOpen, setCategoryManageOpen] = useState(false);
+  const enterpriseReadOnly = tenant?.type === "ENTERPRISE" && tenant.status === "EXPIRED_READONLY";
   const [managedCategoryIds, setManagedCategoryIds] = useState<string[]>(() =>
     JOB_CATEGORY_TREE.flatMap(collectLeafIds),
   );
 
   const loadRequestRef = useRef(0);
-  const hydratedWorkspaceRef = useRef<string | null>(null);
+  const hydratedTenantRef = useRef<string | null>(null);
   const batchMenuRef = useRef<HTMLDivElement>(null);
 
   const apiStatus = useMemo(() => {
@@ -179,43 +180,45 @@ export default function JobsPage() {
   }, [statusFilters]);
 
   useEffect(() => {
-    if (!workspaceId || hydratedWorkspaceRef.current === workspaceId) return;
-    hydratedWorkspaceRef.current = workspaceId;
-    const cached = readJobsCache(workspaceId);
+    if (!tenantId || hydratedTenantRef.current === tenantId) return;
+    hydratedTenantRef.current = tenantId;
+    const cached = readJobsCache(tenantId);
     if (!cached) return;
     if (cached.search === search && cached.status === apiStatus && cached.page === page && cached.pageSize === pageSize) {
       setStats(cached.stats);
       setJobs(cached.items);
       setTotal(cached.total);
     }
-  }, [workspaceId, search, apiStatus, page, pageSize]);
+  }, [tenantId, search, apiStatus, page, pageSize]);
 
   useEffect(() => {
-    if (!workspaceId || workspace?.type !== "ENTERPRISE") { setJobPoolAllowed(false); setJobPoolSharingEnabled(false); setPoolTab("mine"); return; }
-    void apiFetch<{ jobPoolSharingEnabled: boolean; jobPoolAllowed: boolean }>(`/tenants/${workspaceId}/enterprise-pools/access`).then((access) => {
+    if (!tenantId || tenant?.type !== "ENTERPRISE") { setJobPoolAllowed(false); setJobPoolSharingEnabled(false); setPoolTab("mine"); return; }
+    void apiFetch<{ jobPoolSharingEnabled: boolean; jobPoolAllowed: boolean }>(`/tenants/${tenantId}/enterprise-pools/access`).then((access) => {
       setJobPoolAllowed(access.jobPoolAllowed);
       setJobPoolSharingEnabled(access.jobPoolSharingEnabled);
-      if (!access.jobPoolAllowed) setPoolTab("mine");
-    }).catch(() => { setJobPoolAllowed(false); setJobPoolSharingEnabled(false); setPoolTab("mine"); });
-  }, [workspaceId, workspace?.type]);
+      if (enterpriseReadOnly) setPoolTab("enterprise");
+      else if (!access.jobPoolAllowed) setPoolTab("mine");
+    }).catch(() => { setJobPoolAllowed(false); setJobPoolSharingEnabled(false); if (!enterpriseReadOnly) setPoolTab("mine"); });
+  }, [tenantId, tenant?.type, enterpriseReadOnly]);
 
   useEffect(() => {
-    if (!workspaceId || poolTab !== "enterprise" || workspace?.type !== "ENTERPRISE" || !jobPoolAllowed) return;
+    if (!tenantId || poolTab !== "enterprise" || tenant?.type !== "ENTERPRISE" || !jobPoolAllowed) return;
     setEnterpriseJobsError(null);
-    void apiFetch<typeof enterpriseJobs>(`/tenants/${workspaceId}/enterprise-pools/jobs`)
+    void apiFetch<typeof enterpriseJobs>(`/tenants/${tenantId}/enterprise-pools/jobs`)
       .then(setEnterpriseJobs)
       .catch((cause) => setEnterpriseJobsError(cause instanceof Error ? cause.message : "企业职位池暂不可用"));
-  }, [workspaceId, poolTab, workspace?.type, jobPoolAllowed]);
+  }, [tenantId, poolTab, tenant?.type, jobPoolAllowed]);
 
   const loadData = useCallback(async () => {
-    if (!workspaceId) return;
+    if (!tenantId) return;
+    if (enterpriseReadOnly) { setStats(null); setJobs([]); setTotal(0); setDataLoading(false); return; }
     const requestId = ++loadRequestRef.current;
     setDataLoading(true);
     setError(null);
     try {
       const [statsRes, jobsRes] = await Promise.all([
-        fetchJobStats(workspaceId),
-        fetchJobs(workspaceId, {
+        fetchJobStats(tenantId),
+        fetchJobs(tenantId, {
           search: search || undefined,
           status: apiStatus || undefined,
           page,
@@ -226,7 +229,7 @@ export default function JobsPage() {
       setStats(statsRes);
       setJobs(jobsRes.items);
       setTotal(jobsRes.total);
-      writeJobsCache(workspaceId, {
+      writeJobsCache(tenantId, {
         stats: statsRes,
         items: jobsRes.items,
         total: jobsRes.total,
@@ -245,7 +248,7 @@ export default function JobsPage() {
     } finally {
       if (requestId === loadRequestRef.current) setDataLoading(false);
     }
-  }, [workspaceId, search, apiStatus, page, pageSize]);
+  }, [tenantId, enterpriseReadOnly, search, apiStatus, page, pageSize]);
 
   useEffect(() => {
     setDataLoading(true);
@@ -301,13 +304,13 @@ export default function JobsPage() {
   }, []);
 
   const handleViewDetail = async (job: Job) => {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     setPanelMode("view");
     setEditOpen(false);
     setEditJob(null);
     setDetailLoading(true);
     try {
-      const detail = await fetchJob(workspaceId, job.id);
+      const detail = await fetchJob(tenantId, job.id);
       setDetailJob(detail);
     } catch {
       setDetailJob(job);
@@ -329,7 +332,7 @@ export default function JobsPage() {
   };
 
   const syncJob = (saved: Job) => {
-    if (workspaceId) upsertJobInCache(workspaceId, saved);
+    if (tenantId) upsertJobInCache(tenantId, saved);
     setJobs((prev) => {
       const without = prev.filter((item) => item.id !== saved.id);
       if (apiStatus && saved.status !== apiStatus) return without;
@@ -347,16 +350,16 @@ export default function JobsPage() {
   };
 
   const handleSaveEdit = async (input: JobInput, extra?: JobUiExtra) => {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     setEditSaving(true);
     try {
       const payload: JobInput = {
         ...input,
-        companyName: input.companyName.trim() || editJob?.companyName || workspace?.name || "企业",
+        companyName: input.companyName.trim() || editJob?.companyName || tenant?.name || "企业",
       };
       const saved = editJob?.id
-        ? await updateJob(workspaceId, editJob.id, payload)
-        : await createJob(workspaceId, payload);
+        ? await updateJob(tenantId, editJob.id, payload)
+        : await createJob(tenantId, payload);
       if (extra) persistJobExtra(saved.id, extra);
       setEditOpen(false);
       setEditJob(null);
@@ -372,9 +375,9 @@ export default function JobsPage() {
   };
 
   const handleChangeStatus = async (job: Job, status: "ACTIVE" | "CLOSED") => {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     try {
-      const saved = await updateJobStatus(workspaceId, job.id, status);
+      const saved = await updateJobStatus(tenantId, job.id, status);
       syncJob(saved);
       await loadData();
     } catch (err) {
@@ -383,10 +386,10 @@ export default function JobsPage() {
   };
 
   const handleDelete = async (jobId: string) => {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     try {
-      await deleteJob(workspaceId, jobId);
-      removeJobFromCache(workspaceId, jobId);
+      await deleteJob(tenantId, jobId);
+      removeJobFromCache(tenantId, jobId);
       setDeleteConfirm(null);
       if (detailJob?.id === jobId) setDetailJob(null);
       setJobs((prev) => prev.filter((item) => item.id !== jobId));
@@ -397,10 +400,10 @@ export default function JobsPage() {
   };
 
   const handleBatchPublish = async () => {
-    if (!workspaceId || selectedIds.size === 0) return;
+    if (!tenantId || selectedIds.size === 0) return;
     setBatchBusy(true);
     try {
-      await batchUpdateStatus(workspaceId, Array.from(selectedIds), "ACTIVE");
+      await batchUpdateStatus(tenantId, Array.from(selectedIds), "ACTIVE");
       setSelectedIds(new Set());
       setBatchConfirm(null);
       await loadData();
@@ -412,10 +415,10 @@ export default function JobsPage() {
   };
 
   const handleBatchDeactivate = async () => {
-    if (!workspaceId || selectedIds.size === 0) return;
+    if (!tenantId || selectedIds.size === 0) return;
     setBatchBusy(true);
     try {
-      await batchUpdateStatus(workspaceId, Array.from(selectedIds), "CLOSED");
+      await batchUpdateStatus(tenantId, Array.from(selectedIds), "CLOSED");
       setSelectedIds(new Set());
       setBatchConfirm(null);
       await loadData();
@@ -427,12 +430,12 @@ export default function JobsPage() {
   };
 
   const handleBatchDelete = async () => {
-    if (!workspaceId || selectedIds.size === 0) return;
+    if (!tenantId || selectedIds.size === 0) return;
     setBatchBusy(true);
     try {
       const ids = Array.from(selectedIds);
-      await batchDelete(workspaceId, ids);
-      ids.forEach((id) => removeJobFromCache(workspaceId, id));
+      await batchDelete(tenantId, ids);
+      ids.forEach((id) => removeJobFromCache(tenantId, id));
       setSelectedIds(new Set());
       if (detailJob && ids.includes(detailJob.id)) setDetailJob(null);
       setBatchConfirm(null);
@@ -523,19 +526,19 @@ export default function JobsPage() {
     );
   }
 
-  if (wsError && !workspaceId) {
+  if (wsError && !tenantId) {
     return (
       <AppShell activeItem="职位库">
         <div className="flex h-64 flex-col items-center justify-center gap-3">
           <AlertCircle size={40} className="text-[#dc2626]" />
           <p className="text-sm text-[#55709d]">加载工作空间失败：{wsError}</p>
-          <button className="primary-button" type="button" onClick={refreshWorkspace}>重新加载</button>
+          <button className="primary-button" type="button" onClick={refreshTenant}>重新加载</button>
         </div>
       </AppShell>
     );
   }
 
-  if (notAuthenticated || !workspaceId) {
+  if (notAuthenticated || !tenantId) {
     return (
       <AppShell activeItem="职位库">
         <div className="flex h-64 flex-col items-center justify-center gap-3">
@@ -554,21 +557,21 @@ export default function JobsPage() {
         <div className="flex items-baseline gap-4">
           <h1 className="m-0 text-[25px] font-bold tracking-tight text-[#09245d]">职位库</h1>
           <p className="m-0 text-sm text-[#55709d]">
-            {workspace?.name ?? "当前工作空间"} · 管理和搜索企业职位信息
+            {tenant?.name ?? "当前工作空间"} · 管理和搜索企业职位信息
           </p>
         </div>
       </section>
     }>
 
-      {workspace?.type === "ENTERPRISE" && (
+      {tenant?.type === "ENTERPRISE" && (
         <div className="mb-4 flex gap-2 border-b border-[#d6e5f5]">
-          <button type="button" className={`border-b-2 px-4 py-2 text-sm font-semibold ${poolTab === "mine" ? "border-[#0874e8] text-[#0874e8]" : "border-transparent text-[#6b80a4]"}`} onClick={() => setPoolTab("mine")}>我的职位</button>
+          {!enterpriseReadOnly && <button type="button" className={`border-b-2 px-4 py-2 text-sm font-semibold ${poolTab === "mine" ? "border-[#0874e8] text-[#0874e8]" : "border-transparent text-[#6b80a4]"}`} onClick={() => setPoolTab("mine")}>我的职位</button>}
           {jobPoolAllowed && <button type="button" className={`border-b-2 px-4 py-2 text-sm font-semibold ${poolTab === "enterprise" ? "border-[#0874e8] text-[#0874e8]" : "border-transparent text-[#6b80a4]"}`} onClick={() => setPoolTab("enterprise")}>企业职位池</button>}
         </div>
       )}
-      {poolTab === "enterprise" && workspace?.type === "ENTERPRISE" ? (
+      {poolTab === "enterprise" && tenant?.type === "ENTERPRISE" ? (
         <section className="rounded-xl border border-[#d6e5f5] bg-white p-4 shadow-[0_6px_20px_rgba(30,92,160,0.04)]">
-          <div className="mb-4 flex items-center justify-between"><div><h2 className="m-0 text-lg font-bold text-[#173568]">企业职位池</h2><p className="m-0 mt-1 text-xs text-[#6b80a4]">企业成员同步的只读职位副本。</p></div><div className="flex gap-2"><button type="button" className="outline-button" onClick={async () => { if (!workspaceId) return; try { const blob = await apiDownload(`/tenants/${workspaceId}/enterprise-pools/jobs/export`); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "enterprise-job-pool.csv"; link.click(); URL.revokeObjectURL(url); } catch { setEnterpriseJobsError("导出权限不足"); } }}>导出 CSV</button></div></div>
+          <div className="mb-4 flex items-center justify-between"><div><h2 className="m-0 text-lg font-bold text-[#173568]">企业职位池</h2><p className="m-0 mt-1 text-xs text-[#6b80a4]">企业成员同步的只读职位副本。</p></div><div className="flex gap-2"><button type="button" className="outline-button" onClick={async () => { if (!tenantId) return; try { const blob = await apiDownload(`/tenants/${tenantId}/enterprise-pools/jobs/export`); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "enterprise-job-pool.csv"; link.click(); URL.revokeObjectURL(url); } catch { setEnterpriseJobsError("导出权限不足"); } }}>导出 CSV</button></div></div>
           {enterpriseJobsError && <p className="rounded bg-[#fff5f5] p-3 text-sm text-[#dc2626]">{enterpriseJobsError}</p>}
           {enterpriseJobs.length === 0 ? <p className="py-12 text-center text-sm text-[#6b80a4]">暂无企业职位副本</p> : <div className="overflow-x-auto"><table className="w-full text-left text-xs text-[#36527f]"><thead><tr className="border-b border-[#eaf1fa]"><th className="px-3 py-3">职位名称</th><th className="px-3 py-3">来源成员</th><th className="px-3 py-3">最近同步</th></tr></thead><tbody>{enterpriseJobs.map((job) => { let snapshot: Record<string, string> = {}; try { snapshot = JSON.parse(job.snapshotJson) as Record<string, string>; } catch { /* 服务端快照异常时保持只读空值 */ } return <tr key={job.copyId} className="border-b border-[#eaf1fa]"><td className="px-3 py-3 font-semibold">{snapshot.title || job.sourceJobId}</td><td className="px-3 py-3">{job.sourceOwnerUserId}</td><td className="px-3 py-3">{formatDate(job.synchronizedAt)}</td></tr>; })}</tbody></table></div>}
         </section>
@@ -640,7 +643,7 @@ export default function JobsPage() {
                 <button className="primary-button !h-10" type="button" onClick={() => handleOpenEdit()}>
                   <Plus size={16} /> 新建职位
                 </button>
-                {workspace?.type === "ENTERPRISE" && jobPoolSharingEnabled && workspace?.status !== "EXPIRED_READONLY" && <button className="outline-button !h-10" type="button" onClick={() => { if (workspaceId) void apiFetch(`/tenants/${workspaceId}/enterprise-pools/jobs/sync`, { method: "POST" }).catch((cause) => setError(cause instanceof Error ? cause.message : "同步失败")); }}>同步至企业池</button>}
+                {tenant?.type === "ENTERPRISE" && jobPoolSharingEnabled && tenant?.status !== "EXPIRED_READONLY" && <button className="outline-button !h-10" type="button" onClick={() => { if (tenantId) void apiFetch(`/tenants/${tenantId}/enterprise-pools/jobs/sync`, { method: "POST" }).catch((cause) => setError(cause instanceof Error ? cause.message : "同步失败")); }}>同步至企业池</button>}
 
                 <div className="relative" ref={batchMenuRef}>
                   <button
@@ -963,7 +966,7 @@ export default function JobsPage() {
       {editOpen && (
         <JobEditModal
           job={editJob}
-          defaultCompanyName={workspace?.name ?? ""}
+          defaultCompanyName={tenant?.name ?? ""}
           saving={editSaving}
           onSave={(input, extra) => void handleSaveEdit(input, extra)}
           onClose={() => { setEditOpen(false); setEditJob(null); }}

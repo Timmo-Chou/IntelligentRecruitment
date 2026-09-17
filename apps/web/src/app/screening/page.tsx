@@ -1,7 +1,7 @@
 "use client";
 
-import { ScreeningWorkspace } from "@/components/screening/screening-workspace";
+import { ScreeningTenant } from "@/components/screening/screening-tenant";
 
 export default function ScreeningPage() {
-  return <ScreeningWorkspace />;
+  return <ScreeningTenant />;
 }

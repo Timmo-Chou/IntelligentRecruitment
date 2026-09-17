@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
-import { WorkspaceProvider } from "@/lib/workspace-context";
+import { TenantProvider } from "@/lib/tenant-context";
 
 export function AppProviders({ children }: { children: ReactNode }) {
   const [queryClient] = useState(
@@ -17,7 +17,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <WorkspaceProvider>{children}</WorkspaceProvider>
+      <TenantProvider>{children}</TenantProvider>
     </QueryClientProvider>
   );
 }

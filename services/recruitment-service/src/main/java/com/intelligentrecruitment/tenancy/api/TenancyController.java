@@ -73,6 +73,8 @@ public class TenancyController {
     @GetMapping("/{tenantId}/invitations") JsonNode invitations(@PathVariable UUID tenantId, Authentication a) { return boss.enterpriseInvitations(token(a), tenantId); }
     @GetMapping("/{tenantId}/join-applications") JsonNode applications(@PathVariable UUID tenantId, Authentication a) { return boss.enterpriseJoinApplications(token(a), tenantId); }
     @GetMapping("/{tenantId}/billing") JsonNode billing(@PathVariable UUID tenantId, Authentication a) { return boss.enterpriseBilling(token(a), tenantId); }
+    @GetMapping("/{tenantId}/my-credit-consumptions") JsonNode myCreditConsumptions(@PathVariable UUID tenantId, Authentication a) { return boss.myCreditConsumptions(token(a), tenantId); }
+    @GetMapping("/{tenantId}/credit-consumptions") JsonNode enterpriseCreditConsumptions(@PathVariable UUID tenantId, Authentication a) { return boss.enterpriseCreditConsumptions(token(a), tenantId); }
     @GetMapping("/{tenantId}/roles") JsonNode roles(@PathVariable UUID tenantId, Authentication a) { return boss.enterpriseRoles(token(a), tenantId); }
     @GetMapping("/{tenantId}/permission-catalog") JsonNode permissionCatalog(@PathVariable UUID tenantId, Authentication a) { return boss.permissionCatalog(token(a), tenantId); }
 

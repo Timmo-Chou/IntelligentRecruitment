@@ -1,61 +1,74 @@
 "use client";
 
 // 管理后台认证上下文
-// 管理员的认证密钥存储在 localStorage 中，通过 X-Platform-Admin-Key 请求头传递
+// 管理员通过用户名密码登录获取 access_token，存储在 localStorage 中
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { getAccessToken, setAccessToken } from "./admin-api-client";
+
+export type AdminInfo = {
+  adminId: string;
+  displayName: string;
+  role: "SUPER_ADMIN" | "ADMIN" | "OPERATOR";
+  permissions: string[];
+};
 
 type AdminAuthContextValue = {
-  /** 管理员密钥 */
-  adminKey: string | null;
+  /** 管理员信息 */
+  admin: AdminInfo | null;
   /** 是否已认证 */
   isAuthenticated: boolean;
-  /** 登录：保存密钥并标记已认证 */
-  login: (key: string) => void;
-  /** 登出：清除密钥 */
+  /** 登录：保存 token 和管理员信息 */
+  login: (token: string, admin: AdminInfo) => void;
+  /** 登出：清除 token */
   logout: () => void;
 };
 
 const AdminAuthContext = createContext<AdminAuthContextValue>({
-  adminKey: null,
+  admin: null,
   isAuthenticated: false,
   login: () => {},
   logout: () => {},
 });
 
-/** 在组件中使用管理员认证状态 */
 export function useAdminAuth() {
   return useContext(AdminAuthContext);
 }
 
-const STORAGE_KEY = "admin-key";
+const ADMIN_INFO_KEY = "admin-info";
 
 export function AdminAuthProvider({ children }: { children: ReactNode }) {
-  const [adminKey, setAdminKey] = useState<string | null>(null);
+  const [admin, setAdmin] = useState<AdminInfo | null>(null);
 
-  // 组件挂载时，检查 localStorage 中是否有已保存的密钥
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      setAdminKey(saved);
+    const token = getAccessToken();
+    const saved = localStorage.getItem(ADMIN_INFO_KEY);
+    if (token && saved) {
+      try {
+        setAdmin(JSON.parse(saved));
+      } catch {
+        setAccessToken(null);
+      }
     }
   }, []);
 
-  const login = useCallback((key: string) => {
-    localStorage.setItem(STORAGE_KEY, key);
-    setAdminKey(key);
+  const login = useCallback((token: string, adminInfo: AdminInfo) => {
+    setAccessToken(token);
+    localStorage.setItem(ADMIN_INFO_KEY, JSON.stringify(adminInfo));
+    setAdmin(adminInfo);
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
-    setAdminKey(null);
+    setAccessToken(null);
+    localStorage.removeItem(ADMIN_INFO_KEY);
+    setAdmin(null);
   }, []);
 
   return (
     <AdminAuthContext.Provider
       value={{
-        adminKey,
-        isAuthenticated: adminKey !== null,
+        admin,
+        isAuthenticated: admin !== null,
         login,
         logout,
       }}

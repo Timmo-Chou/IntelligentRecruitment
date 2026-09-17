@@ -3,17 +3,5 @@ logging:
     com.intelligentrecruitment: INFO
 app:
   auth:
-    # 本地默认展示测试验证码；通过 .env 的 EXPOSE_MOCK_CODE 可切换。
-    expose-mock-code: ${EXPOSE_MOCK_CODE:true}
     secure-cookie: false
-    verification-code:
-      # 本地默认使用测试验证码；通过 .env 的 VERIFICATION_CODE_PROVIDER=aliyun 切换为阿里云短信。
-      provider: ${VERIFICATION_CODE_PROVIDER:local}
   platform-admin-key: ${PLATFORM_ADMIN_KEY:phase2-local-admin}
-  phase3:
-    # 留出可观察的异步状态和 SSE 断线重连窗口。
-    worker-delta-delay-ms: ${JD_WORKER_DELTA_DELAY_MS:500}
-    worker-completion-delay-ms: ${JD_WORKER_COMPLETION_DELAY_MS:800}
-  phase5:
-    # 为本地演示保留可观察的进度与取消窗口；生产默认不增加人工延迟。
-    worker-item-delay-ms: ${SCREENING_WORKER_ITEM_DELAY_MS:500}

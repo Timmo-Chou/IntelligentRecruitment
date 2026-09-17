@@ -1,17 +1,17 @@
 "use client";
 
-import { Bell, Bot, BriefcaseBusiness, ChevronRight, LayoutDashboard, Library, MoreHorizontal, Pencil, Plus, Settings, Sparkles, Trash2, Users, Building2 } from "lucide-react";
+import { Bell, Bot, BriefcaseBusiness, ChevronRight, LayoutDashboard, Library, MoreHorizontal, Pencil, Plus, Settings, Sparkles, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import React, { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api-client";
 import { SessionSummary } from "./session-summary";
-import { useWorkspace } from "@/lib/workspace-context";
+import { useTenant } from "@/lib/tenant-context";
 import { deleteTask, fetchTasks, renameTask, type TaskSummary } from "@/lib/recruitment-api";
 import { AIChatDialog } from "../ai-assistant/ai-chat-dialog";
 
-const baseNavItems = [
+const navItems = [
   ["概览", LayoutDashboard, "/"], ["智能招聘", Sparkles, "/recruitment"],
   ["职位库", BriefcaseBusiness, "/jobs"], ["人才库", Users, "/candidates"], ["面试题库", Library, "/interviews"], ["设置", Settings, "/settings"],
 ] as const;
@@ -30,7 +30,7 @@ function NotificationBell() {
 }
 
 function RecruitmentTaskMenu({ visible }: { visible: boolean }) {
-  const { workspaceId } = useWorkspace();
+  const { tenantId } = useTenant();
   const searchParams = useSearchParams();
   const router = useRouter();
   const selectedTaskId = searchParams.get("task");
@@ -52,12 +52,12 @@ function RecruitmentTaskMenu({ visible }: { visible: boolean }) {
     return window.localStorage.getItem("task-history-collapsed") === "true";
   });
   useEffect(() => {
-    if (!visible || !workspaceId) return;
-    const load = () => { void fetchTasks(workspaceId).then(setTasks).catch(() => setTasks([])); };
+    if (!visible || !tenantId) return;
+    const load = () => { void fetchTasks(tenantId).then(setTasks).catch(() => setTasks([])); };
     load();
     window.addEventListener("recruitment-tasks-changed", load);
     return () => window.removeEventListener("recruitment-tasks-changed", load);
-  }, [visible, workspaceId]);
+  }, [visible, tenantId]);
   // 保存折叠状态到localStorage
   const toggleCollapse = () => {
     const next = !collapsed;
@@ -101,11 +101,11 @@ function RecruitmentTaskMenu({ visible }: { visible: boolean }) {
     setDeletingTask(task);
   };
   const submitRename = async () => {
-    if (!workspaceId || !renamingTask || !title.trim()) return;
+    if (!tenantId || !renamingTask || !title.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      const updated = await renameTask(workspaceId, renamingTask.id, title.trim());
+      const updated = await renameTask(tenantId, renamingTask.id, title.trim());
       setTasks(current => current.map(task => task.id === updated.id ? updated : task));
       window.dispatchEvent(new Event("recruitment-tasks-changed"));
       setRenamingTask(null);
@@ -114,11 +114,11 @@ function RecruitmentTaskMenu({ visible }: { visible: boolean }) {
     } finally { setBusy(false); }
   };
   const confirmDelete = async () => {
-    if (!workspaceId || !deletingTask) return;
+    if (!tenantId || !deletingTask) return;
     setBusy(true);
     setError(null);
     try {
-      await deleteTask(workspaceId, deletingTask.id);
+      await deleteTask(tenantId, deletingTask.id);
       const wasSelected = selectedTaskId === deletingTask.id;
       setTasks(current => current.filter(task => task.id !== deletingTask.id));
       window.dispatchEvent(new Event("recruitment-tasks-changed"));
@@ -187,28 +187,20 @@ function TaskDialog({ title, busy, error, onClose, children }: { title: string; 
 
 export function AppShell({ children, activeItem = "概览", pageHeader }: { children: ReactNode; activeItem?: string; pageHeader?: ReactNode }) {
   const router=useRouter(); const pathname=usePathname();
-  const { workspace, loading } = useWorkspace();
-  const trialExpiredNoContract = workspace?.type === "ENTERPRISE" && workspace.status === "TRIAL_EXPIRED_NO_CONTRACT";
-  const restrictedTrialPage = trialExpiredNoContract && pathname !== "/enterprise-management";
+  const { tenantId, loading: tenantLoading, notAuthenticated } = useTenant();
   // AI咨询助手开关
   const [aiOpen, setAiOpen] = useState(false);
-  useEffect(()=>{if(pathname==="/onboarding"||pathname==="/login"||loading)return; if(!workspace)router.replace("/onboarding");},[pathname,router,loading,workspace]);
-  // An enterprise Owner has organization visibility without automatically having a paid seat.
-  // Until the Owner grants themselves a seat, seat-gated recruitment modules stay hidden.
-  // Treat an omitted field as legacy test/SSR context; BOSS always returns an
-  // explicit boolean for live sessions, where false hides seat-gated modules.
-  const seatGatedNav = workspace?.type === "PERSONAL" || workspace?.seatAssigned !== false;
-  const visibleBaseNav = seatGatedNav ? baseNavItems : [baseNavItems[0], baseNavItems[5]] as const;
-  const navItems = trialExpiredNoContract && workspace?.owner
-    ? [["企业管理", Building2, "/enterprise-management"], baseNavItems[5]] as const
-    : workspace?.type === "ENTERPRISE" && workspace.owner
-    ? seatGatedNav
-      ? [...baseNavItems.slice(0, 5), ["企业管理", Building2, "/enterprise-management"], baseNavItems[5]] as const
-      : [baseNavItems[0], ["企业管理", Building2, "/enterprise-management"], baseNavItems[5]] as const
-    : visibleBaseNav;
+  useEffect(() => {
+    if (pathname === "/onboarding" || pathname === "/login" || tenantLoading) return;
+    if (notAuthenticated) {
+      router.replace("/login");
+    } else if (!tenantId) {
+      router.replace("/onboarding");
+    }
+  }, [pathname, router, tenantId, tenantLoading, notAuthenticated]);
   return <div className="min-h-screen bg-[#f7fbff] text-[#10285b]">
     <header className="app-header sticky top-0 z-40 flex h-[66px] items-center justify-between border-b border-[#dbe9f8] bg-white px-6 lg:px-8">
-      <div className="flex items-center gap-3 text-[21px] font-bold tracking-tight text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>iFoundX 智能招聘工作台</div>
+      <div className="flex items-center gap-3 text-[21px] font-bold tracking-tight text-[#09245d]"><span className="brand-mark" aria-hidden="true"><i/><i/></span>漫舟·昭语 智能招聘工作台</div>
       <div className="flex items-center gap-2">
         <NotificationBell />
         <SessionSummary/>
@@ -253,7 +245,7 @@ export function AppShell({ children, activeItem = "概览", pageHeader }: { chil
             {pageHeader}
           </div>
         )}
-        <div className="px-4 py-4 sm:px-5 xl:px-6">{restrictedTrialPage ? <section className="mx-auto mt-10 max-w-xl rounded-2xl border border-[#dbe9f8] bg-white p-7 text-center shadow-sm"><h1 className="m-0 text-xl font-bold text-[#173568]">试用已到期</h1><p className="mt-3 text-sm leading-6 text-[#60799f]">当前企业尚未开通正式套餐，招聘业务、AI、成员管理和企业共享池已停止使用。请联系商务或查看企业资料与合同订单状态。</p>{workspace.owner && <Link className="primary-button mt-5 inline-flex" href="/enterprise-management">进入企业管理</Link>}</section> : children}</div>
+        <div className="px-4 py-4 sm:px-5 xl:px-6">{children}</div>
       </main>
     </div>
     {/* AI咨询助手对话弹窗 */}

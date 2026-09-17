@@ -5,7 +5,6 @@ import com.intelligentrecruitment.aiplatform.domain.AiCapability;
 import java.util.Map;
 
 public record StartAiTaskCommand(
-        String workspaceId,
         String tenantId,
         String actorId,
         String businessTaskId,

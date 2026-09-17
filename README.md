@@ -1,6 +1,6 @@
 # Intelligent Recruitment
 
-AI 智能招聘 MVP。当前已完成工程、身份、Company/Workspace 租户权限、账本，以及 JD、人才库、简历筛选、简历解析和面试题库的业务闭环。JD 与简历解析通过事务性 Outbox 进入 Worker，前端使用可恢复的 SSE/轮询展示进度。运行时 AI 能力统一调用 DeepSeek；模型不可用或输出不合约时任务明确失败并支持重试，详见 [AI 运行现状与 Mock 退役方案](docs/architecture/ai-runtime-and-mock-retirement.md)。
+AI 智能招聘 MVP。当前已完成工程、身份、Tenant 租户权限、账本，以及 JD、人才库、简历筛选、简历解析和面试题库的业务闭环。JD 与简历解析通过事务性 Outbox 进入 Worker，前端使用可恢复的 SSE/轮询展示进度。运行时 AI 能力统一经 BOSS 授权后调用 AIAgentPlatform；模型不可用或输出不合约时任务明确失败并支持重试，详见 [AI 运行现状与 Mock 退役方案](docs/architecture/ai-runtime-and-mock-retirement.md)。
 
 ## 目录
 
@@ -44,14 +44,9 @@ cd services/recruitment-service
 - 健康检查：`GET http://localhost:8080/actuator/health`
 - 系统探针：`GET http://localhost:8080/api/v1/system/ping`
 - 本地异步链路探针：`POST /api/v1/internal/foundation/probes`
-- Phase 2 本地 Mock 验证码：`123456`（仅 `local` Profile 会在验证码响应中返回）。
 - Phase 2 本地平台审核 Key：`phase2-local-admin`，通过 `X-Platform-Admin-Key` 请求头传递。
 
-### 阿里云短信验证码
-
-默认使用本地通道：`VERIFICATION_CODE_PROVIDER=local`，验证码为 `123456`，且仅在 `EXPOSE_MOCK_CODE=true` 时随挑战接口响应返回。
-
-正式环境设为 `VERIFICATION_CODE_PROVIDER=aliyun`，并通过环境变量注入 `ALIYUN_SMS_ACCESS_KEY_ID`、`ALIYUN_SMS_ACCESS_KEY_SECRET`、`ALIYUN_SMS_SIGN_NAME`、`ALIYUN_SMS_TEMPLATE_CODE`。模板必须使用 `code` 变量，例如“您的验证码是${code}，5分钟内有效”。正式通道由后端随机生成六码验证码，调用阿里云国内短信 `SendSms`，不会向浏览器返回明文验证码。
+验证码由 BOSS 统一提供和校验，招聘服务仅转发认证请求，不在自身 Profile 或环境变量中配置验证码服务商。
 
 异步链路探针只在 `local/test` Profile 开放，用于验证 PostgreSQL → RabbitMQ → Worker → PostgreSQL。
 

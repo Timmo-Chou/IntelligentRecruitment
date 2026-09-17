@@ -9,7 +9,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { ApiError } from "@/lib/api-client";
 import { uploadResume } from "@/lib/candidate-api";
-import { useWorkspace } from "@/lib/workspace-context";
+import { useTenant } from "@/lib/tenant-context";
 
 type ImportChannel = "excel" | "csv" | "resume";
 type StepId = "upload" | "mapping" | "validate" | "duplicate" | "parse" | "profile" | "done";
@@ -42,15 +42,15 @@ const FIELD_OPTIONS = ["姓名", "手机号", "邮箱", "当前公司", "当前�
 export default function ImportTalentPage() {
   return (
     <Suspense fallback={<AppShell activeItem="人才库"><div className="grid h-64 place-items-center text-sm text-[#7085a4]">加载中...</div></AppShell>}>
-      <ImportTalentWorkspace />
+      <ImportTalentTenant />
     </Suspense>
   );
 }
 
-function ImportTalentWorkspace() {
+function ImportTalentTenant() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { workspaceId, loading: wsLoading, notAuthenticated } = useWorkspace();
+  const { tenantId, loading: wsLoading, notAuthenticated } = useTenant();
   const formatParam = (searchParams.get("format") || "pdf").toLowerCase() as ImportFormat;
   const initialChannel = FORMAT_CHANNELS[formatParam] ?? "resume";
 
@@ -126,7 +126,7 @@ function ImportTalentWorkspace() {
   }
 
   async function runPipeline() {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -143,7 +143,7 @@ function ImportTalentWorkspace() {
         let failed = 0;
         for (const file of files) {
           try {
-            await uploadResume(workspaceId, file);
+            await uploadResume(tenantId, file);
             ok += 1;
           } catch {
             failed += 1;

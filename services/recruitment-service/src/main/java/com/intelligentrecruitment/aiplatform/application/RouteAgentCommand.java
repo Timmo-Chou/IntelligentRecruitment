@@ -7,7 +7,6 @@ import java.util.List;
 public record RouteAgentCommand(
         String requestId,
         String traceId,
-        String workspaceId,
         String tenantId,
         String actorId,
         String businessTaskId,

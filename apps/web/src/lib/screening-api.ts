@@ -34,36 +34,36 @@ export const defaultScreeningDimensions: ScreeningDimension[] = [
   { name: "求职动机", weight: 10, description: "岗位意愿和发展匹配", required: false, exclusionRule: "", missingPolicy: "NEGOTIABLE" },
 ];
 
-export function fetchScreeningPlans(workspaceId: string, recruitmentTaskId?: string) {
+export function fetchScreeningPlans(tenantId: string, recruitmentTaskId?: string) {
   const query = recruitmentTaskId ? `?recruitmentTaskId=${encodeURIComponent(recruitmentTaskId)}` : "";
-  return apiFetch<ScreeningPlan[]>(`/tenants/${workspaceId}/screening-plans${query}`);
+  return apiFetch<ScreeningPlan[]>(`/tenants/${tenantId}/screening-plans${query}`);
 }
-export function createScreeningPlan(workspaceId: string, input: { jobId: string; name: string; dimensions: ScreeningDimension[]; recruitmentTaskId?: string }) {
-  return apiFetch<ScreeningPlan>(`/tenants/${workspaceId}/screening-plans`, { method: "POST", body: JSON.stringify(input) });
+export function createScreeningPlan(tenantId: string, input: { jobId: string; name: string; dimensions: ScreeningDimension[]; recruitmentTaskId?: string }) {
+  return apiFetch<ScreeningPlan>(`/tenants/${tenantId}/screening-plans`, { method: "POST", body: JSON.stringify(input) });
 }
-export function updateScreeningPlan(workspaceId: string, planId: string, dimensions: ScreeningDimension[], jobId?: string) {
-  return apiFetch<ScreeningPlan>(`/tenants/${workspaceId}/screening-plans/${planId}`, { method: "PUT", body: JSON.stringify({ dimensions, jobId }) });
+export function updateScreeningPlan(tenantId: string, planId: string, dimensions: ScreeningDimension[], jobId?: string) {
+  return apiFetch<ScreeningPlan>(`/tenants/${tenantId}/screening-plans/${planId}`, { method: "PUT", body: JSON.stringify({ dimensions, jobId }) });
 }
-export function fetchScreeningRuns(workspaceId: string, recruitmentTaskId?: string) {
+export function fetchScreeningRuns(tenantId: string, recruitmentTaskId?: string) {
   const query = recruitmentTaskId ? `?recruitmentTaskId=${encodeURIComponent(recruitmentTaskId)}` : "";
-  return apiFetch<ScreeningRunSummary[]>(`/tenants/${workspaceId}/screening-runs${query}`);
+  return apiFetch<ScreeningRunSummary[]>(`/tenants/${tenantId}/screening-runs${query}`);
 }
-export function fetchScreeningRun(workspaceId: string, runId: string) {
-  return apiFetch<ScreeningRun>(`/tenants/${workspaceId}/screening-runs/${runId}`);
+export function fetchScreeningRun(tenantId: string, runId: string) {
+  return apiFetch<ScreeningRun>(`/tenants/${tenantId}/screening-runs/${runId}`);
 }
-export function startScreeningRun(workspaceId: string, planId: string, candidateIds: string[], idempotencyKey: string) {
-  return apiFetch<ScreeningRun>(`/tenants/${workspaceId}/screening-runs`, {
+export function startScreeningRun(tenantId: string, planId: string, candidateIds: string[], idempotencyKey: string) {
+  return apiFetch<ScreeningRun>(`/tenants/${tenantId}/screening-runs`, {
     method: "POST", headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({ planId, candidateIds }),
   });
 }
-export function cancelScreeningRun(workspaceId: string, runId: string, idempotencyKey: string) {
-  return apiFetch<ScreeningRun>(`/tenants/${workspaceId}/screening-runs/${runId}/cancel`, {
+export function cancelScreeningRun(tenantId: string, runId: string, idempotencyKey: string) {
+  return apiFetch<ScreeningRun>(`/tenants/${tenantId}/screening-runs/${runId}/cancel`, {
     method: "POST", headers: { "Idempotency-Key": idempotencyKey },
   });
 }
-export function retryFailedScreening(workspaceId: string, runId: string, idempotencyKey: string) {
-  return apiFetch<ScreeningRun>(`/tenants/${workspaceId}/screening-runs/${runId}/retry-failed`, {
+export function retryFailedScreening(tenantId: string, runId: string, idempotencyKey: string) {
+  return apiFetch<ScreeningRun>(`/tenants/${tenantId}/screening-runs/${runId}/retry-failed`, {
     method: "POST", headers: { "Idempotency-Key": idempotencyKey },
   });
 }

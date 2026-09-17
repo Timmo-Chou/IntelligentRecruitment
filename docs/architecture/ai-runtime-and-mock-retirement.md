@@ -1,31 +1,24 @@
-# AI 运行现状与 Mock 退役方案
+# AI 运行边界与 Mock 退役方案
 
-状态：**已完成运行时 Mock 退役**
+状态：**已完成运行时 Mock 退役及直连模型路径收敛**
 更新时间：2026-09-03
 
 ## 运行时边界
 
-所有 `AiPlatformClient` 业务能力统一由 `DeepSeekAiPlatformClient` 实现，不再存在 `mock` 模式、`MockAiPlatformClient` 或运行时模拟场景。
+招聘服务的所有 `AiPlatformClient` 能力统一通过 `HttpAiPlatformClient` 调用 AIAgentPlatform；招聘服务不保留模型直连、能力回退或本地生成降级路径。BOSS 负责 Tenant 权益、授权、积分预占与结算，AIAgentPlatform 负责模型执行和用量回传。
 
-本地开发需配置：
-
-```text
-DEEPSEEK_API_KEY=由本地环境注入
-DEEPSEEK_ALLOW_EXTERNAL_DATA=true
-```
-
-密钥不得提交到仓库、前端、日志或任务输入。`DEEPSEEK_ALLOW_EXTERNAL_DATA=false` 会拒绝发送 JD、简历或人才数据。
+模型供应商及模型标识由 AIAgentPlatform 配置，招聘服务仅配置其内部地址和 BOSS 内部服务凭据。模型密钥不得提交到招聘服务仓库、前端、日志或任务输入。
 
 ## 能力处理语义
 
 | 功能 | 正常路径 | 失败处理 |
 |---|---|---|
-| JD 生成 | DeepSeek JSON/流式结果 | AI run 失败，可重试，不保存本地 JD。 |
-| 智能招聘简历解析 | DeepSeek JSON Markdown | AI run 失败，可重试，不保存本地摘要。 |
-| 人才库上传与重试解析 | 上传后调用 DeepSeek，成功写入解析版本 | 保留候选人与原文件，状态为 `PARSE_FAILED`，可重试。 |
-| 简历筛选 | DeepSeek JSON | 单个候选人失败；只对成功项目结算。 |
-| 面试出题 | DeepSeek JSON | 不创建题包，调用方将本次任务标记失败。 |
-| 招聘对话、意图路由、JD 改写、咨询助手 | DeepSeek | 返回明确的模型不可用错误，不使用本地话术伪装成功。 |
+| JD 生成 | AIAgentPlatform 执行已授权的模型调用 | AI run 失败，可重试，不保存本地 JD。 |
+| 智能招聘简历解析 | AIAgentPlatform 执行已授权的模型调用 | AI run 失败，可重试，不保存本地摘要。 |
+| 人才库上传与重试解析 | AIAgentPlatform 执行已授权的模型调用 | 保留候选人与原文件，状态为 `PARSE_FAILED`，可重试。 |
+| 简历筛选 | AIAgentPlatform 执行已授权的模型调用 | 单个候选人失败；只对成功项目结算。 |
+| 面试出题 | AIAgentPlatform 执行已授权的模型调用 | 不创建题包，调用方将本次任务标记失败。 |
+| 招聘对话、意图路由、JD 改写、咨询助手 | AIAgentPlatform 执行已授权的模型调用 | 返回明确的模型不可用错误，不使用本地话术伪装成功。 |
 
 `scenario` 不再暴露在 JD、人才解析和筛选 API 或前端。契约测试可以使用 HTTP Stub，但测试替身不得进入生产运行时路径。
 
@@ -37,6 +30,6 @@ DEEPSEEK_ALLOW_EXTERNAL_DATA=true
 
 ## 本地开发限制
 
-当前 DeepSeek 适配器以进程内任务表跟踪异步调用；服务重启期间正在执行的请求需要由用户重试。进入生产前应将供应商任务状态、重试、用量、延迟与成本持久化，并补充限流、超时和告警。
+AIAgentPlatform 当前以任务协议跟踪异步调用；服务重启期间正在执行的请求需要由用户重试。进入生产前应将供应商任务状态、重试、用量、延迟与成本持久化，并补充限流、超时和告警。
 
 简历、JD 和人才档案可能包含个人信息。即使仅在本地开发，也应只使用获授权的测试数据，并在使用真实数据前完成数据处理告知、最小化传输、供应商协议和访问审计。

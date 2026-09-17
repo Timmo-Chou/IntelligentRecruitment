@@ -1,154 +1,115 @@
 "use client";
 
-// 管理员详情/编辑页面
+// 管理员权限配置页面
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { useState } from "react";
 import { adminApiFetch } from "@/lib/admin-api-client";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 
-type AdminDetail = {
-  adminId: string;
-  displayName: string;
-  role: string;
-  status: string;
-  createdAt: string;
-};
+// 后端权限目录中的 admin 端权限码
+const allPermissions = [
+  { code: "ADMIN_REVIEW_VIEW", label: "查看审核中心" },
+  { code: "ADMIN_REVIEW_EDIT", label: "编辑审核中心" },
+  { code: "ADMIN_PRODUCT_VIEW", label: "查看产品运营" },
+  { code: "ADMIN_PRODUCT_EDIT", label: "编辑产品运营" },
+  { code: "ADMIN_ORDER_VIEW", label: "查看订单管理" },
+  { code: "ADMIN_ORDER_EDIT", label: "编辑订单管理" },
+  { code: "ADMIN_ENTITLEMENT_VIEW", label: "查看权益与权限" },
+  { code: "ADMIN_ENTITLEMENT_EDIT", label: "编辑权益与权限" },
+  { code: "ADMIN_BILLING_VIEW", label: "查看账本调整" },
+  { code: "ADMIN_BILLING_EDIT", label: "编辑账本调整" },
+  { code: "ADMIN_USER_VIEW", label: "查看用户管理" },
+  { code: "ADMIN_USER_EDIT", label: "编辑用户管理" },
+  { code: "ADMIN_TENANT_VIEW", label: "查看企业管理" },
+  { code: "ADMIN_TENANT_EDIT", label: "编辑企业管理" },
+  { code: "ADMIN_TICKET_VIEW", label: "查看工单管理" },
+  { code: "ADMIN_TICKET_EDIT", label: "编辑工单管理" },
+  { code: "ADMIN_RECHARGE_VIEW", label: "查看收款账户" },
+  { code: "ADMIN_RECHARGE_EDIT", label: "编辑收款账户" },
+  { code: "ADMIN_MENU_VIEW", label: "查看菜单设置" },
+  { code: "ADMIN_MENU_EDIT", label: "编辑菜单设置" },
+  { code: "ADMIN_ADMIN_VIEW", label: "查看管理员管理" },
+  { code: "ADMIN_ADMIN_EDIT", label: "编辑管理员管理" },
+];
 
-const editSchema = z.object({
-  role: z.string().min(1, "请选择角色"),
-  status: z.string().min(1, "请选择状态"),
-});
-
-type EditForm = z.infer<typeof editSchema>;
-
-export default function AdminDetailPage() {
+export default function AdminPermissionsPage() {
   const params = useParams();
   const router = useRouter();
   const queryClient = useQueryClient();
   const adminId = params.adminId as string;
 
-  const { data: admin, isLoading } = useQuery({
-    queryKey: ["admin", adminId],
-    queryFn: () => adminApiFetch<AdminDetail>(`/platform/admins/${adminId}`),
+  const { data: currentPerms, isLoading } = useQuery({
+    queryKey: ["admin-permissions", adminId],
+    queryFn: () => adminApiFetch<string[]>(`/platform/admins/${adminId}/permissions`),
     enabled: !!adminId,
   });
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<EditForm>({
-    resolver: zodResolver(editSchema),
-  });
+  const [selected, setSelected] = useState<string[]>([]);
+  const [initialized, setInitialized] = useState(false);
+
+  // 初始化选中状态
+  if (currentPerms && !initialized) {
+    setSelected(currentPerms);
+    setInitialized(true);
+  }
 
   const updateMutation = useMutation({
-    mutationFn: (data: EditForm) =>
-      adminApiFetch(`/platform/admins/${adminId}`, {
+    mutationFn: (codes: string[]) =>
+      adminApiFetch(`/platform/admins/${adminId}/permissions`, {
         method: "PUT",
-        body: JSON.stringify(data),
+        body: JSON.stringify({ permissionCodes: codes }),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin", adminId] });
-      router.push("/settings/admins");
+      queryClient.invalidateQueries({ queryKey: ["admin-permissions", adminId] });
+      alert("权限已保存");
     },
+    onError: (e: Error) => alert("保存失败：" + e.message),
   });
 
-  if (isLoading) {
-    return <div className="p-8 text-center text-sm text-slate-400">加载中…</div>;
+  function toggle(code: string) {
+    setSelected((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
   }
 
-  if (!admin) {
-    return <div className="p-8 text-center text-sm text-red-500">管理员不存在</div>;
-  }
+  if (isLoading) return <div className="p-8 text-center text-sm text-slate-400">加载中…</div>;
 
   return (
     <div>
-      <Link
-        href="/settings/admins"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        返回管理员列表
+      <Link href="/settings/admins" className="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
+        <ArrowLeft className="h-4 w-4" /> 返回管理员列表
       </Link>
 
-      <div className="mx-auto max-w-xl">
-        <h1 className="mb-6 text-2xl font-bold text-slate-800">编辑管理员</h1>
+      <h1 className="mb-6 text-2xl font-bold text-slate-800">配置管理员权限</h1>
+      <p className="mb-4 text-sm text-slate-500">管理员ID: {adminId}</p>
 
-        <form
-          onSubmit={handleSubmit((data) => updateMutation.mutate(data))}
-          className="space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
-        >
-          {/* 只读信息 */}
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="text-slate-400">显示名</span>
-              <p className="mt-0.5 font-medium text-slate-700">{admin.displayName}</p>
-            </div>
-            <div>
-              <span className="text-slate-400">管理员ID</span>
-              <p className="mt-0.5 font-mono text-xs text-slate-500">{admin.adminId}</p>
-            </div>
-            <div>
-              <span className="text-slate-400">创建时间</span>
-              <p className="mt-0.5 font-medium text-slate-700">{admin.createdAt}</p>
-            </div>
+      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-slate-700">权限列表</h2>
+          <div className="flex gap-2">
+            <button onClick={() => setSelected(allPermissions.map((p) => p.code))}
+              className="text-xs text-blue-600 hover:underline">全选</button>
+            <button onClick={() => setSelected([])} className="text-xs text-slate-500 hover:underline">清空</button>
           </div>
+        </div>
 
-          <hr className="border-slate-200" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {allPermissions.map((p) => (
+            <label key={p.code} className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50">
+              <input type="checkbox" checked={selected.includes(p.code)} onChange={() => toggle(p.code)} />
+              <span className="text-sm text-slate-700">{p.label}</span>
+            </label>
+          ))}
+        </div>
 
-          {/* 可编辑字段 */}
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">角色</label>
-            <select
-              {...register("role")}
-              defaultValue={admin.role}
-              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 focus:border-brand focus:ring-3 focus:ring-brand/10"
-            >
-              <option value="OPERATOR">操作员</option>
-              <option value="ADMIN">管理员</option>
-              <option value="SUPER_ADMIN">超级管理员</option>
-            </select>
-            {errors.role && (
-              <p className="mt-1 text-xs text-red-500">{errors.role.message}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">状态</label>
-            <select
-              {...register("status")}
-              defaultValue={admin.status}
-              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 focus:border-brand focus:ring-3 focus:ring-brand/10"
-            >
-              <option value="ACTIVE">正常</option>
-              <option value="DISABLED">已禁用</option>
-            </select>
-            {errors.status && (
-              <p className="mt-1 text-xs text-red-500">{errors.status.message}</p>
-            )}
-          </div>
-
-          {updateMutation.error && (
-            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-              {(updateMutation.error as Error).message}
-            </div>
-          )}
-
-          <div className="flex justify-end gap-3">
-            <Button type="button" variant="secondary" onClick={() => router.back()}>
-              取消
-            </Button>
-            <Button type="submit" disabled={updateMutation.isPending}>
-              {updateMutation.isPending ? "保存中…" : "保存"}
-            </Button>
-          </div>
-        </form>
+        <div className="mt-6 flex justify-end">
+          <button onClick={() => updateMutation.mutate(selected)} disabled={updateMutation.isPending}
+            className="rounded-lg bg-blue-600 px-6 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+            {updateMutation.isPending ? "保存中…" : "保存权限"}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -11,7 +11,7 @@ import {
   EDUCATION_OPTIONS, GENDER_OPTIONS, LEVEL_OPTIONS, REGION_TREE, TALENT_INDUSTRIES,
   TALENT_TAGS, YEARS_OPTIONS, type TalentProfileInput,
 } from "@/lib/talent-constants";
-import { useWorkspace } from "@/lib/workspace-context";
+import { useTenant } from "@/lib/tenant-context";
 
 const EMPTY: TalentProfileInput = {
   fullName: "", gender: "男", phone: "", email: "",
@@ -25,7 +25,7 @@ const EMPTY: TalentProfileInput = {
 
 export default function NewTalentPage() {
   const router = useRouter();
-  const { workspaceId, loading: wsLoading, notAuthenticated } = useWorkspace();
+  const { tenantId, loading: wsLoading, notAuthenticated } = useTenant();
   const [form, setForm] = useState<TalentProfileInput>(EMPTY);
   const [tagDraft, setTagDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -57,7 +57,7 @@ export default function NewTalentPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!workspaceId) return;
+    if (!tenantId) return;
     if (!form.fullName.trim()) {
       setError("请填写姓名");
       return;
@@ -65,7 +65,7 @@ export default function NewTalentPage() {
     setSaving(true);
     setError(null);
     try {
-      const created = await createTalent(workspaceId, form);
+      const created = await createTalent(tenantId, form);
       router.push(`/candidates?highlight=${created.id}`);
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : "保存失败，请稍后重试");

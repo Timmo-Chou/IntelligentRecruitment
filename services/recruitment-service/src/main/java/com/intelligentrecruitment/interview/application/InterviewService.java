@@ -9,7 +9,7 @@ import com.intelligentrecruitment.aiplatform.application.InterviewQuestionContra
 import com.intelligentrecruitment.agentflow.domain.StructuredResult;
 import com.intelligentrecruitment.candidates.application.PiiCipher;
 import com.intelligentrecruitment.shared.error.ApiException;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService;
+import com.intelligentrecruitment.tenancy.application.TenantAccessService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -28,43 +28,43 @@ import static com.intelligentrecruitment.shared.database.SqlTimes.timestamp;
 @Service
 public class InterviewService {
     private final JdbcTemplate jdbc;
-    private final WorkspaceAccessService access;
+    private final TenantAccessService access;
     private final ObjectMapper objectMapper;
     private final PiiCipher pii;
 
-    public InterviewService(JdbcTemplate jdbc, WorkspaceAccessService access, ObjectMapper objectMapper, PiiCipher pii) {
+    public InterviewService(JdbcTemplate jdbc, TenantAccessService access, ObjectMapper objectMapper, PiiCipher pii) {
         this.jdbc = jdbc;
         this.access = access;
         this.objectMapper = objectMapper;
         this.pii = pii;
     }
 
-    public List<KitSummary> list(UUID userId, UUID workspaceId) {
-        access.requireBusinessAccess(userId, workspaceId);
+    public List<KitSummary> list(UUID userId, UUID tenantId) {
+        access.requireBusinessAccess(userId, tenantId);
         return jdbc.query("""
                 SELECT k.id,k.candidate_id,c.full_name_ciphertext,k.status,k.created_at,j.title AS job_title
                 FROM interview_kits k
                 JOIN candidates c ON c.id=k.candidate_id
                 LEFT JOIN job_versions jv ON jv.id=k.job_version_id
                 LEFT JOIN jobs j ON j.id=jv.job_id
-                WHERE k.workspace_id=? ORDER BY k.created_at DESC
+                WHERE k.tenant_id=? ORDER BY k.created_at DESC
                 """, (r, n) -> new KitSummary(
                 r.getObject("id", UUID.class), r.getObject("candidate_id", UUID.class),
                 pii.decrypt(r.getString("full_name_ciphertext")), r.getString("job_title"), r.getString("status"),
-                r.getTimestamp("created_at").toInstant()), workspaceId);
+                r.getTimestamp("created_at").toInstant()), tenantId);
     }
 
-    public Map<String, Object> buildAiInput(UUID userId, UUID workspaceId, CreateInput input) {
-        access.requireBusinessAccess(userId, workspaceId);
-        return buildAuthorizedAiInput(workspaceId, input);
+    public Map<String, Object> buildAiInput(UUID userId, UUID tenantId, CreateInput input) {
+        access.requireBusinessAccess(userId, tenantId);
+        return buildAuthorizedAiInput(tenantId, input);
     }
 
-    /** Builds input from workspace-scoped records for an already authorized queued task. */
-    public Map<String, Object> buildAuthorizedAiInput(UUID workspaceId, CreateInput input) {
+    /** Builds input from tenant-scoped records for an already authorized queued task. */
+    public Map<String, Object> buildAuthorizedAiInput(UUID tenantId, CreateInput input) {
         if (input.candidateId() == null) throw badRequest("CANDIDATE_REQUIRED", "请选择人才");
         if (input.jobVersionId() == null) throw badRequest("JOB_REQUIRED", "请选择 JD");
-        CandidateContext candidate = candidate(workspaceId, input.candidateId());
-        JobContext job = job(workspaceId, input.jobVersionId());
+        CandidateContext candidate = candidate(tenantId, input.candidateId());
+        JobContext job = job(tenantId, input.jobVersionId());
         return Map.of("job", Map.of("title", job.title(), "company_name", textAt(job.snapshot(), "company_name"),
                         "location", textAt(job.snapshot(), "location"), "experience_level", textAt(job.snapshot(), "experience_level"),
                         "education", textAt(job.snapshot(), "education"), "responsibilities", textAt(job.snapshot(), "responsibilities"),
@@ -76,60 +76,56 @@ public class InterviewService {
     }
 
     @Transactional
-    public KitDetail persistAiResult(UUID userId, UUID workspaceId, CreateInput input, StructuredResult result) {
-        access.requireBusinessAccess(userId, workspaceId);
-        return persistAuthorizedAiResult(userId, workspaceId, input, result);
+    public KitDetail persistAiResult(UUID userId, UUID tenantId, CreateInput input, StructuredResult result) {
+        access.requireBusinessAccess(userId, tenantId);
+        return persistAuthorizedAiResult(userId, tenantId, input, result);
     }
 
     /**
      * Persists a result that has already passed the BOSS-authorized AIAgent task.
-     * The worker still scopes every source row to its workspace; it does not perform
+     * The worker still scopes every source row to its tenant; it does not perform
      * a second interactive access check because there is no user request context.
      */
     @Transactional
-    public KitDetail persistAuthorizedAiResult(UUID userId, UUID workspaceId, CreateInput input, StructuredResult result) {
+    public KitDetail persistAuthorizedAiResult(UUID userId, UUID tenantId, CreateInput input, StructuredResult result) {
         if (result == null || result.data() == null) throw badRequest("AI_SCHEMA_INVALID", "AI 面试题未返回结构化结果");
         InterviewQuestionKit kit = parseAiKit(result.data(), input.questionCount());
         Instant now = Instant.now();
         UUID kitId = UUID.randomUUID();
         UUID versionId = UUID.randomUUID();
-        // The legacy workspace identifier is now always the authoritative BOSS Tenant UUID.
-        UUID tenantId = workspaceId;
 
         List<CoreCompetency> competencies = toCoreCompetencies(kit.competencies());
         String summary = kit.matchSummary();
         List<Question> questions = toQuestions(kit.questions());
 
         jdbc.update("""
-                INSERT INTO interview_kits(id,tenant_id,workspace_id,job_version_id,candidate_id,screening_result_id,status,
+                INSERT INTO interview_kits(id,tenant_id,job_version_id,candidate_id,screening_result_id,status,
                                            core_competencies,match_summary,created_by,created_at,updated_at)
                 VALUES(?,?,?,?,?,?,'DRAFT',?::jsonb,?,?,?,?)
-                """, kitId, tenantId, workspaceId, input.jobVersionId(), input.candidateId(), input.screeningResultId(),
+                """, kitId, tenantId, input.jobVersionId(), input.candidateId(), input.screeningResultId(),
                 protectedJson(competencies), pii.encrypt(summary), userId, timestamp(now), timestamp(now));
         jdbc.update("""
-                INSERT INTO interview_kit_versions(id,tenant_id,workspace_id,kit_id,screening_result_id,version_no,status,created_by,created_at)
+                INSERT INTO interview_kit_versions(id,tenant_id,kit_id,screening_result_id,version_no,status,created_by,created_at)
                 VALUES(?,?,?,?,?,1,'DRAFT',?,?)
-                """, versionId, tenantId, workspaceId, kitId, input.screeningResultId(), userId, timestamp(now));
-        insertQuestions(versionId, tenantId, workspaceId, questions);
-        return getAuthorized(workspaceId, kitId);
+                """, versionId, tenantId, kitId, input.screeningResultId(), userId, timestamp(now));
+        insertQuestions(versionId, tenantId, questions);
+        return getAuthorized(tenantId, kitId);
     }
 
     @Transactional
-    public KitDetail update(UUID userId, UUID workspaceId, UUID kitId, List<QuestionInput> questions) {
-        access.requireBusinessAccess(userId, workspaceId);
-        requireKit(workspaceId, kitId);
+    public KitDetail update(UUID userId, UUID tenantId, UUID kitId, List<QuestionInput> questions) {
+        access.requireBusinessAccess(userId, tenantId);
+        requireKit(tenantId, kitId);
         if (questions == null || questions.isEmpty()) throw badRequest("QUESTIONS_REQUIRED", "请至少保留一道面试题");
-        // The legacy workspace identifier is now always the authoritative BOSS Tenant UUID.
-        UUID tenantId = workspaceId;
         VersionContext current = jdbc.queryForObject("""
                 SELECT id,screening_result_id,version_no FROM interview_kit_versions
-                WHERE kit_id=? AND workspace_id=? ORDER BY version_no DESC LIMIT 1
-                """, (r, n) -> new VersionContext(r.getObject("id", UUID.class), r.getObject("screening_result_id", UUID.class), r.getInt("version_no")), kitId, workspaceId);
+                WHERE kit_id=? AND tenant_id=? ORDER BY version_no DESC LIMIT 1
+                """, (r, n) -> new VersionContext(r.getObject("id", UUID.class), r.getObject("screening_result_id", UUID.class), r.getInt("version_no")), kitId, tenantId);
         UUID nextVersion = UUID.randomUUID();
         jdbc.update("""
-                INSERT INTO interview_kit_versions(id,tenant_id,workspace_id,kit_id,screening_result_id,version_no,status,created_by,created_at)
+                INSERT INTO interview_kit_versions(id,tenant_id,kit_id,screening_result_id,version_no,status,created_by,created_at)
                 VALUES(?,?,?,?,?,?,'DRAFT',?,?)
-                """, nextVersion, tenantId, workspaceId, kitId, current.screeningResultId(), current.versionNo() + 1, userId, timestamp(Instant.now()));
+                """, nextVersion, tenantId, kitId, current.screeningResultId(), current.versionNo() + 1, userId, timestamp(Instant.now()));
         List<Question> normalized = new ArrayList<>();
         for (int i = 0; i < questions.size(); i++) {
             QuestionInput q = questions.get(i);
@@ -140,68 +136,68 @@ public class InterviewService {
             normalized.add(new Question(UUID.randomUUID(), q.category().trim(), q.content().trim(), q.rationale().trim(),
                     q.focusPoints().trim(), q.referenceAnswerPoints().trim(), q.scoringPoints().trim(), q.evidenceRefs().trim(), i));
         }
-        insertQuestions(nextVersion, tenantId, workspaceId, normalized);
-        jdbc.update("UPDATE interview_kits SET status='DRAFT',updated_at=? WHERE id=? AND workspace_id=?", timestamp(Instant.now()), kitId, workspaceId);
-        return get(userId, workspaceId, kitId);
+        insertQuestions(nextVersion, tenantId, normalized);
+        jdbc.update("UPDATE interview_kits SET status='DRAFT',updated_at=? WHERE id=? AND tenant_id=?", timestamp(Instant.now()), kitId, tenantId);
+        return get(userId, tenantId, kitId);
     }
 
     @Transactional
-    public KitDetail confirm(UUID userId, UUID workspaceId, UUID kitId) {
-        access.requireBusinessAccess(userId, workspaceId);
-        requireKit(workspaceId, kitId);
+    public KitDetail confirm(UUID userId, UUID tenantId, UUID kitId) {
+        access.requireBusinessAccess(userId, tenantId);
+        requireKit(tenantId, kitId);
         Instant now = Instant.now();
-        jdbc.update("UPDATE interview_kits SET status='CONFIRMED',updated_at=? WHERE id=? AND workspace_id=?", timestamp(now), kitId, workspaceId);
-        jdbc.update("UPDATE interview_kit_versions SET status='CONFIRMED' WHERE kit_id=? AND workspace_id=? AND version_no=(SELECT MAX(version_no) FROM interview_kit_versions WHERE kit_id=? AND workspace_id=?)", kitId, workspaceId, kitId, workspaceId);
-        return get(userId, workspaceId, kitId);
+        jdbc.update("UPDATE interview_kits SET status='CONFIRMED',updated_at=? WHERE id=? AND tenant_id=?", timestamp(now), kitId, tenantId);
+        jdbc.update("UPDATE interview_kit_versions SET status='CONFIRMED' WHERE kit_id=? AND tenant_id=? AND version_no=(SELECT MAX(version_no) FROM interview_kit_versions WHERE kit_id=? AND tenant_id=?)", kitId, tenantId, kitId, tenantId);
+        return get(userId, tenantId, kitId);
     }
 
-    public KitDetail get(UUID userId, UUID workspaceId, UUID kitId) {
-        access.requireBusinessAccess(userId, workspaceId);
-        return getAuthorized(workspaceId, kitId);
+    public KitDetail get(UUID userId, UUID tenantId, UUID kitId) {
+        access.requireBusinessAccess(userId, tenantId);
+        return getAuthorized(tenantId, kitId);
     }
 
-    private KitDetail getAuthorized(UUID workspaceId, UUID kitId) {
-        KitContext kit = requireKit(workspaceId, kitId);
+    private KitDetail getAuthorized(UUID tenantId, UUID kitId) {
+        KitContext kit = requireKit(tenantId, kitId);
         List<Question> questions = jdbc.query("""
                 SELECT iq.id,iq.category,iq.content,iq.rationale,iq.focus_points,iq.reference_answer_points,iq.scoring_points,iq.evidence_refs,iq.sort_order
                 FROM interview_questions iq
                 JOIN interview_kit_versions v ON v.id=iq.kit_version_id
-                WHERE v.kit_id=? AND v.workspace_id=? AND v.version_no=(SELECT MAX(version_no) FROM interview_kit_versions WHERE kit_id=? AND workspace_id=?)
+                WHERE v.kit_id=? AND v.tenant_id=? AND v.version_no=(SELECT MAX(version_no) FROM interview_kit_versions WHERE kit_id=? AND tenant_id=?)
                 ORDER BY iq.sort_order
                 """, (r, n) -> new Question(r.getObject("id", UUID.class), r.getString("category"), pii.decryptIfEncrypted(r.getString("content")), pii.decryptIfEncrypted(r.getString("rationale")),
-                pii.decryptIfEncrypted(r.getString("focus_points")), pii.decryptIfEncrypted(r.getString("reference_answer_points")), pii.decryptIfEncrypted(r.getString("scoring_points")), pii.decryptIfEncrypted(r.getString("evidence_refs")), r.getInt("sort_order")), kitId, workspaceId, kitId, workspaceId);
+                pii.decryptIfEncrypted(r.getString("focus_points")), pii.decryptIfEncrypted(r.getString("reference_answer_points")), pii.decryptIfEncrypted(r.getString("scoring_points")), pii.decryptIfEncrypted(r.getString("evidence_refs")), r.getInt("sort_order")), kitId, tenantId, kitId, tenantId);
         return new KitDetail(kit.id(), kit.jobTitle(), kit.candidateName(), kit.status(), parseCompetencies(kit.coreCompetencies()), kit.matchSummary(), questions);
     }
 
-    private KitContext requireKit(UUID workspaceId, UUID kitId) {
+    private KitContext requireKit(UUID tenantId, UUID kitId) {
         List<KitContext> kits = jdbc.query("""
                 SELECT k.id,k.status,k.core_competencies::text,k.match_summary,j.title AS job_title,c.full_name_ciphertext
                 FROM interview_kits k JOIN candidates c ON c.id=k.candidate_id
                 LEFT JOIN job_versions jv ON jv.id=k.job_version_id LEFT JOIN jobs j ON j.id=jv.job_id
-                WHERE k.id=? AND k.workspace_id=?
-                """, (r, n) -> new KitContext(r.getObject("id", UUID.class), r.getString("status"), r.getString("core_competencies"), pii.decryptIfEncrypted(r.getString("match_summary")), r.getString("job_title"), pii.decrypt(r.getString("full_name_ciphertext"))), kitId, workspaceId);
+                WHERE k.id=? AND k.tenant_id=?
+                """, (r, n) -> new KitContext(r.getObject("id", UUID.class), r.getString("status"), r.getString("core_competencies"), pii.decryptIfEncrypted(r.getString("match_summary")), r.getString("job_title"), pii.decrypt(r.getString("full_name_ciphertext"))), kitId, tenantId);
         if (kits.isEmpty()) throw new ApiException("INTERVIEW_KIT_NOT_FOUND", "面试题包不存在", HttpStatus.NOT_FOUND);
         return kits.getFirst();
     }
 
-    private JobContext job(UUID workspaceId, UUID versionId) {
+    private JobContext job(UUID tenantId, UUID versionId) {
         List<JobContext> jobs = jdbc.query("""
                 SELECT j.title,jv.snapshot::text FROM job_versions jv JOIN jobs j ON j.id=jv.job_id
-                WHERE jv.id=? AND jv.workspace_id=?
-                """, (r, n) -> new JobContext(r.getString("title"), r.getString("snapshot")), versionId, workspaceId);
+                WHERE jv.id=? AND jv.tenant_id=?
+                """, (r, n) -> new JobContext(r.getString("title"), r.getString("snapshot")), versionId, tenantId);
         if (jobs.isEmpty()) throw new ApiException("JOB_NOT_FOUND", "JD 不存在或无权访问", HttpStatus.NOT_FOUND);
         return jobs.getFirst();
     }
 
-    private CandidateContext candidate(UUID workspaceId, UUID candidateId) {
+    private CandidateContext candidate(UUID tenantId, UUID candidateId) {
         List<CandidateContext> candidates = jdbc.query("""
                 SELECT c.full_name_ciphertext,
                        COALESCE(rp.headline,'') AS headline,
                        COALESCE(rp.skills,'[]'::jsonb)::text AS skills,
                        COALESCE(rp.summary,'') AS summary
                 FROM candidates c LEFT JOIN resume_parse_versions rp ON rp.id=c.current_parse_version_id
-                WHERE c.id=? AND c.workspace_id=?
-                """, (r, n) -> new CandidateContext(pii.decrypt(r.getString("full_name_ciphertext")), r.getString("headline"), strings(r.getString("skills")), r.getString("summary")), candidateId, workspaceId);
+                WHERE c.id=? AND c.tenant_id=?
+                """, (r, n) -> new CandidateContext(pii.decrypt(r.getString("full_name_ciphertext")), r.getString("headline"), strings(r.getString("skills")), r.getString("summary")), candidateId, tenantId);
         if (candidates.isEmpty()) throw new ApiException("CANDIDATE_NOT_FOUND", "人才不存在或无权访问", HttpStatus.NOT_FOUND);
         return candidates.getFirst();
     }
@@ -247,11 +243,11 @@ public class InterviewService {
         return questions;
     }
 
-    private void insertQuestions(UUID versionId, UUID tenantId, UUID workspaceId, List<Question> questions) {
+    private void insertQuestions(UUID versionId, UUID tenantId, List<Question> questions) {
         for (Question q : questions) jdbc.update("""
-                INSERT INTO interview_questions(id,tenant_id,workspace_id,kit_version_id,category,content,rationale,focus_points,reference_answer_points,scoring_points,evidence_refs,sort_order)
+                INSERT INTO interview_questions(id,tenant_id,kit_version_id,category,content,rationale,focus_points,reference_answer_points,scoring_points,evidence_refs,sort_order)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
-                """, q.id(), tenantId, workspaceId, versionId, q.category(), pii.encrypt(q.content()), pii.encrypt(q.rationale()), pii.encrypt(q.focusPoints()), pii.encrypt(q.referenceAnswerPoints()), pii.encrypt(q.scoringPoints()), pii.encrypt(q.evidenceRefs()), q.sortOrder());
+                """, q.id(), tenantId, versionId, q.category(), pii.encrypt(q.content()), pii.encrypt(q.rationale()), pii.encrypt(q.focusPoints()), pii.encrypt(q.referenceAnswerPoints()), pii.encrypt(q.scoringPoints()), pii.encrypt(q.evidenceRefs()), q.sortOrder());
     }
 
     private String json(Object value) { try { return objectMapper.writeValueAsString(value); } catch (Exception e) { throw new IllegalStateException("无法保存面试题能力模型", e); } }

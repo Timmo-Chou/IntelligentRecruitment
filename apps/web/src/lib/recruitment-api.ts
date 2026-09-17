@@ -2,8 +2,7 @@ import { apiFetch, apiStream } from "@/lib/api-client";
 
 export type TaskSummary = {
   id: string;
-  companyId: string | null;
-  workspaceId: string;
+  tenantId: string;
   title: string;
   status: string;
   currentStage: string;
@@ -105,16 +104,16 @@ function idempotencyKey(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-export function fetchTasks(workspaceId: string) {
-  return apiFetch<TaskSummary[]>(`/tenants/${workspaceId}/recruitment-tasks`);
+export function fetchTasks(tenantId: string) {
+  return apiFetch<TaskSummary[]>(`/tenants/${tenantId}/recruitment-tasks`);
 }
 
-export function fetchTask(workspaceId: string, taskId: string) {
-  return apiFetch<TaskDetail>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}`);
+export function fetchTask(tenantId: string, taskId: string) {
+  return apiFetch<TaskDetail>(`/tenants/${tenantId}/recruitment-tasks/${taskId}`);
 }
 
-export function createTask(workspaceId: string, title: string, initialRequirement: string, extra?: { featureType?: string | null; linkedJobId?: string | null; linkedCandidateId?: string | null }) {
-  return apiFetch<TaskDetail>(`/tenants/${workspaceId}/recruitment-tasks`, {
+export function createTask(tenantId: string, title: string, initialRequirement: string, extra?: { featureType?: string | null; linkedJobId?: string | null; linkedCandidateId?: string | null }) {
+  return apiFetch<TaskDetail>(`/tenants/${tenantId}/recruitment-tasks`, {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey("task") },
     body: JSON.stringify({
@@ -127,50 +126,50 @@ export function createTask(workspaceId: string, title: string, initialRequiremen
   });
 }
 
-export function renameTask(workspaceId: string, taskId: string, title: string) {
-  return apiFetch<TaskSummary>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}`, {
+export function renameTask(tenantId: string, taskId: string, title: string) {
+  return apiFetch<TaskSummary>(`/tenants/${tenantId}/recruitment-tasks/${taskId}`, {
     method: "PUT",
     body: JSON.stringify({ title }),
   });
 }
 
-export function deleteTask(workspaceId: string, taskId: string) {
-  return apiFetch<void>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}`, { method: "DELETE" });
+export function deleteTask(tenantId: string, taskId: string) {
+  return apiFetch<void>(`/tenants/${tenantId}/recruitment-tasks/${taskId}`, { method: "DELETE" });
 }
 
-export function sendMessage(workspaceId: string, taskId: string, content: string, jdDraftId?: string) {
-  return apiFetch<TaskDetail>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}/messages`, {
+export function sendMessage(tenantId: string, taskId: string, content: string, jdDraftId?: string) {
+  return apiFetch<TaskDetail>(`/tenants/${tenantId}/recruitment-tasks/${taskId}/messages`, {
     method: "POST",
     body: JSON.stringify({ content, jdDraftId }),
   });
 }
 
-export function generateJd(workspaceId: string, taskId: string, input: GenerateJdInput) {
-  return apiFetch<TaskDetail>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}/jd-runs`, {
+export function generateJd(tenantId: string, taskId: string, input: GenerateJdInput) {
+  return apiFetch<TaskDetail>(`/tenants/${tenantId}/recruitment-tasks/${taskId}/jd-runs`, {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey("jd") },
     body: JSON.stringify(input),
   });
 }
 
-export function uploadJdSourceFile(workspaceId: string, taskId: string, file: File) {
+export function uploadJdSourceFile(tenantId: string, taskId: string, file: File) {
   const body = new FormData();
   body.append("file", file);
-  return apiFetch<JdSourceFile>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}/jd-source-files`, {
+  return apiFetch<JdSourceFile>(`/tenants/${tenantId}/recruitment-tasks/${taskId}/jd-source-files`, {
     method: "POST", body,
   });
 }
 
-export function uploadResumeSourceFile(workspaceId: string, taskId: string, file: File) {
+export function uploadResumeSourceFile(tenantId: string, taskId: string, file: File) {
   const body = new FormData();
   body.append("file", file);
-  return apiFetch<ResumeSourceFile>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}/resume-source-files`, {
+  return apiFetch<ResumeSourceFile>(`/tenants/${tenantId}/recruitment-tasks/${taskId}/resume-source-files`, {
     method: "POST", body,
   });
 }
 
-export function updateResumeParseDraft(workspaceId: string, taskId: string, input: { revision: number; content: string }) {
-  return apiFetch<TaskDetail>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}/resume-parse-draft`, {
+export function updateResumeParseDraft(tenantId: string, taskId: string, input: { revision: number; content: string }) {
+  return apiFetch<TaskDetail>(`/tenants/${tenantId}/recruitment-tasks/${taskId}/resume-parse-draft`, {
     method: "PUT",
     body: JSON.stringify(input),
   });
@@ -180,18 +179,18 @@ export function updateResumeParseDraft(workspaceId: string, taskId: string, inpu
  * 确认简历解析结果并发布到人才库（与 JD 草稿确认对称）。
  * 后端会把任务第一份简历源文件创建为人才库候选人，并把解析草稿置为 CONFIRMED。幂等。
  */
-export function confirmResumeParseDraft(workspaceId: string, taskId: string) {
-  return apiFetch<TaskDetail>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}/resume-parse-draft/confirm`, {
+export function confirmResumeParseDraft(tenantId: string, taskId: string) {
+  return apiFetch<TaskDetail>(`/tenants/${tenantId}/recruitment-tasks/${taskId}/resume-parse-draft/confirm`, {
     method: "POST",
   });
 }
 
 /**
- * 触发一次 AI 简历解析 run。requirement 可空（空时走 Mock/LLM 兜底默认解析）。
+ * 触发一次 AI 简历解析 run。requirement 可空，由后端按任务上下文构建 Agent 输入。
  * 结果会异步写入 resume_parse_drafts 最新 revision，前端通过 TaskDetail.latestAiRun.progress 或 events SSE 跟踪进度。
  */
-export function generateResumeParse(workspaceId: string, taskId: string, requirement?: string | null) {
-  return apiFetch<TaskDetail>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}/resume-parse-runs`, {
+export function generateResumeParse(tenantId: string, taskId: string, requirement?: string | null) {
+  return apiFetch<TaskDetail>(`/tenants/${tenantId}/recruitment-tasks/${taskId}/resume-parse-runs`, {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey("resume-parse") },
     body: requirement == null || requirement.trim() === "" ? undefined : JSON.stringify({ requirement }),
@@ -200,10 +199,10 @@ export function generateResumeParse(workspaceId: string, taskId: string, require
 
 /**
  * 触发 AI 面试出题（同步 HTTP，~3-15 秒）：读取 recruitment_task 上 linked_job_id / linked_candidate_id，
- * 调 DeepSeek 生成面试题包并持久化，返回 TaskDetail（含最新 ai_run + 助手消息）。
+ * 由已授权的 AIAgentPlatform 生成面试题包并持久化，返回 TaskDetail（含最新 ai_run + 助手消息）。
  */
-export function generateInterviewKit(workspaceId: string, taskId: string, questionCount?: number) {
-  return apiFetch<TaskDetail>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}/interview-kit-runs`, {
+export function generateInterviewKit(tenantId: string, taskId: string, questionCount?: number) {
+  return apiFetch<TaskDetail>(`/tenants/${tenantId}/recruitment-tasks/${taskId}/interview-kit-runs`, {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey("interview-kit") },
     body: questionCount == null ? undefined : JSON.stringify({ questionCount }),
@@ -213,19 +212,19 @@ export function generateInterviewKit(workspaceId: string, taskId: string, questi
 /**
  * 获取单个简历源文件的 10 分钟预签名下载/预览 URL。直接 window.open(data.url) 打开预览。
  */
-export function getResumeSourceFileDownload(workspaceId: string, taskId: string, sourceFileId: string) {
-  return apiFetch<ResumeSourceDownload>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}/resume-source-files/${sourceFileId}/download`);
+export function getResumeSourceFileDownload(tenantId: string, taskId: string, sourceFileId: string) {
+  return apiFetch<ResumeSourceDownload>(`/tenants/${tenantId}/recruitment-tasks/${taskId}/resume-source-files/${sourceFileId}/download`);
 }
 
-export function updateJdDraft(workspaceId: string, taskId: string, draft: JdDraft) {
-  return apiFetch<TaskDetail>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}/jd-draft`, {
+export function updateJdDraft(tenantId: string, taskId: string, draft: JdDraft) {
+  return apiFetch<TaskDetail>(`/tenants/${tenantId}/recruitment-tasks/${taskId}/jd-draft`, {
     method: "PUT",
     body: JSON.stringify(draft),
   });
 }
 
-export function confirmJdDraft(workspaceId: string, taskId: string, draftId: string) {
-  return apiFetch<{ id: string }>(`/tenants/${workspaceId}/recruitment-tasks/${taskId}/jd-draft/confirm?draftId=${draftId}`, {
+export function confirmJdDraft(tenantId: string, taskId: string, draftId: string) {
+  return apiFetch<{ id: string }>(`/tenants/${tenantId}/recruitment-tasks/${taskId}/jd-draft/confirm?draftId=${draftId}`, {
     method: "POST",
   });
 }
@@ -237,13 +236,13 @@ export type JdRunEvent = {
 };
 
 export async function streamJdRunEvents(
-  workspaceId: string,
+  tenantId: string,
   taskId: string,
   afterEventId: number,
   onEvent: (event: JdRunEvent) => void,
   signal: AbortSignal,
 ) {
-  const response = await apiStream(`/tenants/${workspaceId}/recruitment-tasks/${taskId}/jd-runs/events`, {
+  const response = await apiStream(`/tenants/${tenantId}/recruitment-tasks/${taskId}/jd-runs/events`, {
     headers: afterEventId > 0 ? { "Last-Event-ID": String(afterEventId) } : {}, signal,
   });
   if (!response.body) throw new Error("浏览器不支持生成进度流");

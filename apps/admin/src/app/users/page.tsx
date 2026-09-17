@@ -11,19 +11,18 @@ import { Input } from "@/components/ui/input";
 
 // 用户数据类型
 type User = {
-  userId: string;
-  displayName: string;
+  id: string;
+  display_name: string;
   phone: string;
   status: string;
-  verificationStatus: string;
-  createdAt: string;
+  created_at: string;
 };
 
 type PageResponse = {
   items: User[];
   total: number;
   page: number;
-  pageSize: number;
+  size: number;
 };
 
 export default function UsersPage() {
@@ -36,10 +35,9 @@ export default function UsersPage() {
     queryKey: ["users", search, statusFilter, page],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (search) params.set("search", search);
-      if (statusFilter) params.set("status", statusFilter);
+      if (search) params.set("keyword", search);
       params.set("page", String(page));
-      params.set("pageSize", "20");
+      params.set("size", "20");
       return adminApiFetch<PageResponse>(`/platform/users?${params.toString()}`);
     },
   });
@@ -48,22 +46,12 @@ export default function UsersPage() {
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / 20);
 
-  // 获取状态 Badge
   function getStatusBadge(status: string) {
     if (status === "ACTIVE") return <Badge variant="success">正常</Badge>;
     if (status === "DISABLED") return <Badge variant="danger">已禁用</Badge>;
     return <Badge>{status}</Badge>;
   }
 
-  // 获取认证状态 Badge
-  function getVerificationBadge(status: string) {
-    if (status === "VERIFIED") return <Badge variant="success">已认证</Badge>;
-    if (status === "PENDING") return <Badge variant="warning">待认证</Badge>;
-    if (status === "REJECTED") return <Badge variant="danger">已拒绝</Badge>;
-    return <Badge variant="neutral">未认证</Badge>;
-  }
-
-  // 手机号后四位脱敏
   function maskPhone(phone: string) {
     return phone ? `****${phone.slice(-4)}` : "---";
   }
@@ -113,25 +101,23 @@ export default function UsersPage() {
                 <th className="px-4 py-3">显示名</th>
                 <th className="px-4 py-3">手机号</th>
                 <th className="px-4 py-3">状态</th>
-                <th className="px-4 py-3">认证状态</th>
                 <th className="px-4 py-3">注册时间</th>
               </tr>
             </thead>
             <tbody>
               {users.map((user, i) => (
                 <tr
-                  key={user.userId}
-                  onClick={() => router.push(`/users/${user.userId}`)}
+                  key={user.id}
+                  onClick={() => router.push(`/users/${user.id}`)}
                   className={`cursor-pointer border-b border-slate-100 transition hover:bg-blue-50/50 ${
                     i % 2 === 0 ? "bg-white" : "bg-slate-50/50"
                   }`}
                 >
-                  <td className="px-4 py-3 text-sm font-mono text-slate-600">{user.userId}</td>
-                  <td className="px-4 py-3 text-sm font-medium text-slate-800">{user.displayName}</td>
+                  <td className="px-4 py-3 text-sm font-mono text-slate-600">{user.id}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-slate-800">{user.display_name}</td>
                   <td className="px-4 py-3 text-sm text-slate-500">{maskPhone(user.phone)}</td>
                   <td className="px-4 py-3">{getStatusBadge(user.status)}</td>
-                  <td className="px-4 py-3">{getVerificationBadge(user.verificationStatus)}</td>
-                  <td className="px-4 py-3 text-sm text-slate-500">{user.createdAt}</td>
+                  <td className="px-4 py-3 text-sm text-slate-500">{user.created_at}</td>
                 </tr>
               ))}
             </tbody>

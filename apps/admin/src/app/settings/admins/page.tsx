@@ -1,109 +1,88 @@
 "use client";
 
-// 管理员管理页面：列表 + 新增/编辑/禁用
-import { Plus, Pencil, Ban, CheckCircle, Trash2 } from "lucide-react";
+// 管理员管理页面：列表 + 创建 + 审核 + 禁用
+import { Plus, Pencil, Ban, CheckCircle, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { adminApiFetch } from "@/lib/admin-api-client";
+import { usePermission } from "@/lib/use-permission";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 
 type Admin = {
   id: string;
-  displayName: string;
+  username: string;
+  display_name: string;
   role: string;
   status: string;
-  createdAt: string;
+  phone: string;
+  register_reason: string;
+  created_at: string;
 };
-
-// 新增管理员表单校验
-const createAdminSchema = z.object({
-  displayName: z.string().min(1, "请输入显示名"),
-  key: z.string().min(8, "密钥至少8位"),
-  role: z.string().min(1, "请选择角色"),
-});
-
-type CreateAdminForm = z.infer<typeof createAdminSchema>;
 
 export default function AdminsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { hasPermission } = usePermission();
+  const canEdit = hasPermission("ADMIN_ADMIN_EDIT");
   const [showDialog, setShowDialog] = useState(false);
+  const [form, setForm] = useState({
+    username: "",
+    password: "",
+    displayName: "",
+    phone: "",
+    role: "OPERATOR",
+  });
 
   const { data: admins, isLoading } = useQuery({
     queryKey: ["admins"],
     queryFn: () => adminApiFetch<Admin[]>("/platform/admins"),
   });
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors },
-  } = useForm<CreateAdminForm>({
-    resolver: zodResolver(createAdminSchema),
-    defaultValues: { role: "PLATFORM_OPERATOR" },
-  });
-
   const createMutation = useMutation({
-    mutationFn: (data: CreateAdminForm) =>
-      adminApiFetch("/platform/admins", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
+    mutationFn: () =>
+      adminApiFetch("/platform/admins", { method: "POST", body: JSON.stringify(form) }),
     onSuccess: () => {
-      reset();
       setShowDialog(false);
+      setForm({ username: "", password: "", displayName: "", phone: "", role: "OPERATOR" });
       queryClient.invalidateQueries({ queryKey: ["admins"] });
     },
-    onError: (err: Error) => {
-      alert("创建失败：" + err.message);
-    },
+    onError: (e: Error) => alert("创建失败：" + e.message),
   });
 
-  const toggleStatusMutation = useMutation({
-    mutationFn: ({ adminId, newStatus }: { adminId: string; newStatus: string }) =>
-      adminApiFetch(`/platform/admins/${adminId}`, {
-        method: "PUT",
-        body: JSON.stringify({ status: newStatus }),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admins"] });
-    },
-    onError: (err: Error) => {
-      alert("操作失败：" + err.message);
-    },
+  const approveMutation = useMutation({
+    mutationFn: ({ id, role }: { id: string; role: string }) =>
+      adminApiFetch(`/platform/admins/${id}/approve`, { method: "POST", body: JSON.stringify({ role }) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admins"] }),
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (adminId: string) =>
-      adminApiFetch(`/platform/admins/${adminId}`, {
-        method: "DELETE",
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admins"] });
-    },
-    onError: (err: Error) => {
-      alert("删除失败：" + err.message);
-    },
+  const rejectMutation = useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch(`/platform/admins/${id}/reject`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admins"] }),
+  });
+
+  const disableMutation = useMutation({
+    mutationFn: (id: string) =>
+      adminApiFetch(`/platform/admins/${id}/disable`, { method: "POST" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admins"] }),
   });
 
   function getRoleBadge(role: string) {
     if (role === "SUPER_ADMIN") return <Badge variant="danger">超级管理员</Badge>;
-    if (role === "PLATFORM_OPERATOR") return <Badge variant="info">平台运营</Badge>;
+    if (role === "ADMIN") return <Badge variant="info">管理员</Badge>;
+    if (role === "OPERATOR") return <Badge variant="info">运营人员</Badge>;
     return <Badge>{role}</Badge>;
   }
 
   function getStatusBadge(status: string) {
     if (status === "ACTIVE") return <Badge variant="success">正常</Badge>;
     if (status === "DISABLED") return <Badge variant="danger">已禁用</Badge>;
+    if (status === "PENDING_REVIEW") return <Badge variant="warning">待审核</Badge>;
     return <Badge>{status}</Badge>;
   }
+
+  const items = admins ?? [];
 
   return (
     <div>
@@ -112,159 +91,117 @@ export default function AdminsPage() {
           <h1 className="text-2xl font-bold text-slate-800">管理员管理</h1>
           <p className="mt-1 text-sm text-slate-500">管理系统管理员账号</p>
         </div>
-        <Button onClick={() => setShowDialog(true)}>
-          <Plus className="h-4 w-4" />
-          新增管理员
-        </Button>
+        {canEdit && (
+          <button onClick={() => setShowDialog(true)}
+            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+            <Plus className="h-4 w-4" /> 新增管理员
+          </button>
+        )}
       </div>
 
-      {/* 管理员列表 */}
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-slate-400">加载中…</div>
-        ) : admins && admins.length > 0 ? (
+        ) : items.length === 0 ? (
+          <div className="p-8 text-center text-sm text-slate-400">暂无管理员</div>
+        ) : (
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
-                <th className="px-4 py-3">显示名</th>
+                <th className="px-4 py-3">用户名</th>
+                <th className="px-4 py-3">姓名</th>
                 <th className="px-4 py-3">角色</th>
                 <th className="px-4 py-3">状态</th>
+                <th className="px-4 py-3">注册理由</th>
                 <th className="px-4 py-3">创建时间</th>
                 <th className="px-4 py-3">操作</th>
               </tr>
             </thead>
             <tbody>
-              {admins.map((admin) => (
-                <tr key={admin.id} className="border-b border-slate-100">
-                  <td className="px-4 py-3 text-sm font-medium text-slate-800">
-                    {admin.displayName}
-                  </td>
+              {items.map((admin) => (
+                <tr key={admin.id} className="border-b border-slate-100 hover:bg-slate-50">
+                  <td className="px-4 py-3 text-sm font-medium text-slate-800">{admin.username}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{admin.display_name}</td>
                   <td className="px-4 py-3">{getRoleBadge(admin.role)}</td>
                   <td className="px-4 py-3">{getStatusBadge(admin.status)}</td>
-                  <td className="px-4 py-3 text-sm text-slate-500">{admin.createdAt}</td>
+                  <td className="px-4 py-3 text-sm text-slate-500 max-w-xs truncate">{admin.register_reason || "-"}</td>
+                  <td className="px-4 py-3 text-sm text-slate-500">{admin.created_at}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => router.push(`/settings/admins/${admin.id}`)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                        编辑
-                      </Button>
-                      {admin.status === "ACTIVE" ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            if (confirm("确定要禁用该管理员吗？")) {
-                              toggleStatusMutation.mutate({ adminId: admin.id, newStatus: "DISABLED" });
-                            }
-                          }}
-                          disabled={toggleStatusMutation.isPending}
-                        >
-                          <Ban className="h-4 w-4" />
-                          禁用
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            if (confirm("确定要启用该管理员吗？")) {
-                              toggleStatusMutation.mutate({ adminId: admin.id, newStatus: "ACTIVE" });
-                            }
-                          }}
-                          disabled={toggleStatusMutation.isPending}
-                        >
-                          <CheckCircle className="h-4 w-4" />
-                          启用
-                        </Button>
+                      <button onClick={() => router.push(`/settings/admins/${admin.id}`)}
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700">
+                        <Pencil className="h-3 w-3" /> 权限
+                      </button>
+                      {canEdit && admin.status === "PENDING_REVIEW" && (
+                        <>
+                          <button onClick={() => approveMutation.mutate({ id: admin.id, role: "OPERATOR" })}
+                            className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700">
+                            <CheckCircle className="h-3 w-3" /> 通过
+                          </button>
+                          <button onClick={() => rejectMutation.mutate(admin.id)}
+                            className="flex items-center gap-1 text-xs text-red-600 hover:text-red-700">
+                            <XCircle className="h-3 w-3" /> 驳回
+                          </button>
+                        </>
                       )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          if (confirm("确定要删除该管理员吗？此操作不可恢复。")) {
-                            deleteMutation.mutate(admin.id);
-                          }
-                        }}
-                        disabled={deleteMutation.isPending}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        删除
-                      </Button>
+                      {canEdit && admin.status === "ACTIVE" && admin.role !== "SUPER_ADMIN" && (
+                        <button onClick={() => { if (confirm("禁用该管理员？")) disableMutation.mutate(admin.id); }}
+                          className="flex items-center gap-1 text-xs text-red-600 hover:text-red-700">
+                          <Ban className="h-3 w-3" /> 禁用
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        ) : (
-          <div className="p-8 text-center text-sm text-slate-400">暂无管理员数据</div>
         )}
       </div>
 
-      {/* 新增管理员对话框 */}
       {showDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <h2 className="mb-4 text-lg font-bold text-slate-800">新增管理员</h2>
-            <form
-              onSubmit={handleSubmit((data) => createMutation.mutate(data))}
-              className="space-y-4"
-            >
+            <div className="space-y-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">显示名</label>
-                <Input {...register("displayName")} placeholder="请输入显示名" />
-                {errors.displayName && (
-                  <p className="mt-1 text-xs text-red-500">{errors.displayName.message}</p>
-                )}
+                <label className="mb-1 block text-sm font-medium text-slate-700">用户名</label>
+                <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">管理密钥</label>
-                <Input {...register("key")} type="password" placeholder="至少8位密钥" />
-                {errors.key && (
-                  <p className="mt-1 text-xs text-red-500">{errors.key.message}</p>
-                )}
+                <label className="mb-1 block text-sm font-medium text-slate-700">密码（至少8位）</label>
+                <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-700">角色</label>
-                <select
-                  {...register("role")}
-                  className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 focus:border-brand focus:ring-3 focus:ring-brand/10"
-                >
-                  <option value="PLATFORM_OPERATOR">平台运营</option>
+                <label className="mb-1 block text-sm font-medium text-slate-700">姓名</label>
+                <input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">手机号</label>
+                <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">角色</label>
+                <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                  <option value="OPERATOR">运营人员</option>
+                  <option value="ADMIN">管理员</option>
                   <option value="SUPER_ADMIN">超级管理员</option>
                 </select>
-                {errors.role && (
-                  <p className="mt-1 text-xs text-red-500">{errors.role.message}</p>
-                )}
               </div>
-
-              {createMutation.error && (
-                <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {(createMutation.error as Error).message}
-                </div>
-              )}
-
               <div className="flex justify-end gap-3">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => {
-                    setShowDialog(false);
-                    reset();
-                  }}
-                >
-                  取消
-                </Button>
-                <Button type="submit" disabled={createMutation.isPending}>
+                <button onClick={() => setShowDialog(false)}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button>
+                <button onClick={() => createMutation.mutate()} disabled={createMutation.isPending}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
                   {createMutation.isPending ? "创建中…" : "创建"}
-                </Button>
+                </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}

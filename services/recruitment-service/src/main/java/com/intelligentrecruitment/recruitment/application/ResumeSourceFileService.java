@@ -5,8 +5,8 @@ import com.intelligentrecruitment.candidates.application.PiiCipher;
 import com.intelligentrecruitment.recruitment.infrastructure.JdSourceObjectStorage;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.TenantScope;
+import com.intelligentrecruitment.tenancy.application.TenantAccessService;
+import com.intelligentrecruitment.tenancy.application.TenantAccessService.TenantScope;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
@@ -29,17 +29,17 @@ import static com.intelligentrecruitment.shared.database.SqlTimes.timestamp;
 public class ResumeSourceFileService {
 
     private final JdbcTemplate jdbc;
-    private final WorkspaceAccessService workspaceAccess;
+    private final TenantAccessService tenantAccess;
     private final JdSourceObjectStorage storage;
     private final ResumeTextExtractor extractor;
     private final PiiCipher pii;
     private final long maxFileSize;
 
-    public ResumeSourceFileService(JdbcTemplate jdbc, WorkspaceAccessService workspaceAccess,
+    public ResumeSourceFileService(JdbcTemplate jdbc, TenantAccessService tenantAccess,
                                    JdSourceObjectStorage storage, ResumeTextExtractor extractor, PiiCipher pii,
                                    @Value("${app.storage.max-file-size-bytes:10485760}") long maxFileSize) {
         this.jdbc = jdbc;
-        this.workspaceAccess = workspaceAccess;
+        this.tenantAccess = tenantAccess;
         this.storage = storage;
         this.extractor = extractor;
         this.pii = pii;
@@ -47,24 +47,24 @@ public class ResumeSourceFileService {
     }
 
     @Transactional
-    public SourceFileView upload(UUID userId, UUID workspaceId, UUID taskId, MultipartFile file) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
-        requireTask(workspaceId, taskId);
+    public SourceFileView upload(UUID userId, UUID tenantId, UUID taskId, MultipartFile file) {
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        requireTask(tenantId, taskId);
         byte[] bytes = read(file);
         String filename = safeFilename(file.getOriginalFilename());
         String hash = SecurityHashes.sha256(bytes);
-        UUID assetId = existingAsset(workspaceId, hash);
+        UUID assetId = existingAsset(tenantId, hash);
         String mediaType = mediaType(filename);
         if (assetId == null) {
             assetId = UUID.randomUUID();
-            String objectKey = workspaceId + "/resume-source/" + assetId;
+            String objectKey = tenantId + "/resume-source/" + assetId;
             storage.put(objectKey, bytes, mediaType);
             jdbc.update("""
                     INSERT INTO file_assets
-                    (id,tenant_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
+                    (id,tenant_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
                     VALUES (?,?,?,?,?,?,?,?,'PENDING','ACTIVE',?,?)
-                    """, assetId, scope.tenantId(), workspaceId, objectKey, pii.encrypt(filename), mediaType, bytes.length, hash,
+                    """, assetId, tenantId, objectKey, pii.encrypt(filename), mediaType, bytes.length, hash,
                     userId, timestamp(Instant.now()));
         }
         UUID sourceId = UUID.randomUUID();
@@ -74,24 +74,24 @@ public class ResumeSourceFileService {
         long size = bytes.length;
         jdbc.update("""
                 INSERT INTO resume_source_files
-                (id,tenant_id,workspace_id,recruitment_task_id,file_asset_id,filename,media_type,size_bytes,extracted_text,created_by,created_at)
+                (id,tenant_id,recruitment_task_id,file_asset_id,filename,media_type,size_bytes,extracted_text,created_by,created_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT (recruitment_task_id,file_asset_id) DO NOTHING
-                """, sourceId, scope.tenantId(), workspaceId, taskId, resolvedAssetId, pii.encrypt(filename), mediaType, size, pii.encrypt(extracted),
+                """, sourceId, tenantId, taskId, resolvedAssetId, pii.encrypt(filename), mediaType, size, pii.encrypt(extracted),
                 userId, timestamp(now));
-        List<SourceFileView> files = list(workspaceId, taskId);
+        List<SourceFileView> files = list(tenantId, taskId);
         return files.stream().filter(item -> item.fileAssetId().equals(resolvedAssetId)).findFirst().orElseThrow();
     }
 
-    public List<SourceFileView> list(UUID workspaceId, UUID taskId) {
+    public List<SourceFileView> list(UUID tenantId, UUID taskId) {
         return jdbc.query("""
                 SELECT s.id,s.file_asset_id,s.filename,s.media_type,s.size_bytes,s.extracted_text,s.created_at
                 FROM resume_source_files s
-                WHERE s.workspace_id=? AND s.recruitment_task_id=?
+                WHERE s.tenant_id=? AND s.recruitment_task_id=?
                 ORDER BY s.created_at
                 """, (rs, n) -> new SourceFileView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
                 pii.decryptIfEncrypted(rs.getString(3)), rs.getString(4), rs.getLong(5), pii.decryptIfEncrypted(rs.getString(6)),
-                rs.getTimestamp(7).toInstant()), workspaceId, taskId);
+                rs.getTimestamp(7).toInstant()), tenantId, taskId);
     }
 
     /** 根据 AssetDownloadView 内的 objectKey 生成 10 分钟预签名 GET URL，供前端直接打开下载/预览。 */
@@ -100,25 +100,25 @@ public class ResumeSourceFileService {
     }
 
     /** 按简历源文件 id 查询下载所需信息：包含 object_key 与工作空间访问校验。不存在抛 NOT_FOUND。 */
-    public AssetDownloadView requireForDownload(UUID workspaceId, UUID sourceFileId) {
+    public AssetDownloadView requireForDownload(UUID tenantId, UUID sourceFileId) {
         List<AssetDownloadView> rows = jdbc.query("""
                 SELECT s.id,s.filename,s.media_type,s.size_bytes,f.object_key
                 FROM resume_source_files s JOIN file_assets f ON f.id=s.file_asset_id
-                WHERE s.id=? AND s.workspace_id=?
+                WHERE s.id=? AND s.tenant_id=?
                 """, (rs, n) -> new AssetDownloadView(rs.getObject(1, UUID.class), pii.decryptIfEncrypted(rs.getString(2)),
-                rs.getString(3), rs.getLong(4), rs.getString(5)), sourceFileId, workspaceId);
+                rs.getString(3), rs.getLong(4), rs.getString(5)), sourceFileId, tenantId);
         if (rows.isEmpty()) throw new ApiException("RESUME_SOURCE_FILE_NOT_FOUND", "简历源文件不存在", HttpStatus.NOT_FOUND);
         return rows.getFirst();
     }
 
-    private UUID existingAsset(UUID workspaceId, String hash) {
-        List<UUID> rows = jdbc.query("SELECT id FROM file_assets WHERE workspace_id=? AND sha256=? AND lifecycle_status='ACTIVE'",
-                (rs, n) -> rs.getObject(1, UUID.class), workspaceId, hash);
+    private UUID existingAsset(UUID tenantId, String hash) {
+        List<UUID> rows = jdbc.query("SELECT id FROM file_assets WHERE tenant_id=? AND sha256=? AND lifecycle_status='ACTIVE'",
+                (rs, n) -> rs.getObject(1, UUID.class), tenantId, hash);
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
-    private void requireTask(UUID workspaceId, UUID taskId) {
-        Integer count = jdbc.queryForObject("SELECT count(*) FROM recruitment_tasks WHERE id=? AND workspace_id=?", Integer.class, taskId, workspaceId);
+    private void requireTask(UUID tenantId, UUID taskId) {
+        Integer count = jdbc.queryForObject("SELECT count(*) FROM recruitment_tasks WHERE id=? AND tenant_id=?", Integer.class, taskId, tenantId);
         if (count == null || count == 0) throw new ApiException("RECRUITMENT_TASK_NOT_FOUND", "招聘任务不存在", HttpStatus.NOT_FOUND);
     }
 

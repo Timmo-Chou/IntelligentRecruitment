@@ -10,8 +10,8 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { ApiError } from "@/lib/api-client";
-import { ScreeningWorkspace } from "@/components/screening/screening-workspace";
-import { ResumeParsingWorkspace } from "@/components/recruitment/resume-parsing-workspace";
+import { ScreeningTenant } from "@/components/screening/screening-tenant";
+import { ResumeParsingTenant } from "@/components/recruitment/resume-parsing-tenant";
 import {
   confirmJdDraft, createTask, fetchTask, fetchTasks, generateJd, generateInterviewKit, generateResumeParse, sendMessage, uploadJdSourceFile, uploadResumeSourceFile,
   streamJdRunEvents, updateJdDraft,
@@ -20,9 +20,9 @@ import {
 import { fetchJob, fetchJobs, type Job } from "@/lib/job-api";
 import { fetchCandidate, fetchCandidates, type CandidateDetail, type CandidateSummary } from "@/lib/candidate-api";
 import { resolveRecruitmentTaskTitle, type RecruitmentFeature } from "@/lib/recruitment-task-title";
-import { useWorkspace } from "@/lib/workspace-context";
+import { useTenant } from "@/lib/tenant-context";
 
-type WorkspaceSection = "home" | "jd" | "candidates" | "screening" | "interviews" | "resume-parsing";
+type TenantSection = "home" | "jd" | "candidates" | "screening" | "interviews" | "resume-parsing";
 type SelectedFeature = RecruitmentFeature | null;
 type RecruitmentAgent = "RECRUITMENT_ASSISTANT" | "TALENT_PLANNER";
 type JdGenerationSource = "TEMPLATE" | "JOB_LIBRARY" | "UPLOAD" | null;
@@ -30,7 +30,7 @@ type JdGenerationSource = "TEMPLATE" | "JOB_LIBRARY" | "UPLOAD" | null;
 export default function RecruitmentPage() {
   const searchParams = useSearchParams();
   const requestedTaskId = searchParams.get("task");
-  const { workspaceId, workspace, loading: workspaceLoading, notAuthenticated, error: workspaceError } = useWorkspace();
+  const { tenantId, tenant, loading: tenantLoading, notAuthenticated, error: tenantError } = useTenant();
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [draft, setDraft] = useState<JdDraft | null>(null);
@@ -44,7 +44,7 @@ export default function RecruitmentPage() {
   const [editingPublishedJd, setEditingPublishedJd] = useState(false);
   const [selectedFeature, setSelectedFeature] = useState<SelectedFeature>(null);
   const [streamText, setStreamText] = useState("");
-  const [section, setSection] = useState<WorkspaceSection>("home");
+  const [section, setSection] = useState<TenantSection>("home");
   const [selectedScreeningJob, setSelectedScreeningJob] = useState<Job | null>(null);
   /** 单选人才库候选人：AI简历解析时可直接解析人才库里已有简历（无需二次上传） */
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateSummary | null>(null);
@@ -53,15 +53,15 @@ export default function RecruitmentPage() {
   const streamRunStatus = detail?.latestAiRun?.status;
 
   async function loadTasks(selectId?: string) {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     setLoading(true);
     setError(null);
     try {
-      const list = await fetchTasks(workspaceId);
+      const list = await fetchTasks(tenantId);
       setTasks(list);
       const targetId = selectId ?? detail?.task.id ?? list[0]?.id;
       if (targetId) {
-        const next = await fetchTask(workspaceId, targetId);
+        const next = await fetchTask(tenantId, targetId);
         setDetail(next);
         setDraft(next.jdDraft);
       } else {
@@ -76,13 +76,13 @@ export default function RecruitmentPage() {
   }
 
   useEffect(() => {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     let cancelled = false;
     setTimeout(() => {
       if (cancelled) return;
       setLoading(true);
       setError(null);
-      void fetchTasks(workspaceId)
+      void fetchTasks(tenantId)
         .then(async (list) => {
           if (cancelled) return;
           setTasks(list);
@@ -93,7 +93,7 @@ export default function RecruitmentPage() {
             setSection("home");
             return;
           }
-          const next = await fetchTask(workspaceId, targetId);
+          const next = await fetchTask(tenantId, targetId);
           if (!cancelled) {
             setDetail(next);
             setDraft(next.jdDraft);
@@ -113,7 +113,7 @@ export default function RecruitmentPage() {
         });
     }, 0);
     return () => { cancelled = true; };
-  }, [workspaceId, requestedTaskId]);
+  }, [tenantId, requestedTaskId]);
 
   useEffect(() => {
     if (notAuthenticated) window.location.replace("/login");
@@ -121,15 +121,15 @@ export default function RecruitmentPage() {
 
   useEffect(() => {
     const taskId = streamTaskId;
-    if (!workspaceId || !taskId || !streamRunId || !streamRunStatus || !["QUEUED", "RUNNING"].includes(streamRunStatus)) return;
+    if (!tenantId || !taskId || !streamRunId || !streamRunStatus || !["QUEUED", "RUNNING"].includes(streamRunStatus)) return;
     const controller = new AbortController();
-    const cursorKey = `jd-stream:${workspaceId}:${taskId}`;
+    const cursorKey = `jd-stream:${tenantId}:${taskId}`;
     let cursor = Number(sessionStorage.getItem(cursorKey) ?? "0");
     let stopped = false;
     void (async () => {
       while (!stopped) {
         try {
-          await streamJdRunEvents(workspaceId, taskId, cursor, event => {
+          await streamJdRunEvents(tenantId, taskId, cursor, event => {
             cursor = event.id;
             sessionStorage.setItem(cursorKey, String(cursor));
             if (event.data.delta) setStreamText(current => current ? `${current}\n${event.data.delta}` : event.data.delta!);
@@ -143,10 +143,10 @@ export default function RecruitmentPage() {
           if (!stopped) setError(messageOf(cause));
         }
         if (stopped) {
-          const next = await fetchTask(workspaceId, taskId);
+          const next = await fetchTask(tenantId, taskId);
           setDetail(next);
           setDraft(next.jdDraft);
-          const list = await fetchTasks(workspaceId);
+          const list = await fetchTasks(tenantId);
           setTasks(list);
           sessionStorage.removeItem(cursorKey);
           return;
@@ -155,10 +155,10 @@ export default function RecruitmentPage() {
       }
     })();
     return () => { stopped = true; controller.abort(); };
-  }, [workspaceId, streamTaskId, streamRunId, streamRunStatus]);
+  }, [tenantId, streamTaskId, streamRunId, streamRunStatus]);
 
   async function handleCreate(sourceFiles: File[] = []) {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     // 简历解析模式：人才 / 上传文件 / 文字 至少一项（无职位时也能发送）
     const featureRequirementMet = selectedFeature === "RESUME_PARSING"
       ? Boolean(newRequirement.trim() || sourceFiles.length > 0 || selectedScreeningJob || selectedCandidate)
@@ -199,7 +199,7 @@ export default function RecruitmentPage() {
             : newRequirement
       );
       const created = await createTask(
-        workspaceId,
+        tenantId,
         resolveRecruitmentTaskTitle(newTitle, selectedFeature),
         effectiveRequirement,
         extra,
@@ -211,7 +211,7 @@ export default function RecruitmentPage() {
       window.dispatchEvent(new Event("recruitment-tasks-changed"));
       if (selectedFeature === "JD_GENERATION") {
         setSection("jd");
-        await Promise.all(sourceFiles.map(file => uploadJdSourceFile(workspaceId, created.task.id, file)));
+        await Promise.all(sourceFiles.map(file => uploadJdSourceFile(tenantId, created.task.id, file)));
         await startJdGeneration(created);
       } else if (selectedFeature === "CANDIDATE_SCREENING") {
         // AI筛简历：发送后进入简历筛选主页（左右布局）
@@ -220,25 +220,25 @@ export default function RecruitmentPage() {
       } else if (selectedFeature === "RESUME_PARSING") {
         // AI简历解析：发送后进入左右布局（左：职位卡+简历文件+解析文本；右：AI助手）
         for (const file of sourceFiles) {
-          await uploadResumeSourceFile(workspaceId, created.task.id, file);
+          await uploadResumeSourceFile(tenantId, created.task.id, file);
         }
         setSection("resume-parsing");
         // 重新拉详情以便拿到上传后的源文件列表
-        const refreshed = await fetchTask(workspaceId, created.task.id);
+        const refreshed = await fetchTask(tenantId, created.task.id);
         setDetail(refreshed);
         setDraft(refreshed.jdDraft);
         await refreshTaskList(refreshed.task.id);
         // 关键修复：发送成功后自动触发一次 AI 解析，避免"只发送不解析"的无反馈体验。
         // 复用 generateResumeParse 接口 + 轮询，与详情页「AI解析」按钮逻辑一致。
         try {
-          const autoFirst = await generateResumeParse(workspaceId, refreshed.task.id);
+          const autoFirst = await generateResumeParse(tenantId, refreshed.task.id);
           setDetail(autoFirst);
           const MAX_AUTO_ATTEMPTS = 40;
           let attempt = 0;
           while (attempt < MAX_AUTO_ATTEMPTS) {
             attempt += 1;
             await new Promise((resolve) => setTimeout(resolve, 1500));
-            const next = await fetchTask(workspaceId, refreshed.task.id);
+            const next = await fetchTask(tenantId, refreshed.task.id);
             setDetail(next);
             const s = next.latestAiRun?.status;
             if (s === "COMPLETED" || s === "FAILED") break;
@@ -255,12 +255,12 @@ export default function RecruitmentPage() {
         setSection("jd");
         // 同步调 /interview-kit-runs：ai_runs 先 RUNNING（助手显示 QUEUED/RUNNING 状态），
         // 接口返回时已 COMPLETED（助手会插入 1 条 ASSISTANT 摘要消息展示结果）
-        const queued = await generateInterviewKit(workspaceId, created.task.id, 8);
+        const queued = await generateInterviewKit(tenantId, created.task.id, 8);
         setDetail(queued);
         setDraft(queued.jdDraft);
         await refreshTaskList(queued.task.id);
         // 完成后再拉一次最新详情（确保助手区所有消息到齐）
-        const finalDetail = await fetchTask(workspaceId, queued.task.id);
+        const finalDetail = await fetchTask(tenantId, queued.task.id);
         setDetail(finalDetail);
         setDraft(finalDetail.jdDraft);
       } else {
@@ -271,13 +271,13 @@ export default function RecruitmentPage() {
   }
 
   async function handleMessage() {
-    if (!workspaceId || !detail || !message.trim()) return;
+    if (!tenantId || !detail || !message.trim()) return;
     await run(async () => {
       setChatSubmitting(true);
       try {
-        await sendMessage(workspaceId, detail.task.id, message, draft?.id);
+        await sendMessage(tenantId, detail.task.id, message, draft?.id);
         // 对话调用包含模型生成，完成后以服务端持久化结果为准重新读取，避免旧 AI run 状态覆盖新消息。
-        const next = await fetchTask(workspaceId, detail.task.id);
+        const next = await fetchTask(tenantId, detail.task.id);
         setMessage("");
         setDetail(next);
         setDraft(next.jdDraft);
@@ -302,9 +302,9 @@ export default function RecruitmentPage() {
   }
 
   async function startJdGeneration(taskDetail: TaskDetail) {
-    if (!workspaceId) return;
+    if (!tenantId) return;
     setStreamText("");
-    const queued = await generateJd(workspaceId, taskDetail.task.id, {});
+    const queued = await generateJd(tenantId, taskDetail.task.id, {});
     setDetail(queued);
     setDraft(queued.jdDraft);
     await refreshTaskList(queued.task.id);
@@ -318,9 +318,9 @@ export default function RecruitmentPage() {
   }
 
   async function handleSave(nextDraft = draft) {
-    if (!workspaceId || !detail || !nextDraft) return;
+    if (!tenantId || !detail || !nextDraft) return;
     await run(async () => {
-      const next = await updateJdDraft(workspaceId, detail.task.id, nextDraft);
+      const next = await updateJdDraft(tenantId, detail.task.id, nextDraft);
       setDetail(next);
       setDraft(next.jdDrafts.find(item => item.id === nextDraft.id) ?? next.jdDraft);
       setEditingPublishedJd(false);
@@ -328,10 +328,10 @@ export default function RecruitmentPage() {
   }
 
   async function handleConfirm(targetDraft = draft) {
-    if (!workspaceId || !detail || !targetDraft) return;
+    if (!tenantId || !detail || !targetDraft) return;
     await run(async () => {
-      await confirmJdDraft(workspaceId, detail.task.id, targetDraft.id);
-      const next = await fetchTask(workspaceId, detail.task.id);
+      await confirmJdDraft(tenantId, detail.task.id, targetDraft.id);
+      const next = await fetchTask(tenantId, detail.task.id);
       setDetail(next);
       setDraft(next.jdDrafts.find(item => item.id === targetDraft.id) ?? next.jdDraft);
       await refreshTaskList(next.task.id);
@@ -339,8 +339,8 @@ export default function RecruitmentPage() {
   }
 
   async function refreshTaskList(selectedId: string) {
-    if (!workspaceId) return;
-    const list = await fetchTasks(workspaceId);
+    if (!tenantId) return;
+    const list = await fetchTasks(tenantId);
     setTasks(list);
     const summary = list.find((item) => item.id === selectedId);
     if (summary) setDetail((current) => current ? { ...current, task: summary } : current);
@@ -358,20 +358,20 @@ export default function RecruitmentPage() {
     }
   }
 
-  if (workspaceLoading) return <StatePage icon={<Loader2 className="animate-spin" />} text="正在加载工作空间..." />;
-  if (workspaceError && !workspaceId) return <StatePage icon={<AlertCircle />} text={`加载工作空间失败：${workspaceError}`} />;
-  if (!workspaceId || notAuthenticated) return <StatePage icon={<AlertCircle />} text="请先登录并创建或加入一个可访问的工作空间" />;
+  if (tenantLoading) return <StatePage icon={<Loader2 className="animate-spin" />} text="正在加载工作空间..." />;
+  if (tenantError && !tenantId) return <StatePage icon={<AlertCircle />} text={`加载工作空间失败：${tenantError}`} />;
+  if (!tenantId || notAuthenticated) return <StatePage icon={<AlertCircle />} text="请先登录并创建或加入一个可访问的工作空间" />;
   if (loading && tasks.length === 0) return <StatePage icon={<Loader2 className="animate-spin" />} text="正在加载招聘任务..." />;
 
   if (!requestedTaskId && section === "home" && !detail) {
-    return <AppShell activeItem="智能招聘"><RecruitmentEmptyState workspaceId={workspaceId} requirement={newRequirement} selectedFeature={selectedFeature} busy={busy} error={error} onTitle={setNewTitle} onRequirement={setNewRequirement} onCreate={(files) => void handleCreate(files)} onFeature={setSelectedFeature} onSection={setSection} selectedScreeningJob={selectedScreeningJob} onSelectScreeningJob={setSelectedScreeningJob} selectedCandidate={selectedCandidate} onSelectCandidate={setSelectedCandidate}/></AppShell>;
+    return <AppShell activeItem="智能招聘"><RecruitmentEmptyState tenantId={tenantId} requirement={newRequirement} selectedFeature={selectedFeature} busy={busy} error={error} onTitle={setNewTitle} onRequirement={setNewRequirement} onCreate={(files) => void handleCreate(files)} onFeature={setSelectedFeature} onSection={setSection} selectedScreeningJob={selectedScreeningJob} onSelectScreeningJob={setSelectedScreeningJob} selectedCandidate={selectedCandidate} onSelectCandidate={setSelectedCandidate}/></AppShell>;
   }
 
   return <AppShell activeItem="智能招聘" pageHeader={
     <section className="flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 className="m-0 text-[25px] font-bold tracking-tight text-[#09245d]">智能招聘</h1>
-        <p className="mb-0 mt-1 text-sm text-[#55709d]">{workspace?.name ?? "当前工作空间"} · 从需求对话生成并确认可追溯的 JD 版本</p>
+        <p className="mb-0 mt-1 text-sm text-[#55709d]">{tenant?.name ?? "当前工作空间"} · 从需求对话生成并确认可追溯的 JD 版本</p>
       </div>
     </section>
   }>
@@ -380,11 +380,11 @@ export default function RecruitmentPage() {
     <div className="mt-4 grid min-h-[680px] gap-4 lg:h-[calc(100dvh-190px)] lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_360px]">
       <main className="min-w-0 rounded-xl border border-[#d6e5f5] bg-white p-5 shadow-[0_6px_20px_rgba(30,92,160,0.04)] lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
         {section === "candidates" ? <WorkflowSection title="上传并解析简历" description="请在此上传 PDF、DOCX 简历，系统将解析候选人信息并在当前工作空间保存。"/>
-          : section === "screening" ? detail ? <ScreeningWorkspace embedded recruitmentTaskId={detail.task.id} initialJobId={detail.task.jobId} /> : <WorkflowSection title="AI 简历筛选" description="请先创建筛选任务后再配置方案与候选人范围。"/>
-          : section === "resume-parsing" ? detail ? <ResumeParsingWorkspace embedded detail={detail} onDetailUpdated={(next) => { setDetail(next); setDraft(next.jdDraft); }} /> : <WorkflowSection title="AI 简历解析" description="请先上传简历并创建解析任务，AI 将提取简历关键内容并可与职位匹配分析。"/>
+          : section === "screening" ? detail ? <ScreeningTenant embedded recruitmentTaskId={detail.task.id} initialJobId={detail.task.jobId} /> : <WorkflowSection title="AI 简历筛选" description="请先创建筛选任务后再配置方案与候选人范围。"/>
+          : section === "resume-parsing" ? detail ? <ResumeParsingTenant embedded detail={detail} onDetailUpdated={(next) => { setDetail(next); setDraft(next.jdDraft); }} /> : <WorkflowSection title="AI 简历解析" description="请先上传简历并创建解析任务，AI 将提取简历关键内容并可与职位匹配分析。"/>
           : !detail ? <CreateTaskPanel title={newTitle} requirement={newRequirement} busy={busy} onTitle={setNewTitle} onRequirement={setNewRequirement} onCreate={() => void handleCreate()} />
-          : detail.task.featureType === "INTERVIEW_KIT" ? <InterviewKitPanel workspaceId={workspaceId} linkedJobId={detail.task.linkedJobId} linkedCandidateId={detail.task.linkedCandidateId} />
-          : detail.task.featureType === "RESUME_PARSING" ? <ResumeParsingWorkspace embedded detail={detail} onDetailUpdated={(next) => { setDetail(next); setDraft(next.jdDraft); }} />
+          : detail.task.featureType === "INTERVIEW_KIT" ? <InterviewKitPanel tenantId={tenantId} linkedJobId={detail.task.linkedJobId} linkedCandidateId={detail.task.linkedCandidateId} />
+          : detail.task.featureType === "RESUME_PARSING" ? <ResumeParsingTenant embedded detail={detail} onDetailUpdated={(next) => { setDetail(next); setDraft(next.jdDraft); }} />
           : detail.jdDrafts?.length ? <div className="space-y-5">
               {/* 标题栏：与 AI 简历解析页面保持一致 */}
               <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e4edf6] pb-4">
@@ -419,7 +419,7 @@ export default function RecruitmentPage() {
   </AppShell>;
 }
 
-type RecruitmentStarter = { icon: typeof BriefcaseBusiness; title: string; description: string; requirement?: string; section?: WorkspaceSection; feature?: Exclude<SelectedFeature, null> };
+type RecruitmentStarter = { icon: typeof BriefcaseBusiness; title: string; description: string; requirement?: string; section?: TenantSection; feature?: Exclude<SelectedFeature, null> };
 const recruitmentStarters: RecruitmentStarter[] = [
   {
     icon: BriefcaseBusiness,
@@ -506,8 +506,8 @@ type UploadedFile = {
  * 面试出题左侧详情面板（与简历解析页面的「职位基本信息 + 关联人才」样式完全一致，无生成按钮）。
  * 根据任务的 linkedJobId / linkedCandidateId 拉取职位和人才完整详情，只读展示。
  */
-function InterviewKitPanel({ workspaceId, linkedJobId, linkedCandidateId }: {
-  workspaceId: string;
+function InterviewKitPanel({ tenantId, linkedJobId, linkedCandidateId }: {
+  tenantId: string;
   linkedJobId: string | null;
   linkedCandidateId: string | null;
 }) {
@@ -521,7 +521,7 @@ function InterviewKitPanel({ workspaceId, linkedJobId, linkedCandidateId }: {
     let cancelled = false;
     if (linkedJobId) {
       setJobLoading(true);
-      fetchJob(workspaceId, linkedJobId)
+      fetchJob(tenantId, linkedJobId)
         .then((item) => { if (!cancelled) setJob(item); })
         .catch((cause) => { if (!cancelled) setError(`加载职位失败：${cause instanceof Error ? cause.message : String(cause)}`); })
         .finally(() => { if (!cancelled) setJobLoading(false); });
@@ -531,7 +531,7 @@ function InterviewKitPanel({ workspaceId, linkedJobId, linkedCandidateId }: {
     }
     if (linkedCandidateId) {
       setCandidateLoading(true);
-      fetchCandidate(workspaceId, linkedCandidateId)
+      fetchCandidate(tenantId, linkedCandidateId)
         .then((item) => { if (!cancelled) setCandidate(item); })
         .catch((cause) => { if (!cancelled) setError(`加载人才失败：${cause instanceof Error ? cause.message : String(cause)}`); })
         .finally(() => { if (!cancelled) setCandidateLoading(false); });
@@ -540,7 +540,7 @@ function InterviewKitPanel({ workspaceId, linkedJobId, linkedCandidateId }: {
       setCandidateLoading(false);
     }
     return () => { cancelled = true; };
-  }, [workspaceId, linkedJobId, linkedCandidateId]);
+  }, [tenantId, linkedJobId, linkedCandidateId]);
 
   return (
     <div className="space-y-6">
@@ -630,8 +630,8 @@ function InterviewKitPanel({ workspaceId, linkedJobId, linkedCandidateId }: {
   );
 }
 
-function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy, error, onTitle, onRequirement, onCreate, onFeature, onSection, selectedScreeningJob, onSelectScreeningJob, selectedCandidate, onSelectCandidate }: {
-  workspaceId: string;
+function RecruitmentEmptyState({ tenantId, requirement, selectedFeature, busy, error, onTitle, onRequirement, onCreate, onFeature, onSection, selectedScreeningJob, onSelectScreeningJob, selectedCandidate, onSelectCandidate }: {
+  tenantId: string;
   requirement: string;
   selectedFeature: SelectedFeature;
   busy: boolean;
@@ -640,7 +640,7 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
   onRequirement: (value: string) => void;
   onCreate: (files?: File[]) => void;
   onFeature: (feature: SelectedFeature) => void;
-  onSection: (section: WorkspaceSection) => void;
+  onSection: (section: TenantSection) => void;
   selectedScreeningJob: Job | null;
   onSelectScreeningJob: (job: Job | null) => void;
   selectedCandidate: CandidateSummary | null;
@@ -719,7 +719,7 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
   const loadJobList = async (keyword: string) => {
     setJobLoading(true);
     try {
-      const result = await fetchJobs(workspaceId, { search: keyword || undefined, pageSize: 20 });
+      const result = await fetchJobs(tenantId, { search: keyword || undefined, pageSize: 20 });
       setJobList(result.items);
     } catch {
       setJobList([]);
@@ -740,13 +740,13 @@ function RecruitmentEmptyState({ workspaceId, requirement, selectedFeature, busy
     setCandidateLoading(true);
     try {
       // 第一优先：已解析的候选人（多数已提取技能和经历）
-      const parsed = await fetchCandidates(workspaceId, { search: keyword, status: "PARSED", pageSize: 50 });
+      const parsed = await fetchCandidates(tenantId, { search: keyword, status: "PARSED", pageSize: 50 });
       if (parsed.items.length > 0) {
         setCandidateList(parsed.items);
         return;
       }
       // 第二优先：无结果则走全部状态（如上传后未解析也能选，解析交给后端 worker）
-      const all = await fetchCandidates(workspaceId, { search: keyword, pageSize: 50 });
+      const all = await fetchCandidates(tenantId, { search: keyword, pageSize: 50 });
       setCandidateList(all.items);
     } catch {
       setCandidateList([]);

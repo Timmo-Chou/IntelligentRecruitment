@@ -16,8 +16,8 @@ Recruitment SaaS 不再自行实现账号注册、密码/验证码认证、Tenan
 ## Recruitment 侧边界
 
 - 浏览器只调用 Recruitment BFF；BOSS 用户 access token 仅保存在浏览器内存，BOSS 机器凭证只存在服务端配置。
-- 对外业务上下文使用 BOSS `company_id`，业务 URL 使用 `/api/v1/companies/{companyId}`。
-- Recruitment 的 `workspace_id` 历史列在迁移完成前继续作为物理兼容键，不能再作为独立的身份或授权事实来源。
+- 对外业务上下文使用 BOSS `tenant_id`，业务 URL 使用 `/api/v1/tenants/{tenantId}`。
+- Recruitment 已移除 `workspace_id` 兼容列；Tenant 是唯一业务隔离与授权上下文。
 - 每次受保护业务请求都通过 BOSS 上下文和权限校验；AI 请求还必须经过 BOSS 能力/配额、价格查询、预占和使用量上报。
 - BOSS 状态事件通过 `/internal/v1/boss/events` 写入本地 inbox 并更新可重建投影；投影不能绕过实时授权。
 

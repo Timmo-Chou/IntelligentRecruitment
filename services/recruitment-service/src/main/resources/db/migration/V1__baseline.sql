@@ -33,21 +33,21 @@ COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
 
 
 --
--- Name: enforce_workspace_tenant_scope(); Type: FUNCTION; Schema: public; Owner: -
+-- Name: enforce_tenant_tenant_scope(); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.enforce_workspace_tenant_scope() RETURNS trigger
+CREATE FUNCTION public.enforce_tenant_tenant_scope() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 DECLARE
     expected_tenant_id UUID;
 BEGIN
-    SELECT tenant_id INTO expected_tenant_id FROM workspaces WHERE id = NEW.workspace_id;
+    SELECT tenant_id INTO expected_tenant_id FROM tenants WHERE id = NEW.tenant_id;
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'workspace does not exist';
+        RAISE EXCEPTION 'tenant does not exist';
     END IF;
     IF NEW.tenant_id IS DISTINCT FROM expected_tenant_id THEN
-        RAISE EXCEPTION 'tenant_id does not match workspace scope';
+        RAISE EXCEPTION 'tenant_id does not match tenant scope';
     END IF;
     RETURN NEW;
 END;
@@ -63,13 +63,13 @@ CREATE FUNCTION public.fn_enforce_recruitment_task_linked_candidate_scope() RETU
     AS $$
 BEGIN
     IF NEW.linked_candidate_id IS NOT NULL THEN
-        NEW.tenant_id := COALESCE(NEW.tenant_id, (SELECT tenant_id FROM workspaces WHERE id = NEW.workspace_id));
+        NEW.tenant_id := COALESCE(NEW.tenant_id, (SELECT tenant_id FROM tenants WHERE id = NEW.tenant_id));
         IF EXISTS (
             SELECT 1 FROM candidates c
             WHERE c.id = NEW.linked_candidate_id
-              AND (c.workspace_id <> NEW.workspace_id OR c.tenant_id IS DISTINCT FROM NEW.tenant_id)
+              AND (c.tenant_id <> NEW.tenant_id OR c.tenant_id IS DISTINCT FROM NEW.tenant_id)
         ) THEN
-            RAISE EXCEPTION 'Linked candidate % does not belong to workspace %', NEW.linked_candidate_id, NEW.workspace_id;
+            RAISE EXCEPTION 'Linked candidate % does not belong to tenant %', NEW.linked_candidate_id, NEW.tenant_id;
         END IF;
     END IF;
     RETURN NEW;
@@ -101,8 +101,7 @@ CREATE TABLE public.access_tokens (
 
 CREATE TABLE public.ai_runs (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     recruitment_task_id uuid NOT NULL,
     capability character varying(64) NOT NULL,
     provider_task_id character varying(200),
@@ -133,7 +132,6 @@ CREATE TABLE public.audit_logs (
     id uuid NOT NULL,
     actor_user_id uuid,
     tenant_id uuid,
-    workspace_id uuid,
     action character varying(100) NOT NULL,
     resource_type character varying(80) NOT NULL,
     resource_id character varying(100) NOT NULL,
@@ -148,7 +146,7 @@ CREATE TABLE public.audit_logs (
 
 CREATE TABLE public.billing_accounts (
     id uuid NOT NULL,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     currency character varying(3) NOT NULL,
     available_amount_minor bigint DEFAULT 0 NOT NULL,
     reserved_amount_minor bigint DEFAULT 0 NOT NULL,
@@ -166,7 +164,7 @@ CREATE TABLE public.billing_accounts (
 CREATE TABLE public.billing_ledger_entries (
     id uuid NOT NULL,
     billing_account_id uuid NOT NULL,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     credit_lot_id uuid,
     entry_type character varying(32) NOT NULL,
     amount_minor bigint NOT NULL,
@@ -199,7 +197,7 @@ CREATE TABLE public.billing_reservation_allocations (
 CREATE TABLE public.billing_reservations (
     id uuid NOT NULL,
     billing_account_id uuid NOT NULL,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     business_reference character varying(160) NOT NULL,
     reserved_amount_minor bigint NOT NULL,
     settled_amount_minor bigint DEFAULT 0 NOT NULL,
@@ -217,8 +215,7 @@ CREATE TABLE public.billing_reservations (
 
 CREATE TABLE public.candidates (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     display_name_masked character varying(120) NOT NULL,
     full_name_ciphertext text NOT NULL,
     email_ciphertext text,
@@ -281,7 +278,7 @@ CREATE TABLE public.enterprise_registration_projections (
     credit_code_hash character varying(64) NOT NULL,
     credit_code_masked character varying(32) NOT NULL,
     license_reference character varying(500) NOT NULL,
-    first_workspace_name character varying(120) NOT NULL,
+    first_tenant_name character varying(120) NOT NULL,
     status character varying(24) NOT NULL,
     reviewed_by character varying(100),
     reviewed_at timestamp with time zone,
@@ -296,8 +293,7 @@ CREATE TABLE public.enterprise_registration_projections (
 
 CREATE TABLE public.conversations (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     recruitment_task_id uuid NOT NULL,
     status character varying(32) NOT NULL,
     created_at timestamp with time zone NOT NULL,
@@ -327,8 +323,7 @@ CREATE TABLE public.credit_lots (
 
 CREATE TABLE public.file_assets (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     object_key character varying(500) NOT NULL,
     original_filename character varying(255) NOT NULL,
     media_type character varying(120) NOT NULL,
@@ -360,7 +355,7 @@ CREATE TABLE public.foundation_async_probe (
 
 CREATE TABLE public.idempotency_records (
     id uuid NOT NULL,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     actor_id character varying(64) NOT NULL,
     operation_type character varying(100) NOT NULL,
     idempotency_key character varying(200) NOT NULL,
@@ -378,8 +373,7 @@ CREATE TABLE public.idempotency_records (
 
 CREATE TABLE public.interview_kit_versions (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     kit_id uuid NOT NULL,
     screening_result_id uuid,
     version_no integer NOT NULL,
@@ -395,8 +389,7 @@ CREATE TABLE public.interview_kit_versions (
 
 CREATE TABLE public.interview_kits (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     job_version_id uuid,
     candidate_id uuid NOT NULL,
     screening_result_id uuid,
@@ -415,8 +408,7 @@ CREATE TABLE public.interview_kits (
 
 CREATE TABLE public.interview_questions (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     kit_version_id uuid NOT NULL,
     category character varying(24) NOT NULL,
     content text NOT NULL,
@@ -435,8 +427,7 @@ CREATE TABLE public.interview_questions (
 
 CREATE TABLE public.jd_drafts (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     recruitment_task_id uuid NOT NULL,
     source_ai_run_id uuid,
     revision integer NOT NULL,
@@ -468,8 +459,7 @@ CREATE TABLE public.jd_drafts (
 CREATE TABLE public.jd_run_events (
     event_id bigint NOT NULL,
     run_id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     recruitment_task_id uuid NOT NULL,
     event_type character varying(32) NOT NULL,
     data jsonb NOT NULL,
@@ -502,8 +492,7 @@ ALTER SEQUENCE public.jd_run_events_event_id_seq OWNED BY public.jd_run_events.e
 
 CREATE TABLE public.jd_source_files (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     recruitment_task_id uuid NOT NULL,
     file_asset_id uuid NOT NULL,
     extracted_text text DEFAULT ''::text NOT NULL,
@@ -524,8 +513,7 @@ CREATE TABLE public.job_versions (
     change_summary character varying(500) DEFAULT ''::character varying NOT NULL,
     created_by uuid NOT NULL,
     created_at timestamp with time zone NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     status character varying(32) DEFAULT 'CONFIRMED'::character varying NOT NULL,
     source_ai_run_id uuid,
     confirmed_at timestamp with time zone
@@ -538,7 +526,7 @@ CREATE TABLE public.job_versions (
 
 CREATE TABLE public.jobs (
     id uuid NOT NULL,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     title character varying(200) NOT NULL,
     company_name character varying(200) NOT NULL,
     location character varying(200) NOT NULL,
@@ -552,7 +540,6 @@ CREATE TABLE public.jobs (
     created_by uuid NOT NULL,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
-    tenant_id uuid,
     current_version_id uuid,
     source character varying(32) DEFAULT 'MANUAL'::character varying NOT NULL,
     lock_version bigint DEFAULT 0 NOT NULL,
@@ -610,8 +597,7 @@ CREATE TABLE public.membership_invitations (
 
 CREATE TABLE public.messages (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     conversation_id uuid NOT NULL,
     role character varying(24) NOT NULL,
     content text NOT NULL,
@@ -736,7 +722,7 @@ CREATE TABLE public.recharge_orders (
     id uuid NOT NULL,
     order_no character varying(64) NOT NULL,
     billing_account_id uuid NOT NULL,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     created_by uuid NOT NULL,
     payer_name character varying(200) NOT NULL,
     payment_method character varying(32) NOT NULL,
@@ -773,8 +759,7 @@ CREATE TABLE public.recharge_receiving_accounts (
 
 CREATE TABLE public.recruitment_tasks (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     title character varying(200) NOT NULL,
     initial_requirement text NOT NULL,
     status character varying(32) NOT NULL,
@@ -812,8 +797,7 @@ CREATE TABLE public.refresh_sessions (
 
 CREATE TABLE public.resume_files (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     candidate_id uuid NOT NULL,
     file_asset_id uuid NOT NULL,
     status character varying(32) NOT NULL,
@@ -830,8 +814,7 @@ CREATE TABLE public.resume_files (
 
 CREATE TABLE public.resume_parse_drafts (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     recruitment_task_id uuid NOT NULL,
     source_ai_run_id uuid,
     resume_source_file_id uuid,
@@ -858,8 +841,7 @@ COMMENT ON COLUMN public.resume_parse_drafts.updated_by IS '最后一次更新�
 
 CREATE TABLE public.resume_parse_versions (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     candidate_id uuid NOT NULL,
     resume_file_id uuid NOT NULL,
     version_number integer NOT NULL,
@@ -884,8 +866,7 @@ CREATE TABLE public.resume_parse_versions (
 
 CREATE TABLE public.resume_source_files (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     recruitment_task_id uuid NOT NULL,
     file_asset_id uuid NOT NULL,
     filename character varying(255) NOT NULL,
@@ -903,8 +884,7 @@ CREATE TABLE public.resume_source_files (
 
 CREATE TABLE public.screening_plan_versions (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     plan_id uuid NOT NULL,
     version_number integer NOT NULL,
     rules_snapshot jsonb NOT NULL,
@@ -919,8 +899,7 @@ CREATE TABLE public.screening_plan_versions (
 
 CREATE TABLE public.screening_plans (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     job_id uuid NOT NULL,
     current_version_id uuid,
     name character varying(200) NOT NULL,
@@ -938,8 +917,7 @@ CREATE TABLE public.screening_plans (
 
 CREATE TABLE public.screening_quotes (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     plan_version_id uuid NOT NULL,
     candidate_ids_hash character varying(64) NOT NULL,
     candidate_count integer NOT NULL,
@@ -965,8 +943,7 @@ CREATE TABLE public.screening_quotes (
 
 CREATE TABLE public.screening_results (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     run_item_id uuid NOT NULL,
     score integer NOT NULL,
     level character varying(32) NOT NULL,
@@ -988,8 +965,7 @@ CREATE TABLE public.screening_results (
 
 CREATE TABLE public.screening_run_items (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     run_id uuid NOT NULL,
     candidate_id uuid NOT NULL,
     parse_version_id uuid NOT NULL,
@@ -1009,8 +985,7 @@ CREATE TABLE public.screening_run_items (
 
 CREATE TABLE public.screening_runs (
     id uuid NOT NULL,
-    tenant_id uuid,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     job_id uuid NOT NULL,
     job_version_id uuid NOT NULL,
     plan_version_id uuid NOT NULL,
@@ -1082,7 +1057,7 @@ CREATE TABLE public.trial_eligibilities (
     subject_id uuid NOT NULL,
     policy_code character varying(64) NOT NULL,
     granted_at timestamp with time zone NOT NULL,
-    workspace_id uuid NOT NULL
+    tenant_id uuid NOT NULL
 );
 
 
@@ -1120,12 +1095,12 @@ CREATE TABLE public.verification_challenges (
 
 
 --
--- Name: workspace_memberships; Type: TABLE; Schema: public; Owner: -
+-- Name: tenant_memberships; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.workspace_memberships (
+CREATE TABLE public.tenant_memberships (
     id uuid NOT NULL,
-    workspace_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
     user_id uuid NOT NULL,
     role character varying(32) NOT NULL,
     status character varying(24) NOT NULL,
@@ -1134,10 +1109,10 @@ CREATE TABLE public.workspace_memberships (
 
 
 --
--- Name: workspaces; Type: TABLE; Schema: public; Owner: -
+-- Name: tenants; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.workspaces (
+CREATE TABLE public.tenants (
     id uuid NOT NULL,
     tenant_id uuid,
     type character varying(24) NOT NULL,
@@ -1147,7 +1122,7 @@ CREATE TABLE public.workspaces (
     created_by uuid NOT NULL,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
-    CONSTRAINT ck_workspace_tenant CHECK (((((type)::text = 'PERSONAL'::text) AND (tenant_id IS NULL)) OR (((type)::text = 'ENTERPRISE'::text) AND (tenant_id IS NOT NULL))))
+    CONSTRAINT ck_tenant_tenant CHECK (((((type)::text = 'PERSONAL'::text) AND (tenant_id IS NULL)) OR (((type)::text = 'ENTERPRISE'::text) AND (tenant_id IS NOT NULL))))
 );
 
 
@@ -1183,11 +1158,11 @@ ALTER TABLE ONLY public.ai_runs
 
 
 --
--- Name: ai_runs ai_runs_workspace_id_idempotency_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: ai_runs ai_runs_tenant_id_idempotency_key_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.ai_runs
-    ADD CONSTRAINT ai_runs_workspace_id_idempotency_key_key UNIQUE (workspace_id, idempotency_key);
+    ADD CONSTRAINT ai_runs_tenant_id_idempotency_key_key UNIQUE (tenant_id, idempotency_key);
 
 
 --
@@ -1207,11 +1182,11 @@ ALTER TABLE ONLY public.billing_accounts
 
 
 --
--- Name: billing_accounts billing_accounts_workspace_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: billing_accounts billing_accounts_tenant_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.billing_accounts
-    ADD CONSTRAINT billing_accounts_workspace_id_key UNIQUE (workspace_id);
+    ADD CONSTRAINT billing_accounts_tenant_id_key UNIQUE (tenant_id);
 
 
 --
@@ -1351,11 +1326,11 @@ ALTER TABLE ONLY public.file_assets
 
 
 --
--- Name: file_assets file_assets_workspace_id_sha256_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: file_assets file_assets_tenant_id_sha256_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.file_assets
-    ADD CONSTRAINT file_assets_workspace_id_sha256_key UNIQUE (workspace_id, sha256);
+    ADD CONSTRAINT file_assets_tenant_id_sha256_key UNIQUE (tenant_id, sha256);
 
 
 --
@@ -1615,11 +1590,11 @@ ALTER TABLE ONLY public.recruitment_tasks
 
 
 --
--- Name: recruitment_tasks recruitment_tasks_workspace_id_idempotency_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: recruitment_tasks recruitment_tasks_tenant_id_idempotency_key_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.recruitment_tasks
-    ADD CONSTRAINT recruitment_tasks_workspace_id_idempotency_key_key UNIQUE (workspace_id, idempotency_key);
+    ADD CONSTRAINT recruitment_tasks_tenant_id_idempotency_key_key UNIQUE (tenant_id, idempotency_key);
 
 
 --
@@ -1647,11 +1622,11 @@ ALTER TABLE ONLY public.resume_files
 
 
 --
--- Name: resume_files resume_files_workspace_id_file_asset_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: resume_files resume_files_tenant_id_file_asset_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.resume_files
-    ADD CONSTRAINT resume_files_workspace_id_file_asset_id_key UNIQUE (workspace_id, file_asset_id);
+    ADD CONSTRAINT resume_files_tenant_id_file_asset_id_key UNIQUE (tenant_id, file_asset_id);
 
 
 --
@@ -1775,11 +1750,11 @@ ALTER TABLE ONLY public.screening_runs
 
 
 --
--- Name: screening_runs screening_runs_workspace_id_idempotency_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: screening_runs screening_runs_tenant_id_idempotency_key_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.screening_runs
-    ADD CONSTRAINT screening_runs_workspace_id_idempotency_key_key UNIQUE (workspace_id, idempotency_key);
+    ADD CONSTRAINT screening_runs_tenant_id_idempotency_key_key UNIQUE (tenant_id, idempotency_key);
 
 
 --
@@ -1827,7 +1802,7 @@ ALTER TABLE ONLY public.trial_eligibilities
 --
 
 ALTER TABLE ONLY public.idempotency_records
-    ADD CONSTRAINT uk_idempotency_scope UNIQUE (workspace_id, actor_id, operation_type, idempotency_key);
+    ADD CONSTRAINT uk_idempotency_scope UNIQUE (tenant_id, actor_id, operation_type, idempotency_key);
 
 
 --
@@ -1855,27 +1830,27 @@ ALTER TABLE ONLY public.verification_challenges
 
 
 --
--- Name: workspace_memberships workspace_memberships_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: tenant_memberships tenant_memberships_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.workspace_memberships
-    ADD CONSTRAINT workspace_memberships_pkey PRIMARY KEY (id);
-
-
---
--- Name: workspace_memberships workspace_memberships_workspace_id_user_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.workspace_memberships
-    ADD CONSTRAINT workspace_memberships_workspace_id_user_id_key UNIQUE (workspace_id, user_id);
+ALTER TABLE ONLY public.tenant_memberships
+    ADD CONSTRAINT tenant_memberships_pkey PRIMARY KEY (id);
 
 
 --
--- Name: workspaces workspaces_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: tenant_memberships tenant_memberships_tenant_id_user_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.workspaces
-    ADD CONSTRAINT workspaces_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.tenant_memberships
+    ADD CONSTRAINT tenant_memberships_tenant_id_user_id_key UNIQUE (tenant_id, user_id);
+
+
+--
+-- Name: tenants tenants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tenants
+    ADD CONSTRAINT tenants_pkey PRIMARY KEY (id);
 
 
 --
@@ -1889,7 +1864,7 @@ CREATE INDEX idx_ai_runs_task_created ON public.ai_runs USING btree (recruitment
 -- Name: idx_audit_scope; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_audit_scope ON public.audit_logs USING btree (tenant_id, workspace_id, created_at DESC);
+CREATE INDEX idx_audit_scope ON public.audit_logs USING btree (tenant_id, created_at DESC);
 
 
 --
@@ -1914,24 +1889,24 @@ CREATE INDEX idx_candidates_search_text ON public.candidates USING gin (to_tsvec
 
 
 --
--- Name: idx_candidates_workspace_full_name_hash; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_candidates_tenant_full_name_hash; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_candidates_workspace_full_name_hash ON public.candidates USING btree (workspace_id, full_name_search_hash) WHERE (full_name_search_hash IS NOT NULL);
-
-
---
--- Name: idx_candidates_workspace_phone_hash; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_candidates_workspace_phone_hash ON public.candidates USING btree (workspace_id, phone_search_hash) WHERE (phone_search_hash IS NOT NULL);
+CREATE INDEX idx_candidates_tenant_full_name_hash ON public.candidates USING btree (tenant_id, full_name_search_hash) WHERE (full_name_search_hash IS NOT NULL);
 
 
 --
--- Name: idx_candidates_workspace_updated; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_candidates_tenant_phone_hash; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_candidates_workspace_updated ON public.candidates USING btree (workspace_id, updated_at DESC);
+CREATE INDEX idx_candidates_tenant_phone_hash ON public.candidates USING btree (tenant_id, phone_search_hash) WHERE (phone_search_hash IS NOT NULL);
+
+
+--
+-- Name: idx_candidates_tenant_updated; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_candidates_tenant_updated ON public.candidates USING btree (tenant_id, updated_at DESC);
 
 
 --
@@ -1959,14 +1934,14 @@ CREATE INDEX idx_jd_outbox_pending ON public.outbox_events USING btree (status, 
 -- Name: idx_jd_run_events_replay; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_jd_run_events_replay ON public.jd_run_events USING btree (workspace_id, recruitment_task_id, event_id);
+CREATE INDEX idx_jd_run_events_replay ON public.jd_run_events USING btree (tenant_id, recruitment_task_id, event_id);
 
 
 --
 -- Name: idx_jd_source_files_task; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_jd_source_files_task ON public.jd_source_files USING btree (workspace_id, recruitment_task_id, created_at);
+CREATE INDEX idx_jd_source_files_task ON public.jd_source_files USING btree (tenant_id, recruitment_task_id, created_at);
 
 
 --
@@ -1977,31 +1952,31 @@ CREATE INDEX idx_job_versions_job ON public.job_versions USING btree (job_id, ve
 
 
 --
--- Name: idx_job_versions_workspace_job; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_job_versions_tenant_job; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_job_versions_workspace_job ON public.job_versions USING btree (workspace_id, job_id, version_number DESC);
-
-
---
--- Name: idx_jobs_tenant_workspace; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_jobs_tenant_workspace ON public.jobs USING btree (tenant_id, workspace_id);
+CREATE INDEX idx_job_versions_tenant_job ON public.job_versions USING btree (tenant_id, job_id, version_number DESC);
 
 
 --
--- Name: idx_jobs_workspace_created; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_jobs_tenant_tenant; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_jobs_workspace_created ON public.jobs USING btree (workspace_id, created_at DESC);
+CREATE INDEX idx_jobs_tenant_tenant ON public.jobs USING btree (tenant_id);
 
 
 --
--- Name: idx_jobs_workspace_status; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_jobs_tenant_created; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_jobs_workspace_status ON public.jobs USING btree (workspace_id, status);
+CREATE INDEX idx_jobs_tenant_created ON public.jobs USING btree (tenant_id, created_at DESC);
+
+
+--
+-- Name: idx_jobs_tenant_status; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_jobs_tenant_status ON public.jobs USING btree (tenant_id, status);
 
 
 --
@@ -2019,10 +1994,10 @@ CREATE INDEX idx_outbox_pending ON public.outbox_events USING btree (status, nex
 
 
 --
--- Name: idx_parse_versions_workspace_candidate; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_parse_versions_tenant_candidate; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_parse_versions_workspace_candidate ON public.resume_parse_versions USING btree (workspace_id, candidate_id, version_number DESC);
+CREATE INDEX idx_parse_versions_tenant_candidate ON public.resume_parse_versions USING btree (tenant_id, candidate_id, version_number DESC);
 
 
 --
@@ -2033,31 +2008,31 @@ CREATE INDEX idx_pricing_items_status ON public.pricing_items USING btree (statu
 
 
 --
--- Name: idx_recharge_orders_workspace_created; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_recharge_orders_tenant_created; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_recharge_orders_workspace_created ON public.recharge_orders USING btree (workspace_id, created_at DESC);
+CREATE INDEX idx_recharge_orders_tenant_created ON public.recharge_orders USING btree (tenant_id, created_at DESC);
 
 
 --
 -- Name: idx_recruitment_tasks_feature; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_recruitment_tasks_feature ON public.recruitment_tasks USING btree (workspace_id, feature_type, updated_at DESC);
+CREATE INDEX idx_recruitment_tasks_feature ON public.recruitment_tasks USING btree (tenant_id, feature_type, updated_at DESC);
 
 
 --
 -- Name: idx_recruitment_tasks_linked_candidate; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_recruitment_tasks_linked_candidate ON public.recruitment_tasks USING btree (workspace_id, linked_candidate_id, updated_at DESC) WHERE (linked_candidate_id IS NOT NULL);
+CREATE INDEX idx_recruitment_tasks_linked_candidate ON public.recruitment_tasks USING btree (tenant_id, linked_candidate_id, updated_at DESC) WHERE (linked_candidate_id IS NOT NULL);
 
 
 --
--- Name: idx_recruitment_tasks_workspace_updated; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_recruitment_tasks_tenant_updated; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_recruitment_tasks_workspace_updated ON public.recruitment_tasks USING btree (workspace_id, updated_at DESC);
+CREATE INDEX idx_recruitment_tasks_tenant_updated ON public.recruitment_tasks USING btree (tenant_id, updated_at DESC);
 
 
 --
@@ -2071,14 +2046,14 @@ CREATE INDEX idx_refresh_sessions_user ON public.refresh_sessions USING btree (u
 -- Name: idx_resume_parse_drafts_task; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_resume_parse_drafts_task ON public.resume_parse_drafts USING btree (workspace_id, recruitment_task_id, revision DESC);
+CREATE INDEX idx_resume_parse_drafts_task ON public.resume_parse_drafts USING btree (tenant_id, recruitment_task_id, revision DESC);
 
 
 --
 -- Name: idx_resume_source_files_task; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_resume_source_files_task ON public.resume_source_files USING btree (workspace_id, recruitment_task_id, created_at);
+CREATE INDEX idx_resume_source_files_task ON public.resume_source_files USING btree (tenant_id, recruitment_task_id, created_at);
 
 
 --
@@ -2099,7 +2074,7 @@ CREATE INDEX idx_screening_plans_recruitment_task ON public.screening_plans USIN
 -- Name: idx_screening_quotes_scope_expiry; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_screening_quotes_scope_expiry ON public.screening_quotes USING btree (workspace_id, expires_at DESC);
+CREATE INDEX idx_screening_quotes_scope_expiry ON public.screening_quotes USING btree (tenant_id, expires_at DESC);
 
 
 --
@@ -2124,10 +2099,10 @@ CREATE INDEX idx_screening_runs_root ON public.screening_runs USING btree (root_
 
 
 --
--- Name: idx_screening_runs_workspace_created; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_screening_runs_tenant_created; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_screening_runs_workspace_created ON public.screening_runs USING btree (workspace_id, created_at DESC);
+CREATE INDEX idx_screening_runs_tenant_created ON public.screening_runs USING btree (tenant_id, created_at DESC);
 
 
 --
@@ -2159,17 +2134,17 @@ CREATE INDEX idx_verification_challenges_phone ON public.verification_challenges
 
 
 --
--- Name: idx_workspaces_tenant; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_tenants_tenant; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_workspaces_tenant ON public.workspaces USING btree (tenant_id, status);
+CREATE INDEX idx_tenants_tenant ON public.tenants USING btree (tenant_id, status);
 
 
 --
--- Name: ix_interview_kits_workspace; Type: INDEX; Schema: public; Owner: -
+-- Name: ix_interview_kits_tenant; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX ix_interview_kits_workspace ON public.interview_kits USING btree (workspace_id, created_at DESC);
+CREATE INDEX ix_interview_kits_tenant ON public.interview_kits USING btree (tenant_id, created_at DESC);
 
 
 --
@@ -2215,10 +2190,10 @@ CREATE UNIQUE INDEX uk_pending_tenant_application ON public.membership_applicati
 
 
 --
--- Name: uk_personal_workspace_user; Type: INDEX; Schema: public; Owner: -
+-- Name: uk_personal_tenant_user; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uk_personal_workspace_user ON public.workspaces USING btree (owner_user_id) WHERE (((type)::text = 'PERSONAL'::text) AND ((status)::text = 'ACTIVE'::text));
+CREATE UNIQUE INDEX uk_personal_tenant_user ON public.tenants USING btree (owner_user_id) WHERE (((type)::text = 'PERSONAL'::text) AND ((status)::text = 'ACTIVE'::text));
 
 
 --
@@ -2232,161 +2207,161 @@ CREATE UNIQUE INDEX uk_screening_run_quote ON public.screening_runs USING btree 
 -- Name: ai_runs trg_ai_runs_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_ai_runs_scope BEFORE INSERT OR UPDATE ON public.ai_runs FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_ai_runs_scope BEFORE INSERT OR UPDATE ON public.ai_runs FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: candidates trg_candidates_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_candidates_scope BEFORE INSERT OR UPDATE ON public.candidates FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_candidates_scope BEFORE INSERT OR UPDATE ON public.candidates FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: conversations trg_conversations_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_conversations_scope BEFORE INSERT OR UPDATE ON public.conversations FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_conversations_scope BEFORE INSERT OR UPDATE ON public.conversations FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: file_assets trg_file_assets_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_file_assets_scope BEFORE INSERT OR UPDATE ON public.file_assets FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_file_assets_scope BEFORE INSERT OR UPDATE ON public.file_assets FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: jd_drafts trg_jd_drafts_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_jd_drafts_scope BEFORE INSERT OR UPDATE ON public.jd_drafts FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_jd_drafts_scope BEFORE INSERT OR UPDATE ON public.jd_drafts FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: jd_run_events trg_jd_run_events_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_jd_run_events_scope BEFORE INSERT OR UPDATE ON public.jd_run_events FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_jd_run_events_scope BEFORE INSERT OR UPDATE ON public.jd_run_events FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: jd_source_files trg_jd_source_files_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_jd_source_files_scope BEFORE INSERT OR UPDATE ON public.jd_source_files FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_jd_source_files_scope BEFORE INSERT OR UPDATE ON public.jd_source_files FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: job_versions trg_job_versions_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_job_versions_scope BEFORE INSERT OR UPDATE ON public.job_versions FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_job_versions_scope BEFORE INSERT OR UPDATE ON public.job_versions FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: jobs trg_jobs_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_jobs_scope BEFORE INSERT OR UPDATE ON public.jobs FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_jobs_scope BEFORE INSERT OR UPDATE ON public.jobs FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: messages trg_messages_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_messages_scope BEFORE INSERT OR UPDATE ON public.messages FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_messages_scope BEFORE INSERT OR UPDATE ON public.messages FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: recruitment_tasks trg_recruitment_tasks_dims_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_recruitment_tasks_dims_scope BEFORE INSERT OR UPDATE ON public.recruitment_tasks FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_recruitment_tasks_dims_scope BEFORE INSERT OR UPDATE ON public.recruitment_tasks FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: recruitment_tasks trg_recruitment_tasks_linked_candidate_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_recruitment_tasks_linked_candidate_scope BEFORE INSERT OR UPDATE OF linked_candidate_id, workspace_id, tenant_id ON public.recruitment_tasks FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_recruitment_task_linked_candidate_scope();
+CREATE TRIGGER trg_recruitment_tasks_linked_candidate_scope BEFORE INSERT OR UPDATE OF linked_candidate_id, tenant_id ON public.recruitment_tasks FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_recruitment_task_linked_candidate_scope();
 
 
 --
 -- Name: recruitment_tasks trg_recruitment_tasks_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_recruitment_tasks_scope BEFORE INSERT OR UPDATE ON public.recruitment_tasks FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_recruitment_tasks_scope BEFORE INSERT OR UPDATE ON public.recruitment_tasks FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: resume_files trg_resume_files_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_resume_files_scope BEFORE INSERT OR UPDATE ON public.resume_files FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_resume_files_scope BEFORE INSERT OR UPDATE ON public.resume_files FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: resume_parse_drafts trg_resume_parse_drafts_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_resume_parse_drafts_scope BEFORE INSERT OR UPDATE ON public.resume_parse_drafts FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_resume_parse_drafts_scope BEFORE INSERT OR UPDATE ON public.resume_parse_drafts FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: resume_parse_versions trg_resume_parse_versions_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_resume_parse_versions_scope BEFORE INSERT OR UPDATE ON public.resume_parse_versions FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_resume_parse_versions_scope BEFORE INSERT OR UPDATE ON public.resume_parse_versions FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: resume_source_files trg_resume_source_files_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_resume_source_files_scope BEFORE INSERT OR UPDATE ON public.resume_source_files FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_resume_source_files_scope BEFORE INSERT OR UPDATE ON public.resume_source_files FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: screening_plan_versions trg_screening_plan_versions_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_screening_plan_versions_scope BEFORE INSERT OR UPDATE ON public.screening_plan_versions FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_screening_plan_versions_scope BEFORE INSERT OR UPDATE ON public.screening_plan_versions FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: screening_plans trg_screening_plans_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_screening_plans_scope BEFORE INSERT OR UPDATE ON public.screening_plans FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_screening_plans_scope BEFORE INSERT OR UPDATE ON public.screening_plans FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: screening_quotes trg_screening_quotes_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_screening_quotes_scope BEFORE INSERT OR UPDATE ON public.screening_quotes FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_screening_quotes_scope BEFORE INSERT OR UPDATE ON public.screening_quotes FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: screening_results trg_screening_results_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_screening_results_scope BEFORE INSERT OR UPDATE ON public.screening_results FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_screening_results_scope BEFORE INSERT OR UPDATE ON public.screening_results FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: screening_run_items trg_screening_run_items_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_screening_run_items_scope BEFORE INSERT OR UPDATE ON public.screening_run_items FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_screening_run_items_scope BEFORE INSERT OR UPDATE ON public.screening_run_items FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
 -- Name: screening_runs trg_screening_runs_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE TRIGGER trg_screening_runs_scope BEFORE INSERT OR UPDATE ON public.screening_runs FOR EACH ROW EXECUTE FUNCTION public.enforce_workspace_tenant_scope();
+CREATE TRIGGER trg_screening_runs_scope BEFORE INSERT OR UPDATE ON public.screening_runs FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
 
 
 --
@@ -2421,20 +2396,6 @@ ALTER TABLE ONLY public.ai_runs
     ADD CONSTRAINT ai_runs_recruitment_task_id_fkey FOREIGN KEY (recruitment_task_id) REFERENCES public.recruitment_tasks(id);
 
 
---
--- Name: ai_runs ai_runs_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.ai_runs
-    ADD CONSTRAINT ai_runs_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
-
---
--- Name: billing_accounts billing_accounts_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_accounts
-    ADD CONSTRAINT billing_accounts_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
 
 
 --
@@ -2460,13 +2421,6 @@ ALTER TABLE ONLY public.billing_ledger_entries
 ALTER TABLE ONLY public.billing_ledger_entries
     ADD CONSTRAINT billing_ledger_entries_operator_user_id_fkey FOREIGN KEY (operator_user_id) REFERENCES public.users(id);
 
-
---
--- Name: billing_ledger_entries billing_ledger_entries_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_ledger_entries
-    ADD CONSTRAINT billing_ledger_entries_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
 
 
 --
@@ -2501,13 +2455,6 @@ ALTER TABLE ONLY public.billing_reservations
     ADD CONSTRAINT billing_reservations_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
---
--- Name: billing_reservations billing_reservations_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_reservations
-    ADD CONSTRAINT billing_reservations_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: candidates candidates_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -2524,13 +2471,6 @@ ALTER TABLE ONLY public.candidates
 ALTER TABLE ONLY public.candidates
     ADD CONSTRAINT candidates_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
-
---
--- Name: candidates candidates_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.candidates
-    ADD CONSTRAINT candidates_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
 
 
 --
@@ -2589,13 +2529,6 @@ ALTER TABLE ONLY public.conversations
     ADD CONSTRAINT conversations_recruitment_task_id_fkey FOREIGN KEY (recruitment_task_id) REFERENCES public.recruitment_tasks(id);
 
 
---
--- Name: conversations conversations_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.conversations
-    ADD CONSTRAINT conversations_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: credit_lots credit_lots_billing_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -2621,13 +2554,6 @@ ALTER TABLE ONLY public.file_assets
     ADD CONSTRAINT file_assets_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
---
--- Name: file_assets file_assets_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.file_assets
-    ADD CONSTRAINT file_assets_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: candidates fk_candidates_current_parse; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -2636,13 +2562,6 @@ ALTER TABLE ONLY public.file_assets
 ALTER TABLE ONLY public.candidates
     ADD CONSTRAINT fk_candidates_current_parse FOREIGN KEY (current_parse_version_id) REFERENCES public.resume_parse_versions(id);
 
-
---
--- Name: idempotency_records fk_idempotency_workspace; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.idempotency_records
-    ADD CONSTRAINT fk_idempotency_workspace FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
 
 
 --
@@ -2693,13 +2612,6 @@ ALTER TABLE ONLY public.interview_kit_versions
     ADD CONSTRAINT interview_kit_versions_kit_id_fkey FOREIGN KEY (kit_id) REFERENCES public.interview_kits(id);
 
 
---
--- Name: interview_kit_versions interview_kit_versions_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.interview_kit_versions
-    ADD CONSTRAINT interview_kit_versions_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: interview_kits interview_kits_candidate_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -2725,13 +2637,6 @@ ALTER TABLE ONLY public.interview_kits
     ADD CONSTRAINT interview_kits_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
---
--- Name: interview_kits interview_kits_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.interview_kits
-    ADD CONSTRAINT interview_kits_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: interview_questions interview_questions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -2748,13 +2653,6 @@ ALTER TABLE ONLY public.interview_questions
 ALTER TABLE ONLY public.interview_questions
     ADD CONSTRAINT interview_questions_kit_version_id_fkey FOREIGN KEY (kit_version_id) REFERENCES public.interview_kit_versions(id) ON DELETE CASCADE;
 
-
---
--- Name: interview_questions interview_questions_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.interview_questions
-    ADD CONSTRAINT interview_questions_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
 
 
 --
@@ -2789,13 +2687,6 @@ ALTER TABLE ONLY public.jd_drafts
     ADD CONSTRAINT jd_drafts_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.users(id);
 
 
---
--- Name: jd_drafts jd_drafts_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.jd_drafts
-    ADD CONSTRAINT jd_drafts_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: jd_run_events jd_run_events_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -2820,13 +2711,6 @@ ALTER TABLE ONLY public.jd_run_events
 ALTER TABLE ONLY public.jd_run_events
     ADD CONSTRAINT jd_run_events_run_id_fkey FOREIGN KEY (run_id) REFERENCES public.ai_runs(id) ON DELETE CASCADE;
 
-
---
--- Name: jd_run_events jd_run_events_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.jd_run_events
-    ADD CONSTRAINT jd_run_events_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
 
 
 --
@@ -2861,13 +2745,6 @@ ALTER TABLE ONLY public.jd_source_files
     ADD CONSTRAINT jd_source_files_recruitment_task_id_fkey FOREIGN KEY (recruitment_task_id) REFERENCES public.recruitment_tasks(id) ON DELETE CASCADE;
 
 
---
--- Name: jd_source_files jd_source_files_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.jd_source_files
-    ADD CONSTRAINT jd_source_files_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: job_versions job_versions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -2901,13 +2778,6 @@ ALTER TABLE ONLY public.job_versions
     ADD CONSTRAINT job_versions_source_ai_run_id_fkey FOREIGN KEY (source_ai_run_id) REFERENCES public.ai_runs(id);
 
 
---
--- Name: job_versions job_versions_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.job_versions
-    ADD CONSTRAINT job_versions_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: jobs jobs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -2940,13 +2810,6 @@ ALTER TABLE ONLY public.jobs
 ALTER TABLE ONLY public.jobs
     ADD CONSTRAINT jobs_recruitment_task_id_fkey FOREIGN KEY (recruitment_task_id) REFERENCES public.recruitment_tasks(id);
 
-
---
--- Name: jobs jobs_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.jobs
-    ADD CONSTRAINT jobs_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
 
 
 --
@@ -3013,13 +2876,6 @@ ALTER TABLE ONLY public.messages
     ADD CONSTRAINT messages_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
---
--- Name: messages messages_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.messages
-    ADD CONSTRAINT messages_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: notifications notifications_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -3069,13 +2925,6 @@ ALTER TABLE ONLY public.recharge_orders
     ADD CONSTRAINT recharge_orders_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
---
--- Name: recharge_orders recharge_orders_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.recharge_orders
-    ADD CONSTRAINT recharge_orders_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: recruitment_tasks recruitment_tasks_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -3108,13 +2957,6 @@ ALTER TABLE ONLY public.recruitment_tasks
 ALTER TABLE ONLY public.recruitment_tasks
     ADD CONSTRAINT recruitment_tasks_linked_job_id_fkey FOREIGN KEY (linked_job_id) REFERENCES public.jobs(id) ON DELETE SET NULL;
 
-
---
--- Name: recruitment_tasks recruitment_tasks_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.recruitment_tasks
-    ADD CONSTRAINT recruitment_tasks_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
 
 
 --
@@ -3165,13 +3007,6 @@ ALTER TABLE ONLY public.resume_files
     ADD CONSTRAINT resume_files_file_asset_id_fkey FOREIGN KEY (file_asset_id) REFERENCES public.file_assets(id);
 
 
---
--- Name: resume_files resume_files_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.resume_files
-    ADD CONSTRAINT resume_files_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: resume_parse_drafts resume_parse_drafts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -3221,13 +3056,6 @@ ALTER TABLE ONLY public.resume_parse_drafts
     ADD CONSTRAINT resume_parse_drafts_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.users(id);
 
 
---
--- Name: resume_parse_drafts resume_parse_drafts_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.resume_parse_drafts
-    ADD CONSTRAINT resume_parse_drafts_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: resume_parse_versions resume_parse_versions_candidate_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -3252,13 +3080,6 @@ ALTER TABLE ONLY public.resume_parse_versions
 ALTER TABLE ONLY public.resume_parse_versions
     ADD CONSTRAINT resume_parse_versions_resume_file_id_fkey FOREIGN KEY (resume_file_id) REFERENCES public.resume_files(id);
 
-
---
--- Name: resume_parse_versions resume_parse_versions_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.resume_parse_versions
-    ADD CONSTRAINT resume_parse_versions_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
 
 
 --
@@ -3293,13 +3114,6 @@ ALTER TABLE ONLY public.resume_source_files
     ADD CONSTRAINT resume_source_files_recruitment_task_id_fkey FOREIGN KEY (recruitment_task_id) REFERENCES public.recruitment_tasks(id) ON DELETE CASCADE;
 
 
---
--- Name: resume_source_files resume_source_files_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.resume_source_files
-    ADD CONSTRAINT resume_source_files_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: screening_plan_versions screening_plan_versions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -3324,13 +3138,6 @@ ALTER TABLE ONLY public.screening_plan_versions
 ALTER TABLE ONLY public.screening_plan_versions
     ADD CONSTRAINT screening_plan_versions_plan_id_fkey FOREIGN KEY (plan_id) REFERENCES public.screening_plans(id);
 
-
---
--- Name: screening_plan_versions screening_plan_versions_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_plan_versions
-    ADD CONSTRAINT screening_plan_versions_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
 
 
 --
@@ -3365,13 +3172,6 @@ ALTER TABLE ONLY public.screening_plans
     ADD CONSTRAINT screening_plans_recruitment_task_id_fkey FOREIGN KEY (recruitment_task_id) REFERENCES public.recruitment_tasks(id);
 
 
---
--- Name: screening_plans screening_plans_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_plans
-    ADD CONSTRAINT screening_plans_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: screening_quotes screening_quotes_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -3405,13 +3205,6 @@ ALTER TABLE ONLY public.screening_quotes
     ADD CONSTRAINT screening_quotes_plan_version_id_fkey FOREIGN KEY (plan_version_id) REFERENCES public.screening_plan_versions(id);
 
 
---
--- Name: screening_quotes screening_quotes_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_quotes
-    ADD CONSTRAINT screening_quotes_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: screening_results screening_results_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -3428,13 +3221,6 @@ ALTER TABLE ONLY public.screening_results
 ALTER TABLE ONLY public.screening_results
     ADD CONSTRAINT screening_results_run_item_id_fkey FOREIGN KEY (run_item_id) REFERENCES public.screening_run_items(id);
 
-
---
--- Name: screening_results screening_results_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_results
-    ADD CONSTRAINT screening_results_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
 
 
 --
@@ -3476,13 +3262,6 @@ ALTER TABLE ONLY public.screening_run_items
 ALTER TABLE ONLY public.screening_run_items
     ADD CONSTRAINT screening_run_items_source_run_item_id_fkey FOREIGN KEY (source_run_item_id) REFERENCES public.screening_run_items(id);
 
-
---
--- Name: screening_run_items screening_run_items_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_run_items
-    ADD CONSTRAINT screening_run_items_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
 
 
 --
@@ -3557,13 +3336,6 @@ ALTER TABLE ONLY public.screening_runs
     ADD CONSTRAINT screening_runs_root_run_id_fkey FOREIGN KEY (root_run_id) REFERENCES public.screening_runs(id);
 
 
---
--- Name: screening_runs screening_runs_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_runs
-    ADD CONSTRAINT screening_runs_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
 -- Name: support_ticket_messages support_ticket_messages_ticket_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
@@ -3597,52 +3369,38 @@ ALTER TABLE ONLY public.support_tickets
     ADD CONSTRAINT support_tickets_creator_user_id_fkey FOREIGN KEY (creator_user_id) REFERENCES public.users(id);
 
 
---
--- Name: trial_eligibilities trial_eligibilities_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.trial_eligibilities
-    ADD CONSTRAINT trial_eligibilities_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
 
 --
--- Name: workspace_memberships workspace_memberships_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: tenant_memberships tenant_memberships_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.workspace_memberships
-    ADD CONSTRAINT workspace_memberships_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
+ALTER TABLE ONLY public.tenant_memberships
+    ADD CONSTRAINT tenant_memberships_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
+
 
 
 --
--- Name: workspace_memberships workspace_memberships_workspace_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: tenants tenants_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.workspace_memberships
-    ADD CONSTRAINT workspace_memberships_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES public.workspaces(id);
-
-
---
--- Name: workspaces workspaces_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.workspaces
-    ADD CONSTRAINT workspaces_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
+ALTER TABLE ONLY public.tenants
+    ADD CONSTRAINT tenants_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
 
 
 --
--- Name: workspaces workspaces_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: tenants tenants_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.workspaces
-    ADD CONSTRAINT workspaces_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+ALTER TABLE ONLY public.tenants
+    ADD CONSTRAINT tenants_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
 --
--- Name: workspaces workspaces_owner_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: tenants tenants_owner_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.workspaces
-    ADD CONSTRAINT workspaces_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES public.users(id);
+ALTER TABLE ONLY public.tenants
+    ADD CONSTRAINT tenants_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES public.users(id);
 
 
 --

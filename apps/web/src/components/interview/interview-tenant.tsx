@@ -10,14 +10,14 @@ type CoreCompetency = { name: string; description: string };
 type InterviewQuestion = { id?: string; category: string; content: string; rationale: string; focusPoints: string; referenceAnswerPoints: string; scoringPoints: string; evidenceRefs: string; sortOrder?: number };
 type InterviewKit = { id: string; jobTitle: string; candidateName: string; status: string; coreCompetencies: CoreCompetency[]; matchSummary: string; questions: InterviewQuestion[] };
 
-export function InterviewWorkspace({
-  workspaceId,
+export function InterviewTenant({
+  tenantId,
   job,
   candidate,
   /** 每递增一次，组件自动触发一次出题（用于「智能招聘首页点击发送后自动出题」，无需用户再点按钮）。undefined/0 表示不自动触发。 */
   autoGenerateTrigger = 0,
 }: {
-  workspaceId: string;
+  tenantId: string;
   job: Job | null;
   candidate: CandidateSummary | null;
   autoGenerateTrigger?: number;
@@ -50,10 +50,10 @@ export function InterviewWorkspace({
     if (!job || !candidate) return;
     setLoading(true); setMessage("");
     try {
-      const versions = await fetchJobVersions(workspaceId, job.id);
+      const versions = await fetchJobVersions(tenantId, job.id);
       const latest = versions[0];
       if (!latest) throw new Error("所选 JD 暂无可用版本，请先在职位库保存 JD。");
-      const result = await apiFetch<InterviewKit>(`/tenants/${workspaceId}/interview-kits`, {
+      const result = await apiFetch<InterviewKit>(`/tenants/${tenantId}/interview-kits`, {
         method: "POST", body: JSON.stringify({ candidateId: candidate.id, jobVersionId: latest.id, questionCount: 8 }),
       });
       setKit(result); setMessage("已根据所选 JD 和人才生成可编辑题包。");
@@ -70,7 +70,7 @@ export function InterviewWorkspace({
     if (!kit) return;
     setSaving(true); setMessage("");
     try {
-      const result = await apiFetch<InterviewKit>(`/tenants/${workspaceId}/interview-kits/${kit.id}`, { method: "PUT", body: JSON.stringify(kit.questions) });
+      const result = await apiFetch<InterviewKit>(`/tenants/${tenantId}/interview-kits/${kit.id}`, { method: "PUT", body: JSON.stringify(kit.questions) });
       setKit(result); setMessage("题目草稿已保存。");
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "保存失败"); }
     finally { setSaving(false); }
@@ -80,7 +80,7 @@ export function InterviewWorkspace({
     if (!kit) return;
     setSaving(true); setMessage("");
     try {
-      const result = await apiFetch<InterviewKit>(`/tenants/${workspaceId}/interview-kits/${kit.id}/confirm`, { method: "POST" });
+      const result = await apiFetch<InterviewKit>(`/tenants/${tenantId}/interview-kits/${kit.id}/confirm`, { method: "POST" });
       setKit(result); setMessage("面试题已发布并保存至面试题库。");
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : "发布失败"); }
     finally { setSaving(false); }

@@ -14,7 +14,7 @@ import java.util.UUID;
  * 用户对自己的工单进行查询、创建、回复操作。
  */
 @RestController
-@RequestMapping("/api/v1")
+@RequestMapping("/api/v1/tenants/{tenantId}")
 public class UserTicketController {
 
     private final TicketService ticketService;
@@ -26,49 +26,52 @@ public class UserTicketController {
     /**
      * 查询当前用户的工单列表。
      */
-    @GetMapping("/me/tickets")
+    @GetMapping("/tickets")
     TicketService.PagedResult<TicketService.TicketRow> listMyTickets(
             Authentication authentication,
+            @PathVariable UUID tenantId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         UUID userId = CurrentUser.id(authentication);
-        // 查询当前用户的工单
-        return ticketService.listTickets(null, null, null, null, userId, null, page, size);
+        return ticketService.listUserTickets(userId, tenantId, page, size);
     }
 
     /**
      * 获取当前用户工单详情（需校验所有权）。
      */
-    @GetMapping("/me/tickets/{ticketId}")
+    @GetMapping("/tickets/{ticketId}")
     TicketService.TicketDetail getMyTicket(@PathVariable UUID ticketId,
+                                            @PathVariable UUID tenantId,
                                             Authentication authentication) {
         UUID userId = CurrentUser.id(authentication);
-        ticketService.verifyTicketOwner(ticketId, userId);
+        ticketService.verifyTicketOwner(ticketId, userId, tenantId);
         return ticketService.getTicket(ticketId);
     }
 
     /**
      * 创建工单。
      */
-    @PostMapping("/me/tickets")
-    TicketService.TicketRow createTicket(Authentication authentication,
+    @PostMapping("/tickets")
+    TicketService.TicketRow createTicket(@PathVariable UUID tenantId,
+                                          Authentication authentication,
                                           @Valid @RequestBody CreateTicketRequest request) {
         UUID userId = CurrentUser.id(authentication);
         // 从认证信息中获取用户显示名称
         String userName = authentication.getName();
-        return ticketService.createTicket(userId, userName, request.title(),
+        return ticketService.createTicket(userId, tenantId, userName, request.title(),
                 request.category(), "MEDIUM", request.body());
     }
 
     /**
      * 用户回复工单。
      */
-    @PostMapping("/me/tickets/{ticketId}/messages")
-    TicketService.MessageRow addMessage(@PathVariable UUID ticketId,
+    @PostMapping("/tickets/{ticketId}/messages")
+    TicketService.MessageRow addMessage(@PathVariable UUID tenantId,
+                                         @PathVariable UUID ticketId,
                                          Authentication authentication,
                                          @Valid @RequestBody AddMessageRequest request) {
         UUID userId = CurrentUser.id(authentication);
-        ticketService.verifyTicketOwner(ticketId, userId);
+        ticketService.verifyTicketOwner(ticketId, userId, tenantId);
         String userName = authentication.getName();
         return ticketService.addMessage(ticketId, "USER", userId, userName, request.body());
     }

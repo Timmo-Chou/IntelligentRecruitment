@@ -24,10 +24,10 @@ describe("streamJdRunEvents", () => {
     vi.mocked(apiStream).mockResolvedValue(new Response(body));
     const events: Array<{ id: number; type: string }> = [];
 
-    await streamJdRunEvents("workspace", "task", 41, event => events.push(event), new AbortController().signal);
+    await streamJdRunEvents("tenant", "task", 41, event => events.push(event), new AbortController().signal);
 
     expect(apiStream).toHaveBeenCalledWith(
-      "/tenants/workspace/recruitment-tasks/task/jd-runs/events",
+      "/tenants/tenant/recruitment-tasks/task/jd-runs/events",
       expect.objectContaining({ headers: { "Last-Event-ID": "41" } }),
     );
     expect(events).toEqual([
@@ -43,13 +43,13 @@ describe("task lifecycle requests", () => {
   it("renames and deletes tasks through the scoped endpoints", async () => {
     vi.mocked(apiFetch).mockResolvedValue({ id: "task-1", title: "新名称" } as never);
 
-    await renameTask("workspace-1", "task-1", "新名称");
-    await deleteTask("workspace-1", "task-1");
+    await renameTask("tenant-1", "task-1", "新名称");
+    await deleteTask("tenant-1", "task-1");
 
-    expect(apiFetch).toHaveBeenNthCalledWith(1, "/tenants/workspace-1/recruitment-tasks/task-1", {
+    expect(apiFetch).toHaveBeenNthCalledWith(1, "/tenants/tenant-1/recruitment-tasks/task-1", {
       method: "PUT", body: JSON.stringify({ title: "新名称" }),
     });
-    expect(apiFetch).toHaveBeenNthCalledWith(2, "/tenants/workspace-1/recruitment-tasks/task-1", { method: "DELETE" });
+    expect(apiFetch).toHaveBeenNthCalledWith(2, "/tenants/tenant-1/recruitment-tasks/task-1", { method: "DELETE" });
   });
 });
 
@@ -60,10 +60,10 @@ describe("JD source file requests", () => {
     vi.mocked(apiFetch).mockResolvedValue({ id: "source-1" } as never);
     const file = new File(["岗位需求"], "requirements.txt", { type: "text/plain" });
 
-    await uploadJdSourceFile("workspace-1", "task-1", file);
+    await uploadJdSourceFile("tenant-1", "task-1", file);
 
     expect(apiFetch).toHaveBeenCalledWith(
-      "/tenants/workspace-1/recruitment-tasks/task-1/jd-source-files",
+      "/tenants/tenant-1/recruitment-tasks/task-1/jd-source-files",
       expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
     );
   });

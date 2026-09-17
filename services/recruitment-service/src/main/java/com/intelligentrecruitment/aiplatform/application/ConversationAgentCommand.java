@@ -6,7 +6,6 @@ import com.intelligentrecruitment.agentflow.domain.ExecutionContext;
 
 /** Bounded, task-scoped conversation context. The business service remains the source of truth. */
 public record ConversationAgentCommand(
-        String workspaceId,
         String tenantId,
         String actorId,
         String businessTaskId,

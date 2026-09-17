@@ -5,8 +5,8 @@ import com.intelligentrecruitment.candidates.application.PiiCipher;
 import com.intelligentrecruitment.recruitment.infrastructure.JdSourceObjectStorage;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService;
-import com.intelligentrecruitment.tenancy.application.WorkspaceAccessService.TenantScope;
+import com.intelligentrecruitment.tenancy.application.TenantAccessService;
+import com.intelligentrecruitment.tenancy.application.TenantAccessService.TenantScope;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
@@ -25,17 +25,17 @@ import static com.intelligentrecruitment.shared.database.SqlTimes.timestamp;
 public class JdSourceFileService {
 
     private final JdbcTemplate jdbc;
-    private final WorkspaceAccessService workspaceAccess;
+    private final TenantAccessService tenantAccess;
     private final JdSourceObjectStorage storage;
     private final ResumeTextExtractor extractor;
     private final PiiCipher pii;
     private final long maxFileSize;
 
-    public JdSourceFileService(JdbcTemplate jdbc, WorkspaceAccessService workspaceAccess, JdSourceObjectStorage storage,
+    public JdSourceFileService(JdbcTemplate jdbc, TenantAccessService tenantAccess, JdSourceObjectStorage storage,
                                ResumeTextExtractor extractor, PiiCipher pii,
                                @Value("${app.storage.max-file-size-bytes:10485760}") long maxFileSize) {
         this.jdbc = jdbc;
-        this.workspaceAccess = workspaceAccess;
+        this.tenantAccess = tenantAccess;
         this.storage = storage;
         this.extractor = extractor;
         this.pii = pii;
@@ -43,24 +43,24 @@ public class JdSourceFileService {
     }
 
     @Transactional
-    public SourceFileView upload(UUID userId, UUID workspaceId, UUID taskId, MultipartFile file) {
-        TenantScope scope = workspaceAccess.requireBusinessAccess(userId, workspaceId);
-        requireTask(workspaceId, taskId);
+    public SourceFileView upload(UUID userId, UUID tenantId, UUID taskId, MultipartFile file) {
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        requireTask(tenantId, taskId);
         byte[] bytes = read(file);
         String filename = safeFilename(file.getOriginalFilename());
         String hash = SecurityHashes.sha256(bytes);
-        UUID assetId = existingAsset(workspaceId, hash);
+        UUID assetId = existingAsset(tenantId, hash);
         String mediaType = mediaType(filename);
         if (assetId == null) {
             assetId = UUID.randomUUID();
-            String objectKey = workspaceId + "/jd-source/" + assetId;
+            String objectKey = tenantId + "/jd-source/" + assetId;
             storage.put(objectKey, bytes, mediaType);
             jdbc.update("""
                     INSERT INTO file_assets
-                    (id,tenant_id,workspace_id,object_key,original_filename,media_type,size_bytes,sha256,
+                    (id,tenant_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
-                    VALUES (?,?,?,?,?,?,?,?,'PENDING','ACTIVE',?,?)
-                    """, assetId, scope.tenantId(), workspaceId, objectKey, pii.encrypt(filename), mediaType, bytes.length, hash,
+                    VALUES (?,?,?,?,?,?,?,'PENDING','ACTIVE',?,?)
+                    """, assetId, scope.tenantId(), objectKey, pii.encrypt(filename), mediaType, bytes.length, hash,
                     userId, timestamp(Instant.now()));
         }
         UUID sourceId = UUID.randomUUID();
@@ -69,36 +69,36 @@ public class JdSourceFileService {
         Instant now = Instant.now();
         jdbc.update("""
                 INSERT INTO jd_source_files
-                (id,tenant_id,workspace_id,recruitment_task_id,file_asset_id,extracted_text,created_by,created_at)
-                VALUES (?,?,?,?,?,?,?,?)
+                (id,tenant_id,recruitment_task_id,file_asset_id,extracted_text,created_by,created_at)
+                VALUES (?,?,?,?,?,?,?)
                 ON CONFLICT (recruitment_task_id,file_asset_id) DO NOTHING
-                """, sourceId, scope.tenantId(), workspaceId, taskId, resolvedAssetId, pii.encrypt(extracted), userId, timestamp(now));
-        List<SourceFileView> files = list(workspaceId, taskId);
+                """, sourceId, scope.tenantId(), taskId, resolvedAssetId, pii.encrypt(extracted), userId, timestamp(now));
+        List<SourceFileView> files = list(tenantId, taskId);
         return files.stream().filter(item -> item.fileAssetId().equals(resolvedAssetId)).findFirst().orElseThrow();
     }
 
-    public List<SourceFileView> listForGeneration(UUID workspaceId, UUID taskId) {
-        return list(workspaceId, taskId);
+    public List<SourceFileView> listForGeneration(UUID tenantId, UUID taskId) {
+        return list(tenantId, taskId);
     }
 
-    private List<SourceFileView> list(UUID workspaceId, UUID taskId) {
+    private List<SourceFileView> list(UUID tenantId, UUID taskId) {
         return jdbc.query("""
                 SELECT s.id,s.file_asset_id,f.original_filename,f.media_type,f.size_bytes,s.extracted_text,s.created_at
                 FROM jd_source_files s JOIN file_assets f ON f.id=s.file_asset_id
-                WHERE s.workspace_id=? AND s.recruitment_task_id=? AND f.lifecycle_status='ACTIVE'
+                WHERE s.tenant_id=? AND s.recruitment_task_id=? AND f.lifecycle_status='ACTIVE'
                 ORDER BY s.created_at
                 """, (rs, n) -> new SourceFileView(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class),
-                pii.decryptIfEncrypted(rs.getString(3)), rs.getString(4), rs.getLong(5), pii.decryptIfEncrypted(rs.getString(6)), rs.getTimestamp(7).toInstant()), workspaceId, taskId);
+                pii.decryptIfEncrypted(rs.getString(3)), rs.getString(4), rs.getLong(5), pii.decryptIfEncrypted(rs.getString(6)), rs.getTimestamp(7).toInstant()), tenantId, taskId);
     }
 
-    private UUID existingAsset(UUID workspaceId, String hash) {
-        List<UUID> rows = jdbc.query("SELECT id FROM file_assets WHERE workspace_id=? AND sha256=? AND lifecycle_status='ACTIVE'",
-                (rs, n) -> rs.getObject(1, UUID.class), workspaceId, hash);
+    private UUID existingAsset(UUID tenantId, String hash) {
+        List<UUID> rows = jdbc.query("SELECT id FROM file_assets WHERE tenant_id=? AND sha256=? AND lifecycle_status='ACTIVE'",
+                (rs, n) -> rs.getObject(1, UUID.class), tenantId, hash);
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
-    private void requireTask(UUID workspaceId, UUID taskId) {
-        Integer count = jdbc.queryForObject("SELECT count(*) FROM recruitment_tasks WHERE id=? AND workspace_id=?", Integer.class, taskId, workspaceId);
+    private void requireTask(UUID tenantId, UUID taskId) {
+        Integer count = jdbc.queryForObject("SELECT count(*) FROM recruitment_tasks WHERE id=? AND tenant_id=?", Integer.class, taskId, tenantId);
         if (count == null || count == 0) throw new ApiException("RECRUITMENT_TASK_NOT_FOUND", "招聘任务不存在", HttpStatus.NOT_FOUND);
     }
 

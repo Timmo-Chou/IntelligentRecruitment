@@ -51,7 +51,8 @@ export async function sendAssistantMessage(
   message: string,
   sessionId?: string,
   stage?: string,
-  context?: Record<string, unknown>
+  context?: Record<string, unknown>,
+  tenantId?: string | null,
 ): Promise<{
   reply: string;
   actions?: ChatAction[];
@@ -64,6 +65,7 @@ export async function sendAssistantMessage(
     sessionId: sessionId || null,
     stage: stage || null,
     context: context || {},
+    tenantId: tenantId || null,
   };
 
   return apiFetch("/ai-assistant/chat", {
@@ -74,12 +76,13 @@ export async function sendAssistantMessage(
 
 // 创建工单（用户反馈提交）
 export async function createTicket(params: {
+  tenantId: string;
   title: string;
   body: string;
   category: string;
   contactInfo?: string;
 }): Promise<{ id: string; ticketNumber: string }> {
-  return apiFetch("/me/tickets", {
+  return apiFetch(`/tenants/${params.tenantId}/tickets`, {
     method: "POST",
     body: JSON.stringify({
       title: params.title,

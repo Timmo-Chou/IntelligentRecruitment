@@ -4,10 +4,9 @@ import { skillsFromProfile } from "@/lib/talent-constants";
 
 export type CandidateSummary = {
   id: string;
-  companyId: string | null;
-  workspaceId: string;
+  tenantId: string;
   displayNameMasked: string;
-  /** 当前 Workspace 授权用户可直接读取的真实联系方式。 */
+  /** 当前 Tenant 授权用户可直接读取的真实联系方式。 */
   phone: string;
   email: string;
   status: string;
@@ -101,11 +100,11 @@ export function parseProfile(json?: string | null): CandidateProfile {
   }
 }
 
-export function fetchCandidateStats(workspaceId: string) {
-  return apiFetch<CandidateStats>(`/tenants/${workspaceId}/candidates/stats`);
+export function fetchCandidateStats(tenantId: string) {
+  return apiFetch<CandidateStats>(`/tenants/${tenantId}/candidates/stats`);
 }
 
-export function fetchCandidates(workspaceId: string, options: CandidateListQuery = {}) {
+export function fetchCandidates(tenantId: string, options: CandidateListQuery = {}) {
   const query = new URLSearchParams({
     page: String(options.page ?? 1),
     pageSize: String(options.pageSize ?? 10),
@@ -132,16 +131,16 @@ export function fetchCandidates(workspaceId: string, options: CandidateListQuery
       query.set(key, String(value));
     }
 }
-  return apiFetch<CandidateListResult>(`/tenants/${workspaceId}/candidates?${query}`);
+  return apiFetch<CandidateListResult>(`/tenants/${tenantId}/candidates?${query}`);
 }
 
-export function fetchCandidate(workspaceId: string, candidateId: string) {
-  return apiFetch<CandidateDetail>(`/tenants/${workspaceId}/candidates/${candidateId}`);
+export function fetchCandidate(tenantId: string, candidateId: string) {
+  return apiFetch<CandidateDetail>(`/tenants/${tenantId}/candidates/${candidateId}`);
 }
 
-export function createTalent(workspaceId: string, input: TalentProfileInput) {
+export function createTalent(tenantId: string, input: TalentProfileInput) {
   const skills = skillsFromProfile(input);
-  return apiFetch<CandidateDetail>(`/tenants/${workspaceId}/candidates`, {
+  return apiFetch<CandidateDetail>(`/tenants/${tenantId}/candidates`, {
     method: "POST",
     body: JSON.stringify({
       fullName: input.fullName,
@@ -175,37 +174,37 @@ export function createTalent(workspaceId: string, input: TalentProfileInput) {
   });
 }
 
-export function uploadResume(workspaceId: string, file: File) {
+export function uploadResume(tenantId: string, file: File) {
   const body = new FormData();
   body.append("file", file);
-  return apiFetch<CandidateDetail>(`/tenants/${workspaceId}/candidates/resumes`, {
+  return apiFetch<CandidateDetail>(`/tenants/${tenantId}/candidates/resumes`, {
     method: "POST", body,
   });
 }
 
-export function retryResumeParse(workspaceId: string, candidateId: string) {
-  return apiFetch<CandidateDetail>(`/tenants/${workspaceId}/candidates/${candidateId}/parse-retries`, {
+export function retryResumeParse(tenantId: string, candidateId: string) {
+  return apiFetch<CandidateDetail>(`/tenants/${tenantId}/candidates/${candidateId}/parse-retries`, {
     method: "POST",
   });
 }
 
-export function revealCandidate(workspaceId: string, candidateId: string) {
-  return apiFetch<RevealedPii>(`/tenants/${workspaceId}/candidates/${candidateId}/reveal`, { method: "POST" });
+export function revealCandidate(tenantId: string, candidateId: string) {
+  return apiFetch<RevealedPii>(`/tenants/${tenantId}/candidates/${candidateId}/reveal`, { method: "POST" });
 }
 
-export function updateCandidateTags(workspaceId: string, candidateId: string, tags: string[]) {
-  return apiFetch<CandidateDetail>(`/tenants/${workspaceId}/candidates/${candidateId}/tags`, {
+export function updateCandidateTags(tenantId: string, candidateId: string, tags: string[]) {
+  return apiFetch<CandidateDetail>(`/tenants/${tenantId}/candidates/${candidateId}/tags`, {
     method: "PATCH",
     body: JSON.stringify({ tags }),
   });
 }
 
-export function deleteCandidate(workspaceId: string, candidateId: string) {
-  return apiFetch<void>(`/tenants/${workspaceId}/candidates/${candidateId}`, { method: "DELETE" });
+export function deleteCandidate(tenantId: string, candidateId: string) {
+  return apiFetch<void>(`/tenants/${tenantId}/candidates/${candidateId}`, { method: "DELETE" });
 }
 
-export async function downloadResume(workspaceId: string, candidate: CandidateDetail) {
-  const blob = await apiDownload(`/tenants/${workspaceId}/candidates/${candidate.id}/resume-file`);
+export async function downloadResume(tenantId: string, candidate: CandidateDetail) {
+  const blob = await apiDownload(`/tenants/${tenantId}/candidates/${candidate.id}/resume-file`);
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;

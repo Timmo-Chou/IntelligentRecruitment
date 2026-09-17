@@ -25,9 +25,8 @@ import java.util.Map;
 
 /**
  * 通过 HTTP 调用 AIAgentPlatform 的客户端（对内面 /api/v1/*）。
- * P2 迁移能力：JD_GENERATION、RESUME_PARSING、CANDIDATE_SCREENING、
- *              INTERVIEW_KIT_GENERATION（同步封装）、REQUIREMENT_CHAT 路由。
- * 其余方法（continueConversation/reviseJdInPlace）由 Delegating 路由到 DeepSeek。
+ * 所有招聘 AI 能力均由 AIAgentPlatform 执行；BOSS 在 Agent 接收任务前完成
+ * 授权和积分预占，并在任务完成后接收用量上报与结算。
  */
 @Component
 public class HttpAiPlatformClient implements AiPlatformClient {
@@ -197,7 +196,7 @@ public class HttpAiPlatformClient implements AiPlatformClient {
         if (command.executionContext() == null) {
             throw new IllegalArgumentException("对话能力必须携带 BOSS 授权执行上下文");
         }
-        AiTask task = startTask(new StartAiTaskCommand(command.workspaceId(), command.tenantId(), command.actorId(),
+        AiTask task = startTask(new StartAiTaskCommand(command.tenantId(), command.actorId(),
                 command.businessTaskId(), command.executionContext().idempotencyKey(), capability, input,
                 command.executionContext()));
         for (int attempt = 0; attempt < 120; attempt++) {

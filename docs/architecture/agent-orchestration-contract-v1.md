@@ -186,20 +186,13 @@ MCP 是 Tool Runtime 内的连接协议，不是业务授权机制。任何 Tool
 - 每个 Capability 至少有一个活跃 `SkillManifest`；新增/变更 Skill、Prompt、模型策略或 Tool 白名单必须创建新版本。
 - 对话路由、业务授权、AI 执行和业务结算均可用 `request_id`、`business_task_id`、`execution_id` 和 `ai_task_id` 关联追踪。
 
-## 10. 当前 DeepSeek 适配器边界
+## 10. 招聘服务 AI 调用边界
 
-运行时 AI 能力统一使用 DeepSeek；不存在 `mock` 模式。在本地开发环境启用时：
+招聘服务运行时不直接调用模型。所有 AI 能力均通过 BOSS 授权后，经 `HttpAiPlatformClient` 调用 AIAgentPlatform；AIAgentPlatform 负责模型供应商配置、实际执行、重试和用量回传，BOSS 负责积分预占、实扣或释放。
 
-```text
-DEEPSEEK_API_KEY=由部署环境注入
-DEEPSEEK_ALLOW_EXTERNAL_DATA=true
-DEEPSEEK_MODEL=deepseek-v4-flash
-```
-
-- API Key 只能由运行环境注入，不能写入仓库、前端代码、日志或任务输入。
-- 代码已实现 JD、自由文本路由、招聘对话/JD 改写、简历解析、候选人筛选、面试题和咨询助手的 DeepSeek 调用。模型失败或输出不合约时任务明确失败，不以 Mock、规则结果或本地模板伪装成功。
-- `DEEPSEEK_ALLOW_EXTERNAL_DATA` 默认为 `false`；未显式开启时适配器拒绝外部调用。筛选、解析和面试题会涉及候选人数据，必须先完成数据处理授权。
-- DeepSeek 输出应使用 JSON 模式并经业务侧校验。当前部分能力尚未落实本契约第 7 节要求的完整专属 Schema 和来源审计，属于待收敛项。
+- 模型 API Key、模型标识和 Tokenizer 配置只能由 AIAgentPlatform 的部署环境注入，不能写入招聘服务仓库、前端代码、日志或任务输入。
+- JD、自由文本路由、招聘对话/JD 改写、简历解析、候选人筛选、面试题和咨询助手均遵循同一授权执行链；模型失败或输出不合约时任务明确失败，不以 Mock、规则结果或本地模板伪装成功。
+- 招聘服务不提供模型直连开关，也不保留未覆盖能力的本地模型回退路径。
 
 运行现状与本地开发限制见
 [AI 运行现状与 Mock 退役方案](ai-runtime-and-mock-retirement.md)。

@@ -9,12 +9,12 @@ import org.springframework.stereotype.Service;
 
 /**
  * Resolves a Recruitment Tenant directly from BOSS. It intentionally writes no local organization,
- * membership or workspace projection: BOSS is the only authority for membership and seats.
+ * membership or tenant projection: BOSS is the only authority for membership and seats.
  */
 @Service
-public class WorkspaceAccessService {
+public class TenantAccessService {
     private final BossControlPlaneClient boss;
-    public WorkspaceAccessService(BossControlPlaneClient boss) { this.boss = boss; }
+    public TenantAccessService(BossControlPlaneClient boss) { this.boss = boss; }
 
     public TenantScope requireBusinessAccess(UUID userId, UUID tenantId) {
         var tenant = boss.contexts(BossRequestContext.accessToken(userId)).tenants().stream()
@@ -29,7 +29,7 @@ public class WorkspaceAccessService {
             if (!tenant.seatAssigned()) throw new ApiException("BOSS_SEAT_REQUIRED", "当前账号未占用企业席位，无法使用招聘功能", HttpStatus.FORBIDDEN);
         }
         var overview = boss.tenantOverview(BossRequestContext.accessToken(userId), tenantId);
-        // Business services still expose a workspace-shaped method parameter for compatibility with
+        // Business services still expose a tenant-shaped method parameter for compatibility with
         // existing handlers; the value is always the BOSS Tenant UUID.
         return new TenantScope(tenantId, tenant.tenantType(), tenant.tenantName(), tenant.roleCode(), tenant.owner(),
                 overview.talentPoolSharingEnabled(), overview.jobPoolSharingEnabled(), false);

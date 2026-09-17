@@ -23,8 +23,8 @@ type TicketRow = {
   ticketNumber: string;
   creatorUserId?: string;
   creatorName: string;
-  companyId?: string;
-  companyName?: string;
+  tenantId?: string;
+  tenantName?: string;
   title: string;
   category: string;
   priority: string;
@@ -218,10 +218,10 @@ export default function TicketDetailPage() {
                 <span className="text-slate-500">提交人</span>
                 <span className="font-medium text-slate-700">{ticket.creatorName}</span>
               </div>
-              {ticket.companyName && (
+              {ticket.tenantName && (
                 <div className="flex justify-between">
-                  <span className="text-slate-500">所属企业</span>
-                  <span className="font-medium text-slate-700">🏢 {ticket.companyName}</span>
+                  <span className="text-slate-500">所属 Tenant</span>
+                  <span className="font-medium text-slate-700">🏢 {ticket.tenantName}</span>
                 </div>
               )}
               <div className="flex justify-between">
