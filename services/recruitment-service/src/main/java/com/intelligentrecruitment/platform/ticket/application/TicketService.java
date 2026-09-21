@@ -2,7 +2,6 @@ package com.intelligentrecruitment.platform.ticket.application;
 
 import com.intelligentrecruitment.boss.application.BossControlPlaneClient;
 import com.intelligentrecruitment.shared.error.ApiException;
-import com.intelligentrecruitment.shared.security.PlatformAdminGuard.PlatformAdminInfo;
 import com.intelligentrecruitment.tenancy.application.TenantAccessService;
 import com.intelligentrecruitment.tenancy.application.TenantAccessService.TenantScope;
 import org.springframework.http.HttpStatus;
@@ -105,17 +104,14 @@ public class TicketService {
         List<Object> queryParams = new ArrayList<>(params);
         queryParams.add(size);
         queryParams.add(offset);
-        // COALESCE 优先级：display_name > phone_last_four > 存储的 creator_name（UUID）
+        // creator_name 是创建时保存的展示快照；creator_user_id 关联 BOSS 用户 UUID。
         String listSql = """
                 SELECT st.id, st.ticket_number, st.creator_user_id,
-                       COALESCE(NULLIF(u.display_name, ''),
-                                NULLIF('用户****' || u.phone_last_four, '用户****'),
-                                st.creator_name) AS creator_name,
+                       st.creator_name,
                        st.tenant_id,
                        st.title, st.category, st.priority, st.status, st.assigned_to_id, st.closed_at,
                        st.created_at, st.updated_at
                 FROM support_tickets st
-                LEFT JOIN users u ON u.id = st.creator_user_id
                 """ + whereClause + """
                  ORDER BY st.created_at DESC
                  LIMIT ? OFFSET ?
@@ -145,17 +141,14 @@ public class TicketService {
      * 获取工单详情（包含所有消息）。
      */
     public TicketDetail getTicket(UUID ticketId) {
-        // 查询工单基本信息（JOIN用户表获取最新昵称，优先级：display_name > phone > stored_name）
+        // 查询工单基本信息；用户身份由 creator_user_id 关联 BOSS，名称使用工单快照。
         List<TicketRow> ticketRows = jdbc.query("""
                 SELECT st.id, st.ticket_number, st.creator_user_id,
-                       COALESCE(NULLIF(u.display_name, ''),
-                                NULLIF('用户****' || u.phone_last_four, '用户****'),
-                                st.creator_name) AS creator_name,
+                       st.creator_name,
                        st.tenant_id,
                        st.title, st.category, st.priority, st.status, st.assigned_to_id, st.closed_at,
                        st.created_at, st.updated_at
                 FROM support_tickets st
-                LEFT JOIN users u ON u.id = st.creator_user_id
                 WHERE st.id = ?
                 """, (rs, n) -> new TicketRow(
                 rs.getObject("id", UUID.class),
@@ -266,10 +259,10 @@ public class TicketService {
      * 平台管理员回复工单。
      */
     @Transactional
-    public MessageRow addAdminMessage(UUID ticketId, PlatformAdminInfo admin, String body) {
+    public MessageRow addAdminMessage(UUID ticketId, UUID adminId, String displayName, String body) {
         ensureTicketExists(ticketId);
         Instant now = Instant.now();
-        return addMessageInternal(ticketId, "PLATFORM_ADMIN", admin.id(), admin.displayName(),
+        return addMessageInternal(ticketId, "PLATFORM_ADMIN", adminId, required(displayName, "管理员名称不能为空"),
                 required(body, "消息内容不能为空"), now);
     }
 

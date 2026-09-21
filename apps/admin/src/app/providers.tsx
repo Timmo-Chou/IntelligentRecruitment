@@ -9,13 +9,16 @@ import { AdminShell } from "@/components/layout/admin-shell";
 
 /**
  * 路由守卫：未登录时跳转到 /login
- * 登录页不显示侧边栏，其他页面包裹 AdminShell
+ * 登录、Bootstrap 和注册页面不显示侧边栏，其他页面包裹 AdminShell
  */
+const publicAuthPaths = new Set(["/login", "/bootstrap", "/register"]);
+
 function AuthGuard({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAdminAuth();
   const pathname = usePathname();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
+  const isPublicAuthPage = publicAuthPaths.has(pathname);
 
   useEffect(() => {
     setMounted(true);
@@ -23,22 +26,22 @@ function AuthGuard({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!mounted) return;
-    // 在登录页，如果已认证则跳转到首页
-    if (pathname === "/login" && isAuthenticated) {
+    // 在公开认证页，如果已认证则跳转到首页
+    if (isPublicAuthPage && isAuthenticated) {
       router.replace("/");
       return;
     }
-    // 不在登录页，如果未认证则跳转到登录页
-    if (pathname !== "/login" && !isAuthenticated) {
+    // 不在公开认证页，如果未认证则跳转到登录页
+    if (!isPublicAuthPage && !isAuthenticated) {
       router.replace("/login");
     }
-  }, [pathname, isAuthenticated, mounted, router]);
+  }, [isPublicAuthPage, isAuthenticated, mounted, router]);
 
   // 服务端渲染阶段不渲染，避免闪烁
   if (!mounted) return null;
 
-  // 登录页：不显示侧边栏
-  if (pathname === "/login") {
+  // 公开认证页：不显示侧边栏
+  if (isPublicAuthPage) {
     return <>{children}</>;
   }
 

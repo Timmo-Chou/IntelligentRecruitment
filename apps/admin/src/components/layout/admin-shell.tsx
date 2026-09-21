@@ -1,7 +1,6 @@
 "use client";
 
 // 管理后台主布局：侧边栏 + 顶部栏 + 内容区
-// 根据管理员权限码动态渲染可访问的菜单项
 import {
   LayoutDashboard,
   Users,
@@ -24,7 +23,7 @@ import { usePathname } from "next/navigation";
 import { type ReactNode, useState } from "react";
 import { useAdminAuth } from "@/lib/admin-auth";
 
-// 侧边栏导航项定义：每个菜单项关联一个 VIEW 权限码（首页除外）
+// 侧边栏导航项定义：保留权限码供后续细粒度权限控制使用
 type NavItem = {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -52,12 +51,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const { admin, logout } = useAdminAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // 根据权限过滤菜单项（超管拥有全部权限）
-  const permissions = admin?.permissions ?? [];
-  const isSuperAdmin = admin?.role === "SUPER_ADMIN";
-  const visibleItems = navItems.filter(
-    (item) => !item.permission || isSuperAdmin || permissions.includes(item.permission),
-  );
+  // 当前阶段统一展示菜单；页面操作权限仍由各功能页和后端控制。
+  const visibleItems = navItems;
 
   function isActive(href: string) {
     if (href === "/") return pathname === "/";

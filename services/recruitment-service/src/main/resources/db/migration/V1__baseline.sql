@@ -32,68 +32,9 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
 
 
---
--- Name: enforce_tenant_tenant_scope(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.enforce_tenant_tenant_scope() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-DECLARE
-    expected_tenant_id UUID;
-BEGIN
-    SELECT tenant_id INTO expected_tenant_id FROM tenants WHERE id = NEW.tenant_id;
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'tenant does not exist';
-    END IF;
-    IF NEW.tenant_id IS DISTINCT FROM expected_tenant_id THEN
-        RAISE EXCEPTION 'tenant_id does not match tenant scope';
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
-
---
--- Name: fn_enforce_recruitment_task_linked_candidate_scope(); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fn_enforce_recruitment_task_linked_candidate_scope() RETURNS trigger
-    LANGUAGE plpgsql
-    AS $$
-BEGIN
-    IF NEW.linked_candidate_id IS NOT NULL THEN
-        NEW.tenant_id := COALESCE(NEW.tenant_id, (SELECT tenant_id FROM tenants WHERE id = NEW.tenant_id));
-        IF EXISTS (
-            SELECT 1 FROM candidates c
-            WHERE c.id = NEW.linked_candidate_id
-              AND (c.tenant_id <> NEW.tenant_id OR c.tenant_id IS DISTINCT FROM NEW.tenant_id)
-        ) THEN
-            RAISE EXCEPTION 'Linked candidate % does not belong to tenant %', NEW.linked_candidate_id, NEW.tenant_id;
-        END IF;
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
-
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
-
---
--- Name: access_tokens; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.access_tokens (
-    id uuid NOT NULL,
-    user_id uuid NOT NULL,
-    token_hash character varying(64) NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    revoked_at timestamp with time zone,
-    created_at timestamp with time zone NOT NULL
-);
-
 
 --
 -- Name: ai_runs; Type: TABLE; Schema: public; Owner: -
@@ -110,9 +51,6 @@ CREATE TABLE public.ai_runs (
     attempt_number integer NOT NULL,
     idempotency_key character varying(200) NOT NULL,
     input_hash character varying(64) NOT NULL,
-    pricing_version character varying(64) NOT NULL,
-    estimated_amount_minor bigint NOT NULL,
-    settled_amount_minor bigint DEFAULT 0 NOT NULL,
     error_code character varying(100),
     error_message character varying(500),
     created_by uuid NOT NULL,
@@ -141,75 +79,6 @@ CREATE TABLE public.audit_logs (
 
 
 --
--- Name: billing_accounts; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.billing_accounts (
-    id uuid NOT NULL,
-    tenant_id uuid NOT NULL,
-    currency character varying(3) NOT NULL,
-    available_amount_minor bigint DEFAULT 0 NOT NULL,
-    reserved_amount_minor bigint DEFAULT 0 NOT NULL,
-    status character varying(24) NOT NULL,
-    version bigint DEFAULT 0 NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: billing_ledger_entries; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.billing_ledger_entries (
-    id uuid NOT NULL,
-    billing_account_id uuid NOT NULL,
-    tenant_id uuid NOT NULL,
-    credit_lot_id uuid,
-    entry_type character varying(32) NOT NULL,
-    amount_minor bigint NOT NULL,
-    business_reference character varying(160) NOT NULL,
-    idempotency_key character varying(160) NOT NULL,
-    operator_user_id uuid,
-    reason character varying(500),
-    created_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: billing_reservation_allocations; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.billing_reservation_allocations (
-    id uuid NOT NULL,
-    reservation_id uuid NOT NULL,
-    credit_lot_id uuid NOT NULL,
-    reserved_amount_minor bigint NOT NULL,
-    settled_amount_minor bigint DEFAULT 0 NOT NULL,
-    released_amount_minor bigint DEFAULT 0 NOT NULL
-);
-
-
---
--- Name: billing_reservations; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.billing_reservations (
-    id uuid NOT NULL,
-    billing_account_id uuid NOT NULL,
-    tenant_id uuid NOT NULL,
-    business_reference character varying(160) NOT NULL,
-    reserved_amount_minor bigint NOT NULL,
-    settled_amount_minor bigint DEFAULT 0 NOT NULL,
-    released_amount_minor bigint DEFAULT 0 NOT NULL,
-    status character varying(24) NOT NULL,
-    created_by uuid NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    completed_at timestamp with time zone
-);
-
-
---
 -- Name: candidates; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -233,61 +102,6 @@ CREATE TABLE public.candidates (
 
 
 --
--- Name: tenant_projections; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.tenant_projections (
-    id uuid NOT NULL,
-    legal_name character varying(200) NOT NULL,
-    display_name character varying(120) NOT NULL,
-    credit_code_hash character varying(64) NOT NULL,
-    credit_code_masked character varying(32) NOT NULL,
-    verification_status character varying(24) NOT NULL,
-    management_status character varying(24) NOT NULL,
-    owner_user_id uuid,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: tenant_membership_projections; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.tenant_membership_projections (
-    id uuid NOT NULL,
-    tenant_id uuid NOT NULL,
-    user_id uuid NOT NULL,
-    role character varying(32) NOT NULL,
-    status character varying(24) NOT NULL,
-    joined_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: enterprise_registration_projections; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.enterprise_registration_projections (
-    id uuid NOT NULL,
-    applicant_user_id uuid NOT NULL,
-    tenant_id uuid,
-    request_type character varying(24) DEFAULT 'CREATE'::character varying NOT NULL,
-    legal_name character varying(200) NOT NULL,
-    display_name character varying(120) NOT NULL,
-    credit_code_hash character varying(64) NOT NULL,
-    credit_code_masked character varying(32) NOT NULL,
-    license_reference character varying(500) NOT NULL,
-    first_tenant_name character varying(120) NOT NULL,
-    status character varying(24) NOT NULL,
-    reviewed_by character varying(100),
-    reviewed_at timestamp with time zone,
-    rejection_reason character varying(500),
-    created_at timestamp with time zone NOT NULL
-);
-
-
---
 -- Name: conversations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -302,18 +116,77 @@ CREATE TABLE public.conversations (
 
 
 --
--- Name: credit_lots; Type: TABLE; Schema: public; Owner: -
+-- Name: enterprise_job_pool_copies; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.credit_lots (
+CREATE TABLE public.enterprise_job_pool_copies (
     id uuid NOT NULL,
-    billing_account_id uuid NOT NULL,
-    source_type character varying(32) NOT NULL,
-    original_amount_minor bigint NOT NULL,
-    available_amount_minor bigint NOT NULL,
-    issued_at timestamp with time zone NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    status character varying(24) NOT NULL
+    tenant_id uuid NOT NULL,
+    source_job_id uuid NOT NULL,
+    source_owner_user_id uuid NOT NULL,
+    snapshot jsonb NOT NULL,
+    source_updated_at timestamp with time zone NOT NULL,
+    synchronized_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    lifecycle_status character varying(16) DEFAULT 'ACTIVE'::character varying NOT NULL,
+    deleted_at timestamp with time zone,
+    sync_status character varying(24) DEFAULT 'SYNCED'::character varying NOT NULL,
+    CONSTRAINT enterprise_job_pool_copies_sync_status_check CHECK (((sync_status)::text = ANY ((ARRAY['SYNCED'::character varying, 'PENDING_UPDATE'::character varying, 'SYNC_FAILED'::character varying])::text[])))
+);
+
+
+--
+-- Name: enterprise_pool_attachment_assets; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.enterprise_pool_attachment_assets (
+    id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    talent_pool_copy_id uuid NOT NULL,
+    source_file_asset_id uuid NOT NULL,
+    object_key character varying(500) NOT NULL,
+    original_filename character varying(255) NOT NULL,
+    media_type character varying(120) NOT NULL,
+    size_bytes bigint NOT NULL,
+    sha256 character varying(64) NOT NULL,
+    lifecycle_status character varying(32) DEFAULT 'ACTIVE'::character varying NOT NULL,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+
+--
+-- Name: enterprise_pool_export_logs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.enterprise_pool_export_logs (
+    id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    pool_type character varying(32) NOT NULL,
+    actor_user_id uuid NOT NULL,
+    filter_criteria jsonb NOT NULL,
+    fields jsonb NOT NULL,
+    record_count integer NOT NULL,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT enterprise_pool_export_logs_pool_type_check CHECK (((pool_type)::text = ANY ((ARRAY['TALENT'::character varying, 'JOB'::character varying])::text[])))
+);
+
+
+--
+-- Name: enterprise_talent_pool_copies; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.enterprise_talent_pool_copies (
+    id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    source_candidate_id uuid NOT NULL,
+    source_owner_user_id uuid NOT NULL,
+    snapshot jsonb NOT NULL,
+    source_updated_at timestamp with time zone NOT NULL,
+    synchronized_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    lifecycle_status character varying(16) DEFAULT 'ACTIVE'::character varying NOT NULL,
+    deleted_at timestamp with time zone,
+    sync_status character varying(24) DEFAULT 'SYNCED'::character varying NOT NULL,
+    CONSTRAINT enterprise_talent_pool_copies_sync_status_check CHECK (((sync_status)::text = ANY ((ARRAY['SYNCED'::character varying, 'PENDING_UPDATE'::character varying, 'SYNC_FAILED'::character varying])::text[])))
 );
 
 
@@ -554,44 +427,6 @@ CREATE TABLE public.jobs (
 
 
 --
--- Name: membership_applications; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.membership_applications (
-    id uuid NOT NULL,
-    tenant_id uuid NOT NULL,
-    applicant_user_id uuid NOT NULL,
-    evidence character varying(500) NOT NULL,
-    status character varying(24) NOT NULL,
-    reviewed_by_platform_user character varying(100),
-    reviewed_at timestamp with time zone,
-    review_reason character varying(500),
-    created_at timestamp with time zone NOT NULL,
-    reviewed_by_user_id uuid
-);
-
-
---
--- Name: membership_invitations; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.membership_invitations (
-    id uuid NOT NULL,
-    target_type character varying(24) NOT NULL,
-    target_id uuid NOT NULL,
-    phone_hash character varying(64) NOT NULL,
-    role character varying(32) NOT NULL,
-    token_hash character varying(64) NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    status character varying(24) NOT NULL,
-    created_by uuid NOT NULL,
-    accepted_by uuid,
-    accepted_at timestamp with time zone,
-    created_at timestamp with time zone NOT NULL
-);
-
-
---
 -- Name: messages; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -643,117 +478,6 @@ CREATE TABLE public.outbox_events (
 
 
 --
--- Name: personal_identities; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.personal_identities (
-    id uuid NOT NULL,
-    user_id uuid NOT NULL,
-    identity_hash character varying(64) NOT NULL,
-    real_name_masked character varying(80) NOT NULL,
-    verification_status character varying(24) NOT NULL,
-    reviewed_by character varying(100),
-    reviewed_at timestamp with time zone,
-    rejection_reason character varying(500),
-    created_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: platform_admins; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.platform_admins (
-    id uuid NOT NULL,
-    user_id uuid,
-    display_name character varying(80) NOT NULL,
-    role character varying(24) DEFAULT 'PLATFORM_OPERATOR'::character varying NOT NULL,
-    status character varying(24) DEFAULT 'ACTIVE'::character varying NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    key_hash character varying(64)
-);
-
-
---
--- Name: platform_menus; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.platform_menus (
-    id uuid NOT NULL,
-    parent_id uuid,
-    code character varying(50) NOT NULL,
-    display_name character varying(80) NOT NULL,
-    icon character varying(50),
-    path character varying(200),
-    permission_code character varying(80),
-    sort_order integer DEFAULT 0 NOT NULL,
-    is_visible boolean DEFAULT true NOT NULL,
-    visible_to_operator boolean DEFAULT true NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: pricing_items; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.pricing_items (
-    id uuid NOT NULL,
-    code character varying(64) NOT NULL,
-    name character varying(120) NOT NULL,
-    description character varying(400),
-    billing_unit character varying(32) NOT NULL,
-    unit_price_minor bigint NOT NULL,
-    currency character varying(8) DEFAULT 'CNY'::character varying NOT NULL,
-    status character varying(20) DEFAULT 'ACTIVE'::character varying NOT NULL,
-    sort_order integer DEFAULT 0 NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: recharge_orders; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.recharge_orders (
-    id uuid NOT NULL,
-    order_no character varying(64) NOT NULL,
-    billing_account_id uuid NOT NULL,
-    tenant_id uuid NOT NULL,
-    created_by uuid NOT NULL,
-    payer_name character varying(200) NOT NULL,
-    payment_method character varying(32) NOT NULL,
-    amount_minor bigint NOT NULL,
-    status character varying(32) NOT NULL,
-    provider_trade_no character varying(128),
-    paid_at timestamp with time zone,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    CONSTRAINT recharge_orders_amount_minor_check CHECK (((amount_minor >= 1000) AND (amount_minor <= 500000)))
-);
-
-
---
--- Name: recharge_receiving_accounts; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.recharge_receiving_accounts (
-    id uuid NOT NULL,
-    bank_name character varying(200) NOT NULL,
-    beneficiary_name character varying(200) NOT NULL,
-    account_number character varying(100) NOT NULL,
-    contact_phone character varying(80),
-    contact_email character varying(200),
-    status character varying(24) DEFAULT 'ACTIVE'::character varying NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL
-);
-
-
---
 -- Name: recruitment_tasks; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -776,22 +500,6 @@ CREATE TABLE public.recruitment_tasks (
 
 
 --
--- Name: refresh_sessions; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.refresh_sessions (
-    id uuid NOT NULL,
-    user_id uuid NOT NULL,
-    token_hash character varying(64) NOT NULL,
-    device_info character varying(300),
-    expires_at timestamp with time zone NOT NULL,
-    revoked_at timestamp with time zone,
-    rotated_from_id uuid,
-    created_at timestamp with time zone NOT NULL
-);
-
-
---
 -- Name: resume_files; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -804,7 +512,11 @@ CREATE TABLE public.resume_files (
     error_code character varying(100),
     created_by uuid NOT NULL,
     created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL
+    updated_at timestamp with time zone NOT NULL,
+    provider_task_id uuid,
+    parse_idempotency_key character varying(160),
+    parse_attempts integer DEFAULT 0 NOT NULL,
+    enterprise_pool_sync_enabled boolean DEFAULT false NOT NULL
 );
 
 
@@ -912,32 +624,6 @@ CREATE TABLE public.screening_plans (
 
 
 --
--- Name: screening_quotes; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.screening_quotes (
-    id uuid NOT NULL,
-    tenant_id uuid NOT NULL,
-    plan_version_id uuid NOT NULL,
-    candidate_ids_hash character varying(64) NOT NULL,
-    candidate_count integer NOT NULL,
-    pricing_version character varying(80) NOT NULL,
-    unit_price_minor bigint NOT NULL,
-    estimated_amount_minor bigint NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    created_by uuid NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    job_version_id uuid,
-    candidate_versions_hash character varying(64),
-    consumed_at timestamp with time zone,
-    consumed_by_run_id uuid,
-    CONSTRAINT screening_quotes_candidate_count_check CHECK ((candidate_count > 0)),
-    CONSTRAINT screening_quotes_estimated_amount_minor_check CHECK ((estimated_amount_minor >= 0)),
-    CONSTRAINT screening_quotes_unit_price_minor_check CHECK ((unit_price_minor >= 0))
-);
-
-
---
 -- Name: screening_results; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -993,16 +679,11 @@ CREATE TABLE public.screening_runs (
     status character varying(32) NOT NULL,
     progress integer DEFAULT 0 NOT NULL,
     scenario character varying(32) NOT NULL,
-    pricing_version character varying(64) NOT NULL,
-    unit_price_minor bigint NOT NULL,
-    estimated_amount_minor bigint NOT NULL,
-    settled_amount_minor bigint DEFAULT 0 NOT NULL,
     idempotency_key character varying(200) NOT NULL,
     request_hash character varying(64) NOT NULL,
     created_by uuid NOT NULL,
     created_at timestamp with time zone NOT NULL,
     completed_at timestamp with time zone,
-    quote_id uuid,
     parent_run_id uuid,
     root_run_id uuid,
     policy_decision jsonb DEFAULT '{}'::jsonb NOT NULL,
@@ -1062,91 +743,10 @@ CREATE TABLE public.trial_eligibilities (
 
 
 --
--- Name: users; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.users (
-    id uuid NOT NULL,
-    phone_hash character varying(64) NOT NULL,
-    phone_last_four character varying(4) NOT NULL,
-    display_name character varying(80),
-    status character varying(24) NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    password_hash character varying(100),
-    password_set_at timestamp with time zone
-);
-
-
---
--- Name: verification_challenges; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.verification_challenges (
-    id uuid NOT NULL,
-    phone_hash character varying(64) NOT NULL,
-    purpose character varying(32) NOT NULL,
-    code_hash character varying(64) NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    attempt_count integer DEFAULT 0 NOT NULL,
-    consumed_at timestamp with time zone,
-    created_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: tenant_memberships; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.tenant_memberships (
-    id uuid NOT NULL,
-    tenant_id uuid NOT NULL,
-    user_id uuid NOT NULL,
-    role character varying(32) NOT NULL,
-    status character varying(24) NOT NULL,
-    joined_at timestamp with time zone NOT NULL
-);
-
-
---
--- Name: tenants; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.tenants (
-    id uuid NOT NULL,
-    tenant_id uuid,
-    type character varying(24) NOT NULL,
-    name character varying(120) NOT NULL,
-    owner_user_id uuid NOT NULL,
-    status character varying(24) NOT NULL,
-    created_by uuid NOT NULL,
-    created_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone NOT NULL,
-    CONSTRAINT ck_tenant_tenant CHECK (((((type)::text = 'PERSONAL'::text) AND (tenant_id IS NULL)) OR (((type)::text = 'ENTERPRISE'::text) AND (tenant_id IS NOT NULL))))
-);
-
-
---
 -- Name: jd_run_events event_id; Type: DEFAULT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.jd_run_events ALTER COLUMN event_id SET DEFAULT nextval('public.jd_run_events_event_id_seq'::regclass);
-
-
---
--- Name: access_tokens access_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.access_tokens
-    ADD CONSTRAINT access_tokens_pkey PRIMARY KEY (id);
-
-
---
--- Name: access_tokens access_tokens_token_hash_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.access_tokens
-    ADD CONSTRAINT access_tokens_token_hash_key UNIQUE (token_hash);
 
 
 --
@@ -1174,115 +774,11 @@ ALTER TABLE ONLY public.audit_logs
 
 
 --
--- Name: billing_accounts billing_accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_accounts
-    ADD CONSTRAINT billing_accounts_pkey PRIMARY KEY (id);
-
-
---
--- Name: billing_accounts billing_accounts_tenant_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_accounts
-    ADD CONSTRAINT billing_accounts_tenant_id_key UNIQUE (tenant_id);
-
-
---
--- Name: billing_ledger_entries billing_ledger_entries_billing_account_id_idempotency_key_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_ledger_entries
-    ADD CONSTRAINT billing_ledger_entries_billing_account_id_idempotency_key_key UNIQUE (billing_account_id, idempotency_key);
-
-
---
--- Name: billing_ledger_entries billing_ledger_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_ledger_entries
-    ADD CONSTRAINT billing_ledger_entries_pkey PRIMARY KEY (id);
-
-
---
--- Name: billing_reservation_allocations billing_reservation_allocation_reservation_id_credit_lot_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_reservation_allocations
-    ADD CONSTRAINT billing_reservation_allocation_reservation_id_credit_lot_id_key UNIQUE (reservation_id, credit_lot_id);
-
-
---
--- Name: billing_reservation_allocations billing_reservation_allocations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_reservation_allocations
-    ADD CONSTRAINT billing_reservation_allocations_pkey PRIMARY KEY (id);
-
-
---
--- Name: billing_reservations billing_reservations_billing_account_id_business_reference_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_reservations
-    ADD CONSTRAINT billing_reservations_billing_account_id_business_reference_key UNIQUE (billing_account_id, business_reference);
-
-
---
--- Name: billing_reservations billing_reservations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_reservations
-    ADD CONSTRAINT billing_reservations_pkey PRIMARY KEY (id);
-
-
---
 -- Name: candidates candidates_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.candidates
     ADD CONSTRAINT candidates_pkey PRIMARY KEY (id);
-
-
---
--- Name: tenant_projections companies_credit_code_hash_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenant_projections
-    ADD CONSTRAINT companies_credit_code_hash_key UNIQUE (credit_code_hash);
-
-
---
--- Name: tenant_projections companies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenant_projections
-    ADD CONSTRAINT companies_pkey PRIMARY KEY (id);
-
-
---
--- Name: tenant_membership_projections tenant_membership_projections_tenant_id_user_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenant_membership_projections
-    ADD CONSTRAINT tenant_membership_projections_tenant_id_user_id_key UNIQUE (tenant_id, user_id);
-
-
---
--- Name: tenant_membership_projections tenant_membership_projections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenant_membership_projections
-    ADD CONSTRAINT tenant_membership_projections_pkey PRIMARY KEY (id);
-
-
---
--- Name: enterprise_registration_projections enterprise_registration_projections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.enterprise_registration_projections
-    ADD CONSTRAINT enterprise_registration_projections_pkey PRIMARY KEY (id);
 
 
 --
@@ -1302,11 +798,67 @@ ALTER TABLE ONLY public.conversations
 
 
 --
--- Name: credit_lots credit_lots_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: enterprise_job_pool_copies enterprise_job_pool_copies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.credit_lots
-    ADD CONSTRAINT credit_lots_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.enterprise_job_pool_copies
+    ADD CONSTRAINT enterprise_job_pool_copies_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: enterprise_job_pool_copies enterprise_job_pool_copies_tenant_id_source_job_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.enterprise_job_pool_copies
+    ADD CONSTRAINT enterprise_job_pool_copies_tenant_id_source_job_id_key UNIQUE (tenant_id, source_job_id);
+
+
+--
+-- Name: enterprise_pool_attachment_assets enterprise_pool_attachment_as_tenant_id_talent_pool_copy_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.enterprise_pool_attachment_assets
+    ADD CONSTRAINT enterprise_pool_attachment_as_tenant_id_talent_pool_copy_id_key UNIQUE (tenant_id, talent_pool_copy_id, source_file_asset_id);
+
+
+--
+-- Name: enterprise_pool_attachment_assets enterprise_pool_attachment_assets_object_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.enterprise_pool_attachment_assets
+    ADD CONSTRAINT enterprise_pool_attachment_assets_object_key_key UNIQUE (object_key);
+
+
+--
+-- Name: enterprise_pool_attachment_assets enterprise_pool_attachment_assets_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.enterprise_pool_attachment_assets
+    ADD CONSTRAINT enterprise_pool_attachment_assets_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: enterprise_pool_export_logs enterprise_pool_export_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.enterprise_pool_export_logs
+    ADD CONSTRAINT enterprise_pool_export_logs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: enterprise_talent_pool_copies enterprise_talent_pool_copies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.enterprise_talent_pool_copies
+    ADD CONSTRAINT enterprise_talent_pool_copies_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: enterprise_talent_pool_copies enterprise_talent_pool_copies_tenant_id_source_candidate_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.enterprise_talent_pool_copies
+    ADD CONSTRAINT enterprise_talent_pool_copies_tenant_id_source_candidate_id_key UNIQUE (tenant_id, source_candidate_id);
 
 
 --
@@ -1438,30 +990,6 @@ ALTER TABLE ONLY public.jobs
 
 
 --
--- Name: membership_applications membership_applications_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.membership_applications
-    ADD CONSTRAINT membership_applications_pkey PRIMARY KEY (id);
-
-
---
--- Name: membership_invitations membership_invitations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.membership_invitations
-    ADD CONSTRAINT membership_invitations_pkey PRIMARY KEY (id);
-
-
---
--- Name: membership_invitations membership_invitations_token_hash_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.membership_invitations
-    ADD CONSTRAINT membership_invitations_token_hash_key UNIQUE (token_hash);
-
-
---
 -- Name: messages messages_conversation_id_sequence_number_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1494,94 +1022,6 @@ ALTER TABLE ONLY public.outbox_events
 
 
 --
--- Name: personal_identities personal_identities_identity_hash_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.personal_identities
-    ADD CONSTRAINT personal_identities_identity_hash_key UNIQUE (identity_hash);
-
-
---
--- Name: personal_identities personal_identities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.personal_identities
-    ADD CONSTRAINT personal_identities_pkey PRIMARY KEY (id);
-
-
---
--- Name: personal_identities personal_identities_user_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.personal_identities
-    ADD CONSTRAINT personal_identities_user_id_key UNIQUE (user_id);
-
-
---
--- Name: platform_admins platform_admins_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.platform_admins
-    ADD CONSTRAINT platform_admins_pkey PRIMARY KEY (id);
-
-
---
--- Name: platform_menus platform_menus_code_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.platform_menus
-    ADD CONSTRAINT platform_menus_code_key UNIQUE (code);
-
-
---
--- Name: platform_menus platform_menus_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.platform_menus
-    ADD CONSTRAINT platform_menus_pkey PRIMARY KEY (id);
-
-
---
--- Name: pricing_items pricing_items_code_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.pricing_items
-    ADD CONSTRAINT pricing_items_code_key UNIQUE (code);
-
-
---
--- Name: pricing_items pricing_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.pricing_items
-    ADD CONSTRAINT pricing_items_pkey PRIMARY KEY (id);
-
-
---
--- Name: recharge_orders recharge_orders_order_no_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.recharge_orders
-    ADD CONSTRAINT recharge_orders_order_no_key UNIQUE (order_no);
-
-
---
--- Name: recharge_orders recharge_orders_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.recharge_orders
-    ADD CONSTRAINT recharge_orders_pkey PRIMARY KEY (id);
-
-
---
--- Name: recharge_receiving_accounts recharge_receiving_accounts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.recharge_receiving_accounts
-    ADD CONSTRAINT recharge_receiving_accounts_pkey PRIMARY KEY (id);
-
-
---
 -- Name: recruitment_tasks recruitment_tasks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1595,22 +1035,6 @@ ALTER TABLE ONLY public.recruitment_tasks
 
 ALTER TABLE ONLY public.recruitment_tasks
     ADD CONSTRAINT recruitment_tasks_tenant_id_idempotency_key_key UNIQUE (tenant_id, idempotency_key);
-
-
---
--- Name: refresh_sessions refresh_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.refresh_sessions
-    ADD CONSTRAINT refresh_sessions_pkey PRIMARY KEY (id);
-
-
---
--- Name: refresh_sessions refresh_sessions_token_hash_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.refresh_sessions
-    ADD CONSTRAINT refresh_sessions_token_hash_key UNIQUE (token_hash);
 
 
 --
@@ -1699,14 +1123,6 @@ ALTER TABLE ONLY public.screening_plan_versions
 
 ALTER TABLE ONLY public.screening_plans
     ADD CONSTRAINT screening_plans_pkey PRIMARY KEY (id);
-
-
---
--- Name: screening_quotes screening_quotes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_quotes
-    ADD CONSTRAINT screening_quotes_pkey PRIMARY KEY (id);
 
 
 --
@@ -1806,54 +1222,6 @@ ALTER TABLE ONLY public.idempotency_records
 
 
 --
--- Name: users users_phone_hash_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_phone_hash_key UNIQUE (phone_hash);
-
-
---
--- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
-
-
---
--- Name: verification_challenges verification_challenges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.verification_challenges
-    ADD CONSTRAINT verification_challenges_pkey PRIMARY KEY (id);
-
-
---
--- Name: tenant_memberships tenant_memberships_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenant_memberships
-    ADD CONSTRAINT tenant_memberships_pkey PRIMARY KEY (id);
-
-
---
--- Name: tenant_memberships tenant_memberships_tenant_id_user_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenant_memberships
-    ADD CONSTRAINT tenant_memberships_tenant_id_user_id_key UNIQUE (tenant_id, user_id);
-
-
---
--- Name: tenants tenants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenants
-    ADD CONSTRAINT tenants_pkey PRIMARY KEY (id);
-
-
---
 -- Name: idx_ai_runs_task_created; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1865,13 +1233,6 @@ CREATE INDEX idx_ai_runs_task_created ON public.ai_runs USING btree (recruitment
 --
 
 CREATE INDEX idx_audit_scope ON public.audit_logs USING btree (tenant_id, created_at DESC);
-
-
---
--- Name: idx_billing_ledger_account_created; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_billing_ledger_account_created ON public.billing_ledger_entries USING btree (billing_account_id, created_at DESC);
 
 
 --
@@ -1910,10 +1271,45 @@ CREATE INDEX idx_candidates_tenant_updated ON public.candidates USING btree (ten
 
 
 --
--- Name: idx_company_verifications_status; Type: INDEX; Schema: public; Owner: -
+-- Name: idx_enterprise_job_pool_copies_active; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_company_verifications_status ON public.enterprise_registration_projections USING btree (status, created_at);
+CREATE INDEX idx_enterprise_job_pool_copies_active ON public.enterprise_job_pool_copies USING btree (tenant_id, synchronized_at DESC) WHERE ((lifecycle_status)::text = 'ACTIVE'::text);
+
+
+--
+-- Name: idx_enterprise_job_pool_tenant; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_enterprise_job_pool_tenant ON public.enterprise_job_pool_copies USING btree (tenant_id, synchronized_at DESC);
+
+
+--
+-- Name: idx_enterprise_pool_attachment_copy; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_enterprise_pool_attachment_copy ON public.enterprise_pool_attachment_assets USING btree (talent_pool_copy_id, lifecycle_status);
+
+
+--
+-- Name: idx_enterprise_pool_export_logs_tenant; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_enterprise_pool_export_logs_tenant ON public.enterprise_pool_export_logs USING btree (tenant_id, created_at DESC);
+
+
+--
+-- Name: idx_enterprise_talent_pool_copies_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_enterprise_talent_pool_copies_active ON public.enterprise_talent_pool_copies USING btree (tenant_id, synchronized_at DESC) WHERE ((lifecycle_status)::text = 'ACTIVE'::text);
+
+
+--
+-- Name: idx_enterprise_talent_pool_tenant; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_enterprise_talent_pool_tenant ON public.enterprise_talent_pool_copies USING btree (tenant_id, synchronized_at DESC);
 
 
 --
@@ -1959,13 +1355,6 @@ CREATE INDEX idx_job_versions_tenant_job ON public.job_versions USING btree (ten
 
 
 --
--- Name: idx_jobs_tenant_tenant; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_jobs_tenant_tenant ON public.jobs USING btree (tenant_id);
-
-
---
 -- Name: idx_jobs_tenant_created; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -1977,6 +1366,13 @@ CREATE INDEX idx_jobs_tenant_created ON public.jobs USING btree (tenant_id, crea
 --
 
 CREATE INDEX idx_jobs_tenant_status ON public.jobs USING btree (tenant_id, status);
+
+
+--
+-- Name: idx_jobs_tenant_tenant; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_jobs_tenant_tenant ON public.jobs USING btree (tenant_id);
 
 
 --
@@ -2001,20 +1397,6 @@ CREATE INDEX idx_parse_versions_tenant_candidate ON public.resume_parse_versions
 
 
 --
--- Name: idx_pricing_items_status; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_pricing_items_status ON public.pricing_items USING btree (status);
-
-
---
--- Name: idx_recharge_orders_tenant_created; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_recharge_orders_tenant_created ON public.recharge_orders USING btree (tenant_id, created_at DESC);
-
-
---
 -- Name: idx_recruitment_tasks_feature; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2033,13 +1415,6 @@ CREATE INDEX idx_recruitment_tasks_linked_candidate ON public.recruitment_tasks 
 --
 
 CREATE INDEX idx_recruitment_tasks_tenant_updated ON public.recruitment_tasks USING btree (tenant_id, updated_at DESC);
-
-
---
--- Name: idx_refresh_sessions_user; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_refresh_sessions_user ON public.refresh_sessions USING btree (user_id, revoked_at, expires_at);
 
 
 --
@@ -2071,17 +1446,10 @@ CREATE INDEX idx_screening_plans_recruitment_task ON public.screening_plans USIN
 
 
 --
--- Name: idx_screening_quotes_scope_expiry; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_screening_quotes_scope_expiry ON public.screening_quotes USING btree (tenant_id, expires_at DESC);
-
-
---
 -- Name: idx_screening_run_items_pending; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_screening_run_items_pending ON public.screening_run_items USING btree (run_id, status, created_at) WHERE ((status)::text = ANY ((ARRAY['PENDING'::character varying, 'PROCESSING'::character varying])::text[]));
+CREATE INDEX idx_screening_run_items_pending ON public.screening_run_items USING btree (run_id, status, created_at) WHERE ((status)::text = ANY (ARRAY[('PENDING'::character varying)::text, ('PROCESSING'::character varying)::text]));
 
 
 --
@@ -2127,31 +1495,10 @@ CREATE INDEX idx_tickets_status ON public.support_tickets USING btree (status, c
 
 
 --
--- Name: idx_verification_challenges_phone; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_verification_challenges_phone ON public.verification_challenges USING btree (phone_hash, created_at DESC);
-
-
---
--- Name: idx_tenants_tenant; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_tenants_tenant ON public.tenants USING btree (tenant_id, status);
-
-
---
 -- Name: ix_interview_kits_tenant; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX ix_interview_kits_tenant ON public.interview_kits USING btree (tenant_id, created_at DESC);
-
-
---
--- Name: ix_membership_applications_tenant_status; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_membership_applications_tenant_status ON public.membership_applications USING btree (tenant_id, status, created_at);
 
 
 --
@@ -2162,20 +1509,6 @@ CREATE INDEX ix_notifications_user_created ON public.notifications USING btree (
 
 
 --
--- Name: uk_active_recharge_receiving_account; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX uk_active_recharge_receiving_account ON public.recharge_receiving_accounts USING btree (status) WHERE ((status)::text = 'ACTIVE'::text);
-
-
---
--- Name: uk_tenant_pending_claim; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX uk_tenant_pending_claim ON public.enterprise_registration_projections USING btree (tenant_id) WHERE (((request_type)::text = 'CLAIM'::text) AND ((status)::text = 'PENDING'::text));
-
-
---
 -- Name: uk_jobs_jd_draft; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2183,209 +1516,10 @@ CREATE UNIQUE INDEX uk_jobs_jd_draft ON public.jobs USING btree (jd_draft_id) WH
 
 
 --
--- Name: uk_pending_tenant_application; Type: INDEX; Schema: public; Owner: -
+-- Name: ux_resume_files_parse_idempotency; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX uk_pending_tenant_application ON public.membership_applications USING btree (tenant_id, applicant_user_id) WHERE ((status)::text = 'PENDING'::text);
-
-
---
--- Name: uk_personal_tenant_user; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX uk_personal_tenant_user ON public.tenants USING btree (owner_user_id) WHERE (((type)::text = 'PERSONAL'::text) AND ((status)::text = 'ACTIVE'::text));
-
-
---
--- Name: uk_screening_run_quote; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX uk_screening_run_quote ON public.screening_runs USING btree (quote_id) WHERE (quote_id IS NOT NULL);
-
-
---
--- Name: ai_runs trg_ai_runs_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_ai_runs_scope BEFORE INSERT OR UPDATE ON public.ai_runs FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: candidates trg_candidates_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_candidates_scope BEFORE INSERT OR UPDATE ON public.candidates FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: conversations trg_conversations_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_conversations_scope BEFORE INSERT OR UPDATE ON public.conversations FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: file_assets trg_file_assets_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_file_assets_scope BEFORE INSERT OR UPDATE ON public.file_assets FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: jd_drafts trg_jd_drafts_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_jd_drafts_scope BEFORE INSERT OR UPDATE ON public.jd_drafts FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: jd_run_events trg_jd_run_events_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_jd_run_events_scope BEFORE INSERT OR UPDATE ON public.jd_run_events FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: jd_source_files trg_jd_source_files_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_jd_source_files_scope BEFORE INSERT OR UPDATE ON public.jd_source_files FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: job_versions trg_job_versions_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_job_versions_scope BEFORE INSERT OR UPDATE ON public.job_versions FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: jobs trg_jobs_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_jobs_scope BEFORE INSERT OR UPDATE ON public.jobs FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: messages trg_messages_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_messages_scope BEFORE INSERT OR UPDATE ON public.messages FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: recruitment_tasks trg_recruitment_tasks_dims_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_recruitment_tasks_dims_scope BEFORE INSERT OR UPDATE ON public.recruitment_tasks FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: recruitment_tasks trg_recruitment_tasks_linked_candidate_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_recruitment_tasks_linked_candidate_scope BEFORE INSERT OR UPDATE OF linked_candidate_id, tenant_id ON public.recruitment_tasks FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_recruitment_task_linked_candidate_scope();
-
-
---
--- Name: recruitment_tasks trg_recruitment_tasks_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_recruitment_tasks_scope BEFORE INSERT OR UPDATE ON public.recruitment_tasks FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: resume_files trg_resume_files_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_resume_files_scope BEFORE INSERT OR UPDATE ON public.resume_files FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: resume_parse_drafts trg_resume_parse_drafts_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_resume_parse_drafts_scope BEFORE INSERT OR UPDATE ON public.resume_parse_drafts FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: resume_parse_versions trg_resume_parse_versions_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_resume_parse_versions_scope BEFORE INSERT OR UPDATE ON public.resume_parse_versions FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: resume_source_files trg_resume_source_files_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_resume_source_files_scope BEFORE INSERT OR UPDATE ON public.resume_source_files FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: screening_plan_versions trg_screening_plan_versions_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_screening_plan_versions_scope BEFORE INSERT OR UPDATE ON public.screening_plan_versions FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: screening_plans trg_screening_plans_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_screening_plans_scope BEFORE INSERT OR UPDATE ON public.screening_plans FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: screening_quotes trg_screening_quotes_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_screening_quotes_scope BEFORE INSERT OR UPDATE ON public.screening_quotes FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: screening_results trg_screening_results_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_screening_results_scope BEFORE INSERT OR UPDATE ON public.screening_results FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: screening_run_items trg_screening_run_items_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_screening_run_items_scope BEFORE INSERT OR UPDATE ON public.screening_run_items FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: screening_runs trg_screening_runs_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER trg_screening_runs_scope BEFORE INSERT OR UPDATE ON public.screening_runs FOR EACH ROW EXECUTE FUNCTION public.enforce_tenant_tenant_scope();
-
-
---
--- Name: access_tokens access_tokens_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.access_tokens
-    ADD CONSTRAINT access_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
-
-
---
--- Name: ai_runs ai_runs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.ai_runs
-    ADD CONSTRAINT ai_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: ai_runs ai_runs_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.ai_runs
-    ADD CONSTRAINT ai_runs_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
+CREATE UNIQUE INDEX ux_resume_files_parse_idempotency ON public.resume_files USING btree (tenant_id, parse_idempotency_key) WHERE (parse_idempotency_key IS NOT NULL);
 
 
 --
@@ -2396,131 +1530,6 @@ ALTER TABLE ONLY public.ai_runs
     ADD CONSTRAINT ai_runs_recruitment_task_id_fkey FOREIGN KEY (recruitment_task_id) REFERENCES public.recruitment_tasks(id);
 
 
-
-
---
--- Name: billing_ledger_entries billing_ledger_entries_billing_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_ledger_entries
-    ADD CONSTRAINT billing_ledger_entries_billing_account_id_fkey FOREIGN KEY (billing_account_id) REFERENCES public.billing_accounts(id);
-
-
---
--- Name: billing_ledger_entries billing_ledger_entries_credit_lot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_ledger_entries
-    ADD CONSTRAINT billing_ledger_entries_credit_lot_id_fkey FOREIGN KEY (credit_lot_id) REFERENCES public.credit_lots(id);
-
-
---
--- Name: billing_ledger_entries billing_ledger_entries_operator_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_ledger_entries
-    ADD CONSTRAINT billing_ledger_entries_operator_user_id_fkey FOREIGN KEY (operator_user_id) REFERENCES public.users(id);
-
-
-
---
--- Name: billing_reservation_allocations billing_reservation_allocations_credit_lot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_reservation_allocations
-    ADD CONSTRAINT billing_reservation_allocations_credit_lot_id_fkey FOREIGN KEY (credit_lot_id) REFERENCES public.credit_lots(id);
-
-
---
--- Name: billing_reservation_allocations billing_reservation_allocations_reservation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_reservation_allocations
-    ADD CONSTRAINT billing_reservation_allocations_reservation_id_fkey FOREIGN KEY (reservation_id) REFERENCES public.billing_reservations(id);
-
-
---
--- Name: billing_reservations billing_reservations_billing_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_reservations
-    ADD CONSTRAINT billing_reservations_billing_account_id_fkey FOREIGN KEY (billing_account_id) REFERENCES public.billing_accounts(id);
-
-
---
--- Name: billing_reservations billing_reservations_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.billing_reservations
-    ADD CONSTRAINT billing_reservations_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
-
-
---
--- Name: candidates candidates_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.candidates
-    ADD CONSTRAINT candidates_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: candidates candidates_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.candidates
-    ADD CONSTRAINT candidates_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
-
-
---
--- Name: tenant_projections companies_owner_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenant_projections
-    ADD CONSTRAINT companies_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES public.users(id);
-
-
---
--- Name: tenant_membership_projections tenant_membership_projections_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenant_membership_projections
-    ADD CONSTRAINT tenant_membership_projections_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: tenant_membership_projections tenant_membership_projections_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenant_membership_projections
-    ADD CONSTRAINT tenant_membership_projections_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
-
-
---
--- Name: enterprise_registration_projections enterprise_registration_projections_applicant_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.enterprise_registration_projections
-    ADD CONSTRAINT enterprise_registration_projections_applicant_user_id_fkey FOREIGN KEY (applicant_user_id) REFERENCES public.users(id);
-
-
---
--- Name: enterprise_registration_projections enterprise_registration_projections_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.enterprise_registration_projections
-    ADD CONSTRAINT enterprise_registration_projections_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: conversations conversations_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.conversations
-    ADD CONSTRAINT conversations_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
 --
 -- Name: conversations conversations_recruitment_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
@@ -2529,30 +1538,12 @@ ALTER TABLE ONLY public.conversations
     ADD CONSTRAINT conversations_recruitment_task_id_fkey FOREIGN KEY (recruitment_task_id) REFERENCES public.recruitment_tasks(id);
 
 
-
 --
--- Name: credit_lots credit_lots_billing_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.credit_lots
-    ADD CONSTRAINT credit_lots_billing_account_id_fkey FOREIGN KEY (billing_account_id) REFERENCES public.billing_accounts(id);
-
-
---
--- Name: file_assets file_assets_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: enterprise_pool_attachment_assets enterprise_pool_attachment_assets_talent_pool_copy_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.file_assets
-    ADD CONSTRAINT file_assets_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: file_assets file_assets_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.file_assets
-    ADD CONSTRAINT file_assets_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
+ALTER TABLE ONLY public.enterprise_pool_attachment_assets
+    ADD CONSTRAINT enterprise_pool_attachment_assets_talent_pool_copy_id_fkey FOREIGN KEY (talent_pool_copy_id) REFERENCES public.enterprise_talent_pool_copies(id);
 
 
 --
@@ -2561,7 +1552,6 @@ ALTER TABLE ONLY public.file_assets
 
 ALTER TABLE ONLY public.candidates
     ADD CONSTRAINT fk_candidates_current_parse FOREIGN KEY (current_parse_version_id) REFERENCES public.resume_parse_versions(id);
-
 
 
 --
@@ -2581,36 +1571,11 @@ ALTER TABLE ONLY public.screening_plans
 
 
 --
--- Name: screening_quotes fk_screening_quote_consumed_run; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_quotes
-    ADD CONSTRAINT fk_screening_quote_consumed_run FOREIGN KEY (consumed_by_run_id) REFERENCES public.screening_runs(id);
-
-
---
--- Name: interview_kit_versions interview_kit_versions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.interview_kit_versions
-    ADD CONSTRAINT interview_kit_versions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: interview_kit_versions interview_kit_versions_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.interview_kit_versions
-    ADD CONSTRAINT interview_kit_versions_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
-
---
 -- Name: interview_kit_versions interview_kit_versions_kit_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.interview_kit_versions
     ADD CONSTRAINT interview_kit_versions_kit_id_fkey FOREIGN KEY (kit_id) REFERENCES public.interview_kits(id);
-
 
 
 --
@@ -2622,45 +1587,11 @@ ALTER TABLE ONLY public.interview_kits
 
 
 --
--- Name: interview_kits interview_kits_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.interview_kits
-    ADD CONSTRAINT interview_kits_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: interview_kits interview_kits_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.interview_kits
-    ADD CONSTRAINT interview_kits_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
-
-
---
--- Name: interview_questions interview_questions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.interview_questions
-    ADD CONSTRAINT interview_questions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
 -- Name: interview_questions interview_questions_kit_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.interview_questions
     ADD CONSTRAINT interview_questions_kit_version_id_fkey FOREIGN KEY (kit_version_id) REFERENCES public.interview_kit_versions(id) ON DELETE CASCADE;
-
-
-
---
--- Name: jd_drafts jd_drafts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.jd_drafts
-    ADD CONSTRAINT jd_drafts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
 
 
 --
@@ -2680,23 +1611,6 @@ ALTER TABLE ONLY public.jd_drafts
 
 
 --
--- Name: jd_drafts jd_drafts_updated_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.jd_drafts
-    ADD CONSTRAINT jd_drafts_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.users(id);
-
-
-
---
--- Name: jd_run_events jd_run_events_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.jd_run_events
-    ADD CONSTRAINT jd_run_events_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
 -- Name: jd_run_events jd_run_events_recruitment_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2710,23 +1624,6 @@ ALTER TABLE ONLY public.jd_run_events
 
 ALTER TABLE ONLY public.jd_run_events
     ADD CONSTRAINT jd_run_events_run_id_fkey FOREIGN KEY (run_id) REFERENCES public.ai_runs(id) ON DELETE CASCADE;
-
-
-
---
--- Name: jd_source_files jd_source_files_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.jd_source_files
-    ADD CONSTRAINT jd_source_files_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: jd_source_files jd_source_files_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.jd_source_files
-    ADD CONSTRAINT jd_source_files_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
 --
@@ -2745,23 +1642,6 @@ ALTER TABLE ONLY public.jd_source_files
     ADD CONSTRAINT jd_source_files_recruitment_task_id_fkey FOREIGN KEY (recruitment_task_id) REFERENCES public.recruitment_tasks(id) ON DELETE CASCADE;
 
 
-
---
--- Name: job_versions job_versions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.job_versions
-    ADD CONSTRAINT job_versions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: job_versions job_versions_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.job_versions
-    ADD CONSTRAINT job_versions_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
-
 --
 -- Name: job_versions job_versions_job_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
@@ -2776,23 +1656,6 @@ ALTER TABLE ONLY public.job_versions
 
 ALTER TABLE ONLY public.job_versions
     ADD CONSTRAINT job_versions_source_ai_run_id_fkey FOREIGN KEY (source_ai_run_id) REFERENCES public.ai_runs(id);
-
-
-
---
--- Name: jobs jobs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.jobs
-    ADD CONSTRAINT jobs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: jobs jobs_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.jobs
-    ADD CONSTRAINT jobs_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
 --
@@ -2811,135 +1674,12 @@ ALTER TABLE ONLY public.jobs
     ADD CONSTRAINT jobs_recruitment_task_id_fkey FOREIGN KEY (recruitment_task_id) REFERENCES public.recruitment_tasks(id);
 
 
-
---
--- Name: membership_applications membership_applications_applicant_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.membership_applications
-    ADD CONSTRAINT membership_applications_applicant_user_id_fkey FOREIGN KEY (applicant_user_id) REFERENCES public.users(id);
-
-
---
--- Name: membership_applications membership_applications_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.membership_applications
-    ADD CONSTRAINT membership_applications_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: membership_applications membership_applications_reviewed_by_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.membership_applications
-    ADD CONSTRAINT membership_applications_reviewed_by_user_id_fkey FOREIGN KEY (reviewed_by_user_id) REFERENCES public.users(id);
-
-
---
--- Name: membership_invitations membership_invitations_accepted_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.membership_invitations
-    ADD CONSTRAINT membership_invitations_accepted_by_fkey FOREIGN KEY (accepted_by) REFERENCES public.users(id);
-
-
---
--- Name: membership_invitations membership_invitations_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.membership_invitations
-    ADD CONSTRAINT membership_invitations_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
-
---
--- Name: messages messages_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.messages
-    ADD CONSTRAINT messages_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
 --
 -- Name: messages messages_conversation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.messages
     ADD CONSTRAINT messages_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id);
-
-
---
--- Name: messages messages_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.messages
-    ADD CONSTRAINT messages_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
-
-
---
--- Name: notifications notifications_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.notifications
-    ADD CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: personal_identities personal_identities_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.personal_identities
-    ADD CONSTRAINT personal_identities_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
-
-
---
--- Name: platform_admins platform_admins_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.platform_admins
-    ADD CONSTRAINT platform_admins_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
-
-
---
--- Name: platform_menus platform_menus_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.platform_menus
-    ADD CONSTRAINT platform_menus_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.platform_menus(id);
-
-
---
--- Name: recharge_orders recharge_orders_billing_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.recharge_orders
-    ADD CONSTRAINT recharge_orders_billing_account_id_fkey FOREIGN KEY (billing_account_id) REFERENCES public.billing_accounts(id);
-
-
---
--- Name: recharge_orders recharge_orders_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.recharge_orders
-    ADD CONSTRAINT recharge_orders_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
-
-
---
--- Name: recruitment_tasks recruitment_tasks_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.recruitment_tasks
-    ADD CONSTRAINT recruitment_tasks_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: recruitment_tasks recruitment_tasks_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.recruitment_tasks
-    ADD CONSTRAINT recruitment_tasks_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
 --
@@ -2958,23 +1698,6 @@ ALTER TABLE ONLY public.recruitment_tasks
     ADD CONSTRAINT recruitment_tasks_linked_job_id_fkey FOREIGN KEY (linked_job_id) REFERENCES public.jobs(id) ON DELETE SET NULL;
 
 
-
---
--- Name: refresh_sessions refresh_sessions_rotated_from_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.refresh_sessions
-    ADD CONSTRAINT refresh_sessions_rotated_from_id_fkey FOREIGN KEY (rotated_from_id) REFERENCES public.refresh_sessions(id);
-
-
---
--- Name: refresh_sessions refresh_sessions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.refresh_sessions
-    ADD CONSTRAINT refresh_sessions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
-
-
 --
 -- Name: resume_files resume_files_candidate_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
@@ -2984,44 +1707,11 @@ ALTER TABLE ONLY public.resume_files
 
 
 --
--- Name: resume_files resume_files_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.resume_files
-    ADD CONSTRAINT resume_files_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: resume_files resume_files_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.resume_files
-    ADD CONSTRAINT resume_files_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
-
---
 -- Name: resume_files resume_files_file_asset_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.resume_files
     ADD CONSTRAINT resume_files_file_asset_id_fkey FOREIGN KEY (file_asset_id) REFERENCES public.file_assets(id);
-
-
-
---
--- Name: resume_parse_drafts resume_parse_drafts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.resume_parse_drafts
-    ADD CONSTRAINT resume_parse_drafts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: resume_parse_drafts resume_parse_drafts_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.resume_parse_drafts
-    ADD CONSTRAINT resume_parse_drafts_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
 --
@@ -3049,15 +1739,6 @@ ALTER TABLE ONLY public.resume_parse_drafts
 
 
 --
--- Name: resume_parse_drafts resume_parse_drafts_updated_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.resume_parse_drafts
-    ADD CONSTRAINT resume_parse_drafts_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.users(id);
-
-
-
---
 -- Name: resume_parse_versions resume_parse_versions_candidate_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3066,36 +1747,11 @@ ALTER TABLE ONLY public.resume_parse_versions
 
 
 --
--- Name: resume_parse_versions resume_parse_versions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.resume_parse_versions
-    ADD CONSTRAINT resume_parse_versions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
 -- Name: resume_parse_versions resume_parse_versions_resume_file_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.resume_parse_versions
     ADD CONSTRAINT resume_parse_versions_resume_file_id_fkey FOREIGN KEY (resume_file_id) REFERENCES public.resume_files(id);
-
-
-
---
--- Name: resume_source_files resume_source_files_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.resume_source_files
-    ADD CONSTRAINT resume_source_files_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: resume_source_files resume_source_files_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.resume_source_files
-    ADD CONSTRAINT resume_source_files_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
 --
@@ -3114,46 +1770,12 @@ ALTER TABLE ONLY public.resume_source_files
     ADD CONSTRAINT resume_source_files_recruitment_task_id_fkey FOREIGN KEY (recruitment_task_id) REFERENCES public.recruitment_tasks(id) ON DELETE CASCADE;
 
 
-
---
--- Name: screening_plan_versions screening_plan_versions_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_plan_versions
-    ADD CONSTRAINT screening_plan_versions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: screening_plan_versions screening_plan_versions_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_plan_versions
-    ADD CONSTRAINT screening_plan_versions_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
-
 --
 -- Name: screening_plan_versions screening_plan_versions_plan_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.screening_plan_versions
     ADD CONSTRAINT screening_plan_versions_plan_id_fkey FOREIGN KEY (plan_id) REFERENCES public.screening_plans(id);
-
-
-
---
--- Name: screening_plans screening_plans_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_plans
-    ADD CONSTRAINT screening_plans_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: screening_plans screening_plans_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_plans
-    ADD CONSTRAINT screening_plans_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
 --
@@ -3172,48 +1794,6 @@ ALTER TABLE ONLY public.screening_plans
     ADD CONSTRAINT screening_plans_recruitment_task_id_fkey FOREIGN KEY (recruitment_task_id) REFERENCES public.recruitment_tasks(id);
 
 
-
---
--- Name: screening_quotes screening_quotes_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_quotes
-    ADD CONSTRAINT screening_quotes_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: screening_quotes screening_quotes_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_quotes
-    ADD CONSTRAINT screening_quotes_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
-
---
--- Name: screening_quotes screening_quotes_job_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_quotes
-    ADD CONSTRAINT screening_quotes_job_version_id_fkey FOREIGN KEY (job_version_id) REFERENCES public.job_versions(id);
-
-
---
--- Name: screening_quotes screening_quotes_plan_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_quotes
-    ADD CONSTRAINT screening_quotes_plan_version_id_fkey FOREIGN KEY (plan_version_id) REFERENCES public.screening_plan_versions(id);
-
-
-
---
--- Name: screening_results screening_results_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_results
-    ADD CONSTRAINT screening_results_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
 --
 -- Name: screening_results screening_results_run_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
@@ -3222,21 +1802,12 @@ ALTER TABLE ONLY public.screening_results
     ADD CONSTRAINT screening_results_run_item_id_fkey FOREIGN KEY (run_item_id) REFERENCES public.screening_run_items(id);
 
 
-
 --
 -- Name: screening_run_items screening_run_items_candidate_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.screening_run_items
     ADD CONSTRAINT screening_run_items_candidate_id_fkey FOREIGN KEY (candidate_id) REFERENCES public.candidates(id);
-
-
---
--- Name: screening_run_items screening_run_items_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_run_items
-    ADD CONSTRAINT screening_run_items_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
 
 
 --
@@ -3261,23 +1832,6 @@ ALTER TABLE ONLY public.screening_run_items
 
 ALTER TABLE ONLY public.screening_run_items
     ADD CONSTRAINT screening_run_items_source_run_item_id_fkey FOREIGN KEY (source_run_item_id) REFERENCES public.screening_run_items(id);
-
-
-
---
--- Name: screening_runs screening_runs_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_runs
-    ADD CONSTRAINT screening_runs_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: screening_runs screening_runs_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_runs
-    ADD CONSTRAINT screening_runs_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
 
 
 --
@@ -3313,14 +1867,6 @@ ALTER TABLE ONLY public.screening_runs
 
 
 --
--- Name: screening_runs screening_runs_quote_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.screening_runs
-    ADD CONSTRAINT screening_runs_quote_id_fkey FOREIGN KEY (quote_id) REFERENCES public.screening_quotes(id);
-
-
---
 -- Name: screening_runs screening_runs_recruitment_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3336,120 +1882,12 @@ ALTER TABLE ONLY public.screening_runs
     ADD CONSTRAINT screening_runs_root_run_id_fkey FOREIGN KEY (root_run_id) REFERENCES public.screening_runs(id);
 
 
-
 --
 -- Name: support_ticket_messages support_ticket_messages_ticket_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.support_ticket_messages
     ADD CONSTRAINT support_ticket_messages_ticket_id_fkey FOREIGN KEY (ticket_id) REFERENCES public.support_tickets(id);
-
-
---
--- Name: support_tickets support_tickets_assigned_to_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.support_tickets
-    ADD CONSTRAINT support_tickets_assigned_to_id_fkey FOREIGN KEY (assigned_to_id) REFERENCES public.platform_admins(id);
-
-
---
--- Name: support_tickets support_tickets_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.support_tickets
-    ADD CONSTRAINT support_tickets_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: support_tickets support_tickets_creator_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.support_tickets
-    ADD CONSTRAINT support_tickets_creator_user_id_fkey FOREIGN KEY (creator_user_id) REFERENCES public.users(id);
-
-
-
---
--- Name: tenant_memberships tenant_memberships_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenant_memberships
-    ADD CONSTRAINT tenant_memberships_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id);
-
-
-
---
--- Name: tenants tenants_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenants
-    ADD CONSTRAINT tenants_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenant_projections(id);
-
-
---
--- Name: tenants tenants_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenants
-    ADD CONSTRAINT tenants_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id);
-
-
---
--- Name: tenants tenants_owner_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.tenants
-    ADD CONSTRAINT tenants_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES public.users(id);
-
-
---
--- PostgreSQL database dump complete
---
-
-
---
--- PostgreSQL database dump
---
-
-
--- Dumped from database version 17.11
--- Dumped by pg_dump version 17.11
-
-SET statement_timeout = 0;
-SET lock_timeout = 0;
-SET idle_in_transaction_session_timeout = 0;
-SET transaction_timeout = 0;
-SET client_encoding = 'UTF8';
-SET standard_conforming_strings = on;
-SELECT pg_catalog.set_config('search_path', '', false);
-SET check_function_bodies = false;
-SET xmloption = content;
-SET client_min_messages = warning;
-SET row_security = off;
-
---
--- Data for Name: platform_menus; Type: TABLE DATA; Schema: public; Owner: -
---
-
-INSERT INTO public.platform_menus (id, parent_id, code, display_name, icon, path, permission_code, sort_order, is_visible, visible_to_operator, created_at, updated_at) VALUES ('48cc57b0-a4d2-4518-ba6b-0dac83b737f5', NULL, 'dashboard', '首页', 'LayoutDashboard', '/', NULL, 0, true, true, '2026-09-03 03:25:13.722147+00', '2026-09-03 03:25:13.722147+00');
-INSERT INTO public.platform_menus (id, parent_id, code, display_name, icon, path, permission_code, sort_order, is_visible, visible_to_operator, created_at, updated_at) VALUES ('a72f2ca1-79f4-4ccd-94d3-811ff242b043', NULL, 'users', '用户管理', 'Users', '/users', 'user:read', 1, true, true, '2026-09-03 03:25:13.722147+00', '2026-09-03 03:25:13.722147+00');
-INSERT INTO public.platform_menus (id, parent_id, code, display_name, icon, path, permission_code, sort_order, is_visible, visible_to_operator, created_at, updated_at) VALUES ('d409155d-62fa-4a94-a7d0-907758412929', NULL, 'tenant_projections', '企业管理', 'Building2', '/tenant_projections', 'company:read', 2, true, true, '2026-09-03 03:25:13.722147+00', '2026-09-03 03:25:13.722147+00');
-INSERT INTO public.platform_menus (id, parent_id, code, display_name, icon, path, permission_code, sort_order, is_visible, visible_to_operator, created_at, updated_at) VALUES ('08d977c3-0afe-4797-bcf5-fe702c0ec748', NULL, 'reviews', '审核中心', 'FileCheck', NULL, NULL, 3, true, true, '2026-09-03 03:25:13.722147+00', '2026-09-03 03:25:13.722147+00');
-INSERT INTO public.platform_menus (id, parent_id, code, display_name, icon, path, permission_code, sort_order, is_visible, visible_to_operator, created_at, updated_at) VALUES ('bb369f23-3a93-4b49-bdfc-cdff95dd7a66', '08d977c3-0afe-4797-bcf5-fe702c0ec748', 'reviews_personal', '个人认证', NULL, '/reviews/personal', 'verification:review', 0, true, true, '2026-09-03 03:25:13.722147+00', '2026-09-03 03:25:13.722147+00');
-INSERT INTO public.platform_menus (id, parent_id, code, display_name, icon, path, permission_code, sort_order, is_visible, visible_to_operator, created_at, updated_at) VALUES ('c5736f51-74fe-41a0-aa01-49bd2352b4d9', '08d977c3-0afe-4797-bcf5-fe702c0ec748', 'reviews_company', '企业认证', NULL, '/reviews/company', 'verification:review', 1, true, true, '2026-09-03 03:25:13.722147+00', '2026-09-03 03:25:13.722147+00');
-INSERT INTO public.platform_menus (id, parent_id, code, display_name, icon, path, permission_code, sort_order, is_visible, visible_to_operator, created_at, updated_at) VALUES ('b8902ca4-f1d1-4faf-92f8-bd79d11b0832', '08d977c3-0afe-4797-bcf5-fe702c0ec748', 'reviews_membership', '成员申请', NULL, '/reviews/membership', 'membership:review', 2, true, true, '2026-09-03 03:25:13.722147+00', '2026-09-03 03:25:13.722147+00');
-INSERT INTO public.platform_menus (id, parent_id, code, display_name, icon, path, permission_code, sort_order, is_visible, visible_to_operator, created_at, updated_at) VALUES ('b2a7dbaf-78af-4258-8f8a-dd37c03e4118', NULL, 'tickets', '工单管理', 'MessageSquare', '/tickets', 'ticket:read', 4, true, true, '2026-09-03 03:25:13.722147+00', '2026-09-03 03:25:13.722147+00');
-INSERT INTO public.platform_menus (id, parent_id, code, display_name, icon, path, permission_code, sort_order, is_visible, visible_to_operator, created_at, updated_at) VALUES ('23dd26fe-069e-4ce2-85b6-7ed2ede2988c', NULL, 'billing', '账本管理', 'Wallet', '/billing', 'billing:read', 5, true, true, '2026-09-03 03:25:13.722147+00', '2026-09-03 03:25:13.722147+00');
-INSERT INTO public.platform_menus (id, parent_id, code, display_name, icon, path, permission_code, sort_order, is_visible, visible_to_operator, created_at, updated_at) VALUES ('2108144c-c91c-4056-ae5e-58f259a800fc', NULL, 'settings', '系统设置', 'Settings', NULL, NULL, 6, true, false, '2026-09-03 03:25:13.722147+00', '2026-09-03 03:25:13.722147+00');
-INSERT INTO public.platform_menus (id, parent_id, code, display_name, icon, path, permission_code, sort_order, is_visible, visible_to_operator, created_at, updated_at) VALUES ('9a93424f-c80a-4559-8860-c856cb797b30', '2108144c-c91c-4056-ae5e-58f259a800fc', 'settings_admins', '管理员管理', NULL, '/settings/admins', 'admin:manage', 0, true, false, '2026-09-03 03:25:13.722147+00', '2026-09-03 03:25:13.722147+00');
-INSERT INTO public.platform_menus (id, parent_id, code, display_name, icon, path, permission_code, sort_order, is_visible, visible_to_operator, created_at, updated_at) VALUES ('964ab998-7c97-42bf-ada4-7211868bb313', '2108144c-c91c-4056-ae5e-58f259a800fc', 'settings_menus', '菜单管理', NULL, '/settings/menus', 'menu:manage', 1, true, false, '2026-09-03 03:25:13.722147+00', '2026-09-03 03:25:13.722147+00');
-
-
---
--- Data for Name: pricing_items; Type: TABLE DATA; Schema: public; Owner: -
---
-
 
 
 --

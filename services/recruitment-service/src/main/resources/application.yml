@@ -61,11 +61,9 @@ app:
     base-url: ${BOSS_BASE_URL:http://localhost:8081}
     internal-client-id: ${BOSS_INTERNAL_CLIENT_ID:}
     internal-client-secret: ${BOSS_INTERNAL_CLIENT_SECRET:}
-    event-bearer-token: ${BOSS_EVENT_BEARER_TOKEN:}
   web-origin: ${WEB_ORIGIN:http://localhost:3000}
   auth:
     secure-cookie: ${AUTH_SECURE_COOKIE:true}
-  platform-admin-key: ${PLATFORM_ADMIN_KEY:phase2-local-admin}
   ai-platform:
     # AIAgentPlatform 对内面地址
     http:

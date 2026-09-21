@@ -30,7 +30,8 @@ export function setAccessToken(token: string | null) {
 }
 
 export function getAccessToken(): string | null {
-  if (typeof window !== "undefined" && !accessToken) {
+  if (typeof window !== "undefined") {
+    // 始终以当前浏览器存储为准，避免不同路由 chunk 的模块缓存复用旧 Token。
     accessToken = localStorage.getItem(TOKEN_STORAGE_KEY);
   }
   return accessToken;
@@ -54,8 +55,14 @@ export async function adminApiFetch<T>(path: string, init?: RequestInit): Promis
     },
   });
 
-  if (response.status === 401) {
-    // Token 过期，清除并跳转登录
+  const isPublicAuthEndpoint =
+    path === "/platform/admins/login" ||
+    path === "/platform/admins/bootstrap" ||
+    path === "/platform/admins/register";
+
+  if (response.status === 401 && token && !isPublicAuthEndpoint) {
+    // 仅受保护接口的 401 才表示当前会话失效；登录/引导/注册接口的 401
+    // 必须保留后端返回的真实原因（例如用户名或密码错误）。
     setAccessToken(null);
     if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
       window.location.href = "/login";

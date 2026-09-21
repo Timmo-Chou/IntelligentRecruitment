@@ -44,7 +44,7 @@ cd services/recruitment-service
 - 健康检查：`GET http://localhost:8080/actuator/health`
 - 系统探针：`GET http://localhost:8080/api/v1/system/ping`
 - 本地异步链路探针：`POST /api/v1/internal/foundation/probes`
-- Phase 2 本地平台审核 Key：`phase2-local-admin`，通过 `X-Platform-Admin-Key` 请求头传递。
+- 平台管理后台使用 BOSS 管理员认证；招聘服务不再维护本地平台管理员或审核密钥。
 
 验证码由 BOSS 统一提供和校验，招聘服务仅转发认证请求，不在自身 Profile 或环境变量中配置验证码服务商。
 

@@ -1,11 +1,13 @@
 package com.intelligentrecruitment.shared.error;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -25,6 +27,18 @@ public class GlobalExceptionHandler {
     ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException exception, HttpServletRequest request) {
         return ResponseEntity.badRequest()
                 .body(new ApiError("VALIDATION_FAILED", "请求参数不符合要求", requestId(request)));
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    ResponseEntity<ApiError> handleConstraintViolation(ConstraintViolationException exception, HttpServletRequest request) {
+        return ResponseEntity.badRequest()
+                .body(new ApiError("VALIDATION_FAILED", "请求参数不符合要求", requestId(request)));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    ResponseEntity<ApiError> handleMessageNotReadable(HttpMessageNotReadableException exception, HttpServletRequest request) {
+        return ResponseEntity.badRequest()
+                .body(new ApiError("VALIDATION_FAILED", "请求参数格式错误", requestId(request)));
     }
 
     @ExceptionHandler(DuplicateKeyException.class)

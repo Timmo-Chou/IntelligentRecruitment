@@ -34,8 +34,7 @@ public class SecurityConfiguration {
                         .requestMatchers("/actuator/health/**", "/api/v1/system/**", "/api/v1/internal/foundation/**",
                                 "/api/v1/auth/challenges", "/api/v1/auth/verify", "/api/v1/auth/refresh",
                                 "/api/v1/auth/password-login", "/api/v1/auth/password-reset",
-                                "/internal/v1/boss/events", // BOSS 事件端点使用独立共享密钥
-                                "/api/v1/platform/**")   // 平台管理端接口由 PlatformAdminFilter 独立鉴权
+                                "/internal/v1/platform/tickets/**") // BOSS 工单代理使用独立服务凭证
                         .permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())
@@ -51,7 +50,7 @@ public class SecurityConfiguration {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of(webOrigin, "http://localhost:3001"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key", "Last-Event-ID", "X-Platform-Admin-Key"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key", "Last-Event-ID"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);

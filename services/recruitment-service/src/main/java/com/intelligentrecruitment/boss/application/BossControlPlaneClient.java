@@ -218,29 +218,6 @@ public class BossControlPlaneClient {
                 text(body, "tenant_type"), text(body, "tenant_status"));
     }
 
-    /** 用户列表（内部）：BOSS 作为身份权威源，替代本地 users 投影表查询。 */
-    public JsonNode internalUserList(String search, String status, int page, int pageSize) {
-        StringBuilder path = new StringBuilder("/internal/v1/recruitment-platform/users?page=" + page + "&pageSize=" + pageSize);
-        if (search != null && !search.isBlank()) path.append("&search=").append(encode(search));
-        if (status != null && !status.isBlank()) path.append("&status=").append(encode(status));
-        return request("GET", path.toString(), machineAccessToken(), null, null).body();
-    }
-
-    /** 用户详情（内部）：含实名信息与招聘企业成员关系。 */
-    public JsonNode internalUserDetail(UUID userId) {
-        return request("GET", "/internal/v1/recruitment-platform/users/" + userId, machineAccessToken(), null, null).body();
-    }
-
-    /** 停用用户（内部）。 */
-    public void internalDisableUser(UUID userId) {
-        request("POST", "/internal/v1/recruitment-platform/users/" + userId + "/disable", machineAccessToken(), "{}", null);
-    }
-
-    /** 启用用户（内部）。 */
-    public void internalEnableUser(UUID userId) {
-        request("POST", "/internal/v1/recruitment-platform/users/" + userId + "/enable", machineAccessToken(), "{}", null);
-    }
-
     private MachineIdentity machineIdentity() {
         MachineToken cached = machineToken;
         if (cached != null && cached.expiresAt().isAfter(Instant.now().plusSeconds(30))) {
@@ -315,7 +292,15 @@ public class BossControlPlaneClient {
     }
 
     private static UUID uuid(JsonNode node, String field) { return UUID.fromString(node.path(field).asText()); }
+    private static UUID uuidOrNull(JsonNode node, String field) {
+        return node.hasNonNull(field) && !node.path(field).asText().isBlank()
+                ? UUID.fromString(node.path(field).asText()) : null;
+    }
     private static Instant instant(JsonNode node, String field) { return Instant.parse(node.path(field).asText()); }
+    private static Instant instantOrNull(JsonNode node, String field) {
+        return node.hasNonNull(field) && !node.path(field).asText().isBlank()
+                ? Instant.parse(node.path(field).asText()) : null;
+    }
     private static String text(JsonNode node, String field) { return node.hasNonNull(field) ? node.path(field).asText() : null; }
     private String quoted(String value) { try { return json.writeValueAsString(value == null ? "" : value); } catch (Exception e) { throw new IllegalStateException(e); } }
     private static String encode(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }

@@ -4,4 +4,3 @@ logging:
 app:
   auth:
     secure-cookie: false
-  platform-admin-key: ${PLATFORM_ADMIN_KEY:phase2-local-admin}

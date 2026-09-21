@@ -1,391 +1,117 @@
-# 平台运营功能设计方案（MVP，历史索引）
+# 平台运营与招聘服务边界设计
 
-> 身份、Tenant、Company、成员治理、价格、计费、充值和审计已迁移到独立 BOSS。本文仅保留招聘 SaaS 客服、菜单和工单等非 BOSS 运营功能的历史背景；旧的本地组织与账务接口不得继续实现或调用。
+## 1. 目标
 
-版本：V1.0
-状态：设计阶段，待开发
-适用对象：平台超级管理员、平台运营人员
+平台运营能力由 BOSS 统一承载。IntelligentRecruitment 不再维护第二套平台管理员、审核、Tenant、成员、套餐或计费权威数据。
 
-## 1. 概述
+## 2. 系统职责
 
-### 1.1 目标
-
-为平台管理端提供运营功能，包括：
-- 平台管理员权限体系（两个角色）
-- 注册用户和企业管理
-- 企业注册申请审核
-- 工单系统
-- 菜单管理
-
-### 1.2 系统关系
-
-```
-apps/web ──────┐
-（招聘用户端）   │  /api/v1/**（BearerTokenFilter 鉴权）
-                ├──→  recruitment-service ──→  PostgreSQL
-apps/admin ────┘  /api/v1/platform/**（PlatformAdminFilter 鉴权）
-（平台管理端）
-```
-
-- 后端是同一个 Spring Boot 服务，平台端 API 使用独立鉴权机制
-- 前端是两个独立部署的应用，用户群体不同，互不影响
-
----
-
-## 2. 权限模型
-
-### 2.1 两个角色
-
-| 角色 | code | 权限范围 |
-|---|---|---|
-| 超级管理员 | `SUPER_ADMIN` | 全部权限（含管理员管理、菜单配置） |
-| 平台运营 | `PLATFORM_OPERATOR` | 用户/企业查看、认证审核、成员申请审核、工单查看回复、余额调整、结算、账本记录查看 |
-
-### 2.2 权限定义（硬编码）
-
-| 权限 code | 说明 | SUPER_ADMIN | PLATFORM_OPERATOR |
-|---|---|---|---|
-| `admin:manage` | 管理员管理 | ✅ | - |
-| `menu:manage` | 菜单管理 | ✅ | - |
-| `user:read` | 用户查看 | ✅ | ✅ |
-| `user:write` | 用户禁用/启用 | ✅ | ✅ |
-| `company:read` | 企业查看 | ✅ | ✅ |
-| `company:write` | 企业编辑 | ✅ | ✅ |
-| `verification:review` | 认证审核 | ✅ | ✅ |
-| `membership:review` | 成员申请审核 | ✅ | ✅ |
-| `ticket:read` | 工单查看 | ✅ | ✅ |
-| `ticket:write` | 工单回复/关闭 | ✅ | ✅ |
-| `billing:read` | 账本查看 | ✅ | ✅ |
-| `billing:adjust` | 余额调整/结算 | ✅ | ✅ |
-
-### 2.3 与用户端权限的关系
-
-两套权限体系完全独立，互不干扰：
-
-| 维度 | 用户端（招聘系统） | 平台管理端 |
-|---|---|---|
-| 认证入口 | `/api/v1/auth/**` | `/api/v1/platform/auth/**`（新增） |
-| 身份表 | `users` | `platform_admins` |
-| 角色存储 | `company_memberships.role` / `workspace_memberships.role` | `platform_admins.role` |
-| 角色值 | COMPANY_OWNER, COMPANY_ADMIN, RECRUITER 等 | SUPER_ADMIN, PLATFORM_OPERATOR |
-| 权限校验 | 业务层 `requireCompanyAdmin()` 等 | `PlatformAdminGuard.require(permission)` |
-
-SecurityConfiguration 中 `/api/v1/platform/**` 设为 permitAll，由平台自己的 Filter 独立鉴权。
-
----
-
-## 3. 数据库设计
-
-### 3.1 platform_admins 表
-
-```sql
-CREATE TABLE platform_admins (
-    id UUID PRIMARY KEY,
-    user_id UUID NOT NULL UNIQUE REFERENCES users(id),
-    display_name VARCHAR(80) NOT NULL,
-    role VARCHAR(24) NOT NULL DEFAULT 'PLATFORM_OPERATOR',  -- SUPER_ADMIN / PLATFORM_OPERATOR
-    status VARCHAR(24) NOT NULL DEFAULT 'ACTIVE',            -- ACTIVE / DISABLED
-    created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL
-);
-```
-
-### 3.2 platform_menus 表
-
-```sql
-CREATE TABLE platform_menus (
-    id UUID PRIMARY KEY,
-    parent_id UUID REFERENCES platform_menus(id),      -- 父菜单，null 表示一级菜单
-    code VARCHAR(50) NOT NULL UNIQUE,                   -- 唯一标识，如 dashboard, users, reviews
-    display_name VARCHAR(80) NOT NULL,                  -- 菜单显示名
-    icon VARCHAR(50),                                   -- 图标名称
-    path VARCHAR(200),                                  -- 前端路由路径
-    permission_code VARCHAR(80),                        -- 对应权限 code
-    sort_order INT NOT NULL DEFAULT 0,                  -- 排序
-    is_visible BOOLEAN NOT NULL DEFAULT true,           -- 是否显示
-    visible_to_operator BOOLEAN NOT NULL DEFAULT true,  -- 对平台运营是否可见
-    created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL
-);
-```
-
-### 3.3 support_tickets 表
-
-```sql
-CREATE TABLE support_tickets (
-    id UUID PRIMARY KEY,
-    ticket_number VARCHAR(20) NOT NULL UNIQUE,   -- 如 TK-20260826-0001
-    creator_user_id UUID REFERENCES users(id),   -- 可为 null（平台内部创建）
-    creator_name VARCHAR(80) NOT NULL,
-    company_id UUID REFERENCES companies(id),    -- 关联企业（可选）
-    title VARCHAR(200) NOT NULL,
-    category VARCHAR(50) NOT NULL,               -- BILLING, TECH_SUPPORT, ACCOUNT, FEEDBACK, OTHER
-    priority VARCHAR(20) NOT NULL DEFAULT 'NORMAL', -- LOW, NORMAL, HIGH, URGENT
-    status VARCHAR(24) NOT NULL DEFAULT 'OPEN',  -- OPEN, IN_PROGRESS, WAITING_USER, RESOLVED, CLOSED
-    assigned_to_id UUID REFERENCES platform_admins(id),
-    closed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL
-);
-CREATE INDEX idx_tickets_status ON support_tickets (status, created_at);
-CREATE INDEX idx_tickets_creator ON support_tickets (creator_user_id, created_at);
-```
-
-### 3.4 support_ticket_messages 表
-
-```sql
-CREATE TABLE support_ticket_messages (
-    id UUID PRIMARY KEY,
-    ticket_id UUID NOT NULL REFERENCES support_tickets(id),
-    sender_type VARCHAR(20) NOT NULL,            -- USER, PLATFORM_ADMIN
-    sender_id UUID,                              -- user_id 或 platform_admin_id
-    sender_name VARCHAR(80) NOT NULL,
-    body TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL
-);
-CREATE INDEX idx_ticket_messages ON support_ticket_messages (ticket_id, created_at);
-```
-
-### 3.5 迁移规划
-
-| 迁移文件 | 内容 |
+| 能力 | 负责系统 |
 |---|---|
-| V3__platform_admin.sql | platform_admins + platform_menus 表 |
-| V4__support_tickets.sql | support_tickets + support_ticket_messages 表 |
+| 用户身份、会话和管理员登录 | BOSS |
+| Tenant、成员、角色和权限 | BOSS |
+| 企业认证、成员申请和审核查询 | BOSS |
+| 产品、套餐、权益、订单和积分 | BOSS |
+| 招聘任务、职位、候选人、简历和面试 | IntelligentRecruitment |
+| 招聘工单及工单消息 | IntelligentRecruitment |
+| 已授权 AI 任务执行 | AIAgentPlatform |
 
----
+## 3. Admin 调用方式
 
-## 4. API 设计
+Admin 直接调用 BOSS 平台接口完成：
 
-### 4.1 管理员管理 API
+- Bootstrap、管理员注册、登录和 Token 刷新；
+- 管理员列表、管理员权限和菜单；
+- 企业、用户、企业认证和成员申请审核；
+- 产品、权益、订单、充值和积分配置。
 
-| 方法 | 路径 | 权限 | 说明 |
-|---|---|---|---|
-| GET | `/platform/admins` | `admin:manage` | 管理员列表 |
-| GET | `/platform/admins/{adminId}` | `admin:manage` | 管理员详情 |
-| POST | `/platform/admins` | `admin:manage` | 新增管理员 |
-| PUT | `/platform/admins/{adminId}` | `admin:manage` | 编辑管理员（角色、状态） |
-| POST | `/platform/admins/{adminId}/disable` | `admin:manage` | 禁用管理员 |
+IntelligentRecruitment 不提供平台管理员登录或审核查询 BFF。
 
-### 4.2 菜单管理 API
+## 4. 招聘服务认证
 
-| 方法 | 路径 | 权限 | 说明 |
-|---|---|---|---|
-| GET | `/platform/menus` | `menu:manage` | 菜单树列表 |
-| GET | `/platform/menus/{menuId}` | `menu:manage` | 菜单详情 |
-| POST | `/platform/menus` | `menu:manage` | 新增菜单 |
-| PUT | `/platform/menus/{menuId}` | `menu:manage` | 编辑菜单 |
-| DELETE | `/platform/menus/{menuId}` | `menu:manage` | 删除菜单 |
-| PUT | `/platform/menus/{menuId}/sort` | `menu:manage` | 调整排序 |
+招聘服务通过 BOSS BFF 完成普通用户认证：
 
-公开接口（管理员登录后调用）：
+1. 用户登录请求由招聘服务转发到 BOSS；
+2. BOSS 返回用户访问令牌；
+3. 招聘服务每次请求使用 BOSS 令牌解析当前用户；
+4. Tenant 访问权限通过 BOSS 实时校验；
+5. 招聘服务只保存招聘业务数据和 BOSS 用户 UUID。
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/platform/me/menus` | 当前管理员可见菜单树（根据角色过滤） |
+当前版本不提供个人实名认证提交功能，不返回本地占位状态。
 
-### 4.3 用户管理 API
+## 5. 工单设计
 
-| 方法 | 路径 | 权限 | 说明 |
-|---|---|---|---|
-| GET | `/platform/users` | `user:read` | 用户列表（分页、搜索、状态筛选） |
-| GET | `/platform/users/{userId}` | `user:read` | 用户详情（含认证状态、企业、工作空间） |
-| POST | `/platform/users/{userId}/disable` | `user:write` | 禁用用户 |
-| POST | `/platform/users/{userId}/enable` | `user:write` | 启用用户 |
+### 5.1 用户端接口
 
-用户列表查询参数：`q`（搜索名称/手机号）、`status`、`verification`、`page`、`size`
+- GET /api/v1/tenants/{tenantId}/tickets
+- GET /api/v1/tenants/{tenantId}/tickets/{ticketId}
+- POST /api/v1/tenants/{tenantId}/tickets
+- POST /api/v1/tenants/{tenantId}/tickets/{ticketId}/messages
 
-### 4.4 企业管理 API
+用户创建工单时：
 
-| 方法 | 路径 | 权限 | 说明 |
-|---|---|---|---|
-| GET | `/platform/companies` | `company:read` | 企业列表（分页、搜索、状态筛选） |
-| GET | `/platform/companies/{companyId}` | `company:read` | 企业详情（成员、工作空间、账本概要） |
-| POST | `/platform/companies/{companyId}/status` | `company:write` | 修改企业管理状态 |
+- creator_user_id 取自当前 BOSS 登录用户；
+- creator_name 保存创建时的展示名称快照；
+- tenant_id 取请求 Tenant，并通过 BOSS 校验权限；
+- 不接受浏览器直接指定 creator_user_id；
+- 不依赖本地用户表或本地身份外键。
 
-企业列表查询参数：`q`（搜索名称）、`verification_status`、`management_status`、`page`、`size`
+### 5.2 平台侧工单接口
 
-### 4.5 审核查询 API
+BOSS 通过独立服务凭证调用招聘服务内部工单接口，可执行：
 
-| 方法 | 路径 | 权限 | 说明 |
-|---|---|---|---|
-| GET | `/platform/reviews/personal` | `verification:review` | 个人认证待审核列表 |
-| GET | `/platform/reviews/company-verifications` | `verification:review` | 企业认证待审核列表 |
-| GET | `/platform/reviews/membership-applications` | `membership:review` | 成员申请待审核列表 |
-| GET | `/platform/reviews/personal/{userId}` | `verification:review` | 个人认证详情 |
-| GET | `/platform/reviews/company-verifications/{requestId}` | `verification:review` | 企业认证详情 |
-| GET | `/platform/reviews/membership-applications/{applicationId}` | `membership:review` | 成员申请详情 |
+- 查询工单；
+- 创建代办工单；
+- 回复工单；
+- 分配工单；
+- 修改状态；
+- 关闭工单。
 
-审批操作复用现有 PlatformReviewController 接口。
+assigned_to_id 保存 BOSS 管理员 UUID，不建立本地管理员外键。
 
-### 4.6 工单 API（平台端）
+### 5.3 工单数据表
 
-| 方法 | 路径 | 权限 | 说明 |
-|---|---|---|---|
-| GET | `/platform/tickets` | `ticket:read` | 工单列表（分页、筛选、搜索） |
-| GET | `/platform/tickets/{ticketId}` | `ticket:read` | 工单详情（含全部消息） |
-| POST | `/platform/tickets` | `ticket:write` | 创建工单（平台侧代用户创建） |
-| POST | `/platform/tickets/{ticketId}/messages` | `ticket:write` | 回复工单 |
-| POST | `/platform/tickets/{ticketId}/assign` | `ticket:write` | 分配工单 |
-| POST | `/platform/tickets/{ticketId}/status` | `ticket:write` | 修改工单状态 |
-| POST | `/platform/tickets/{ticketId}/close` | `ticket:write` | 关闭工单 |
+support_tickets 保存工单主体、BOSS 用户 UUID、Tenant UUID、名称快照和状态。
 
-工单列表查询参数：`status`、`category`、`priority`、`assigned_to`、`q`、`page`、`size`
+support_ticket_messages 保存追加式消息记录。历史消息不可修改或删除。
 
-### 4.7 工单 API（用户端）
+Tenant 名称通过 BOSS 查询，不在招聘服务维护企业名称权威副本。
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/v1/me/tickets` | 我的工单列表 |
-| GET | `/api/v1/me/tickets/{ticketId}` | 工单详情 |
-| POST | `/api/v1/me/tickets` | 创建工单 |
-| POST | `/api/v1/me/tickets/{ticketId}/messages` | 回复工单 |
+## 6. AI 边界
 
----
+招聘服务只能在完成 BOSS 授权、积分预占和执行上下文构造后调用 AIAgentPlatform。
 
-## 5. 前端页面结构
+招聘服务不保留模型直连、旧本地扣费或本地积分结算路径。
 
-### 5.1 应用入口
+## 7. 数据库边界
 
-独立应用 `apps/admin`，不混入招聘业务端 `apps/web`。
+招聘服务数据库只保留招聘业务表、工单表、审计和异步处理所需表。
 
-```
-apps/admin/
-├── src/
-│   ├── app/
-│   │   ├── layout.tsx                  # 平台管理布局（侧边栏 + 顶栏 + 内容区）
-│   │   ├── page.tsx                    # 首页/仪表盘
-│   │   ├── login/
-│   │   │   └── page.tsx                # 平台管理员登录页
-│   │   ├── users/
-│   │   │   ├── page.tsx                # 用户列表
-│   │   │   └── [userId]/
-│   │   │       └── page.tsx            # 用户详情
-│   │   ├── companies/
-│   │   │   ├── page.tsx                # 企业列表
-│   │   │   └── [companyId]/
-│   │   │       └── page.tsx            # 企业详情
-│   │   ├── reviews/
-│   │   │   ├── page.tsx                # 审核中心（Tab 切换）
-│   │   │   └── [type]/[id]/
-│   │   │       └── page.tsx            # 审核详情
-│   │   ├── tickets/
-│   │   │   ├── page.tsx                # 工单列表
-│   │   │   ├── new/
-│   │   │   │   └── page.tsx            # 新建工单
-│   │   │   └── [ticketId]/
-│   │   │       └── page.tsx            # 工单详情（对话式）
-│   │   ├── billing/
-│   │   │   └── page.tsx                # 账本管理
-│   │   └── settings/
-│   │       ├── admins/
-│   │       │   ├── page.tsx            # 管理员列表
-│   │       │   └── [adminId]/
-│   │       │       └── page.tsx        # 管理员详情/编辑
-│   │       └── menus/
-│   │           └── page.tsx            # 菜单管理
-│   ├── components/
-│   │   ├── layout/
-│   │   │   ├── admin-shell.tsx         # 管理端外壳（侧边栏导航）
-│   │   │   └── permission-guard.tsx    # 权限守卫组件
-│   │   └── ui/
-│   │       └── ...                     # 复用 shadcn 风格组件
-│   └── lib/
-│       ├── admin-api-client.ts         # 平台管理 API 客户端
-│       └── admin-auth.tsx              # 平台管理员认证上下文
-```
+以下内容不在招聘服务数据库中维护：
 
-### 5.2 页面布局
+- 平台管理员；
+- 平台运营菜单；
+- 个人认证审核记录；
+- 企业认证审核记录；
+- 成员申请；
+- 本地套餐、充值和计费账本；
+- Tenant、成员和权限权威数据。
 
-```
-┌──────────────────────────────────────────────┐
-│  Top Bar: 当前管理员 | 退出登录              │
-├──────────┬───────────────────────────────────┤
-│          │                                   │
-│ Sidebar  │         Content Area              │
-│          │                                   │
-│ · 首页   │                                   │
-│ · 用户   │                                   │
-│ · 企业   │                                   │
-│ · 审核   │  (根据权限显示对应内容)           │
-│ · 工单   │                                   │
-│ · 账本   │                                   │
-│ · 设置   │                                   │
-│   - 管理员│                                   │
-│   - 菜单  │                                   │
-└──────────┴───────────────────────────────────┘
-```
+## 8. 安全约束
 
-### 5.3 预置菜单数据
+- BOSS 用户令牌和服务凭证不能暴露给浏览器；
+- 内部工单接口必须校验服务凭证；
+- Tenant 访问必须通过 BOSS 授权；
+- creator_user_id 必须来自认证上下文；
+- AI 调用必须携带幂等键、Tenant、用户和授权执行上下文；
+- 敏感操作写入审计记录。
 
-| 一级菜单 | 二级菜单 | 路径 | 权限 | 运营可见 |
-|---|---|---|---|---|
-| 首页 | - | `/` | - | ✅ |
-| 用户管理 | - | `/users` | `user:read` | ✅ |
-| 企业管理 | - | `/companies` | `company:read` | ✅ |
-| 审核中心 | 个人认证 | `/reviews/personal` | `verification:review` | ✅ |
-| 审核中心 | 企业认证 | `/reviews/company` | `verification:review` | ✅ |
-| 审核中心 | 成员申请 | `/reviews/membership` | `membership:review` | ✅ |
-| 工单管理 | - | `/tickets` | `ticket:read` | ✅ |
-| 账本管理 | - | `/billing` | `billing:read` | ✅ |
-| 系统设置 | 管理员管理 | `/settings/admins` | `admin:manage` | - |
-| 系统设置 | 菜单管理 | `/settings/menus` | `menu:manage` | - |
+## 9. 验证要求
 
-### 5.4 关键页面说明
-
-**首页仪表盘**：顶部 4 个统计卡片（待审核数、今日新用户、今日新企业、待处理工单数），下方最近审核列表 + 最近工单列表。
-
-**审核中心**：顶部 3 个 Tab（个人认证 / 企业认证 / 成员申请），每个 Tab 下表格列表，每行有「查看详情」「通过」「拒绝」按钮。点击「拒绝」弹出拒绝原因输入框。
-
-**工单详情**：对话式布局，消息气泡区分用户发言和平台回复，底部输入框回复。右侧面板显示工单元信息（状态、分类、优先级、指派人）。
-
-**菜单管理**：树形列表，支持新增/编辑/删除菜单项、拖拽调整排序、切换「运营可见」开关。
-
----
-
-## 6. 后端模块规划
-
-```
-com.intelligentrecruitment.platform/
-├── admin/                    # 管理员管理
-│   ├── api/PlatformAdminController.java
-│   └── application/PlatformAdminService.java
-├── menu/                     # 菜单管理
-│   ├── api/PlatformMenuController.java
-│   └── application/MenuService.java
-├── review/                   # 审核列表查询（复用现有 TenancyService 审批逻辑）
-│   ├── api/PlatformReviewQueryController.java
-│   └── application/ReviewQueryService.java
-├── ticket/                   # 工单系统
-│   ├── api/PlatformTicketController.java
-│   ├── api/UserTicketController.java     # 用户端工单
-│   └── application/TicketService.java
-└── shared/
-    └── security/PlatformAdminGuard.java   # 升级：增加权限校验 + 管理员身份解析
-```
-
----
-
-## 7. SecurityConfiguration 调整
-
-```java
-.requestMatchers("/api/v1/platform/**").permitAll()  // 平台接口由 PlatformAdminFilter 独立鉴权
-```
-
-平台端 `/api/v1/platform/**` 从用户 JWT 鉴权中排除，由平台自己的 Filter 处理：
-- 解析平台管理员 token
-- 查 `platform_admins` 表获取角色
-- 调用 `PlatformAdminGuard.require(permissionCode)` 校验权限
-
----
-
-## 8. 实施优先级
-
-| 优先级 | 模块 | 理由 |
-|---|---|---|
-| P0 | 权限模型 + 管理员登录 | 所有功能的基础，替换当前共享密钥方案 |
-| P0 | 审核列表查询 | 已有审批接口，补充列表即可让审核工作可用 |
-| P1 | 用户/企业管理 | 配合审核使用的管理功能 |
-| P1 | 工单系统 | MVP 最简版（创建、回复、关闭） |
-| P1 | 菜单管理 | 控制运营角色可见菜单 |
-| P2 | 仪表盘首页 | 统计卡片，锦上添花 |
+- 全新开发数据库执行 Flyway 成功；
+- 旧认证、管理员、审核和本地计费表不存在；
+- IR 运行时代码不包含旧管理员认证和本地审核查询；
+- Admin 审核接口请求直接到 BOSS；
+- 用户工单与登录用户 UUID 正确关联；
+- 工单 Tenant 名称来自 BOSS；
+- AI 请求只能通过 BOSS 授权后的 AIAgentPlatform 链路执行。
