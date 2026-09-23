@@ -1,9 +1,12 @@
 // 审核中心页面组件测试：验证权限控制和列表渲染
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
+
+type LinkProps = { children: ReactNode; href: string };
 
 // Mock 依赖
-vi.mock("next/link", () => ({ default: ({ children, href }: any) => <a href={href}>{children}</a> }));
+vi.mock("next/link", () => ({ default: ({ children, href }: LinkProps) => <a href={href}>{children}</a> }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
   useParams: () => ({}),

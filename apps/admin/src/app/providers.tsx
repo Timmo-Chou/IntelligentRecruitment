@@ -21,6 +21,8 @@ function AuthGuard({ children }: { children: ReactNode }) {
   const isPublicAuthPage = publicAuthPaths.has(pathname);
 
   useEffect(() => {
+    // mounted 用于避免认证路由守卫在 SSR 阶段闪烁，客户端 effect 更新是有意行为。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 

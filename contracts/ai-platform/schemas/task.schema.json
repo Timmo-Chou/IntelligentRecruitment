@@ -3,7 +3,7 @@
   "$id": "https://contracts.local/ai-platform/task.schema.json",
   "type": "object",
   "additionalProperties": false,
-  "required": ["ai_task_id", "business_task_id", "capability", "status", "progress", "accepted_at"],
+  "required": ["ai_task_id", "business_task_id", "capability", "status", "progress", "accepted_at", "retry_count"],
   "properties": {
     "ai_task_id": { "type": "string", "minLength": 1 },
     "business_task_id": { "type": "string", "minLength": 1 },
@@ -21,7 +21,7 @@
     },
     "accepted_at": { "type": "string", "format": "date-time" },
     "updated_at": { "type": "string", "format": "date-time" },
+    "retry_count": { "type": "integer", "minimum": 0 },
     "error": { "$ref": "./error.schema.json" }
   }
 }
-

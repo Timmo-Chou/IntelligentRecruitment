@@ -16,7 +16,10 @@ export class ApiError extends Error {
   }
 }
 
-const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080/api/v1";
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
+if (!apiBaseUrl) {
+  throw new Error("缺少 NEXT_PUBLIC_API_BASE_URL，请在 Admin 构建环境中配置 BOSS 或 ApiGateway 地址");
+}
 const TOKEN_STORAGE_KEY = "admin-access-token";
 
 let accessToken: string | null = null;

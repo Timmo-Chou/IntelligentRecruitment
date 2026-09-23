@@ -68,6 +68,7 @@ app:
     # AIAgentPlatform 对内面地址
     http:
       base-url: ${AI_AGENT_PLATFORM_URL:http://localhost:8083}
+      service-token: ${AI_AGENT_IR_SERVICE_TOKEN:}
   ai-assistant:
     help-manual-url: ${AI_ASSISTANT_HELP_MANUAL_URL:https://help.intelligentrecruitment.com}
     cooperation-qr-code-url: ${AI_ASSISTANT_COOPERATION_QR_CODE_URL:}

@@ -206,6 +206,41 @@ public class BossControlPlaneClient {
                 "{\"error\":" + quoted(error == null ? "招聘数据删除失败" : error) + "}", null);
     }
 
+    public AiAuthorization authorizeAiExecution(UUID tenantId, UUID actorId, String taskId, String capability,
+                                                String productDomain, String idempotencyKey) {
+        JsonNode body = request("POST", "/internal/ai/execution-authorizations", machineAccessToken(),
+                "{\"tenant_id\":\"" + tenantId + "\",\"actor_user_id\":\"" + actorId
+                        + "\",\"task_id\":" + quoted(taskId) + ",\"product_domain\":" + quoted(productDomain)
+                        + ",\"capability_code\":" + quoted(capability) + ",\"idempotency_key\":" + quoted(idempotencyKey) + "}", null).body();
+        return new AiAuthorization(uuid(body,"authorization_id"), uuid(body,"grant_id"), uuid(body,"reservation_id"),
+                text(body,"grant"), text(body,"idempotency_key"), instant(body,"authorization_expires_at"),
+                text(body,"model_id"), text(body,"tokenizer_id"), uuid(body,"tenant_id"));
+    }
+
+    public void reportAiUsage(AiAuthorization auth, String status, String model, long input, long output,
+                              int retryCount, String resultReference) {
+        request("POST", "/internal/ai/usage-reports", machineAccessToken(),
+                "{\"authorization_id\":\"" + auth.authorizationId() + "\",\"reservation_id\":\"" + auth.reservationId()
+                        + "\",\"idempotency_key\":" + quoted(auth.idempotencyKey()) + ",\"task_status\":" + quoted(status)
+                        + ",\"model_id\":" + quoted(model) + ",\"input_tokens\":" + input + ",\"output_tokens\":" + output
+                        + ",\"retry_count\":" + retryCount + ",\"result_reference\":" + quoted(resultReference) + "}", null);
+    }
+
+    public void cancelAiExecution(AiAuthorization auth) {
+        request("POST", "/internal/ai/execution-cancellations", machineAccessToken(),
+                "{\"authorization_id\":\"" + auth.authorizationId() + "\",\"reservation_id\":\"" + auth.reservationId()
+                        + "\",\"idempotency_key\":" + quoted(auth.idempotencyKey()) + "}", null);
+    }
+
+    public record AiAuthorization(UUID authorizationId, UUID grantId, UUID reservationId, String grant,
+                                  String idempotencyKey, Instant expiresAt, String modelId, String tokenizerId,
+                                  UUID tenantId) {
+        public AiAuthorization(UUID authorizationId, UUID grantId, UUID reservationId, String grant,
+                               String idempotencyKey, Instant expiresAt, String modelId, String tokenizerId) {
+            this(authorizationId, grantId, reservationId, grant, idempotencyKey, expiresAt, modelId, tokenizerId, null);
+        }
+    }
+
     /** Internal, read-only BOSS operations data. Never expose this machine credential to browsers. */
     public JsonNode internalRecruitmentPlatformQuery(String path) {
         return request("GET", "/internal/v1/recruitment-platform" + path, machineAccessToken(), null, null).body();

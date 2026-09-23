@@ -45,6 +45,8 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem(ADMIN_INFO_KEY);
     if (token && saved) {
       try {
+        // 认证信息必须在客户端恢复，避免 SSR 阶段读取 localStorage 造成 hydration 不一致。
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setAdmin(JSON.parse(saved));
       } catch {
         setAccessToken(null);

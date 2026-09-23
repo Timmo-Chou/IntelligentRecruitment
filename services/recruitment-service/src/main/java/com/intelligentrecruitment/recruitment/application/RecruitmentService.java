@@ -274,17 +274,18 @@ public class RecruitmentService {
 
     /**
      * Routes free-form text only. The returned decision is deliberately not a
-     * business authorization and cannot create a billable run.
+     * business authorization; the authorized route call is settled separately.
      */
-    public RouteDecision routeMessage(UUID userId, UUID tenantId, UUID taskId, RouteMessageInput input) {
+    public RouteDecision routeMessage(UUID userId, UUID tenantId, UUID taskId, String idempotencyKey, RouteMessageInput input) {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
         Integer taskCount = jdbc.queryForObject("SELECT COUNT(*) FROM recruitment_tasks WHERE id=? AND tenant_id=?",
                 Integer.class, taskId, tenantId);
         if (taskCount == null || taskCount == 0) throw taskNotFound();
+        String key = requiredIdempotencyKey(idempotencyKey);
         String message = required(input == null ? null : input.message(), "消息不能为空", 20_000);
         String requestId = MDC.get("request_id");
         if (requestId == null || requestId.isBlank()) requestId = UUID.randomUUID().toString();
-        return aiPlatform.routeMessage(new RouteAgentCommand(requestId, requestId, tenantId.toString(),
+        return aiPlatform.routeMessage(new RouteAgentCommand(requestId, requestId, key, tenantId.toString(),
                 userId.toString(), taskId.toString(),
                 message, List.of(FlowCapability.REQUIREMENT_CHAT, FlowCapability.RECRUITMENT_QA,
                         FlowCapability.JD_GENERATION, FlowCapability.RESUME_PARSING,
@@ -560,13 +561,25 @@ public class RecruitmentService {
         List<JdDraftView> drafts = draftRows(tenantId, taskId);
         JdDraftView draft = drafts.stream().findFirst().orElse(null);
         List<AiRunView> runs = jdbc.query("""
-                SELECT id,provider_task_id,status,progress,attempt_number,error_code,error_message,created_at,completed_at
-                FROM ai_runs WHERE recruitment_task_id=? AND tenant_id=? ORDER BY created_at DESC LIMIT 1
+                SELECT r.id,r.provider_task_id,r.status,r.progress,r.attempt_number,r.error_code,r.error_message,r.created_at,r.completed_at,
+                       er.status AS execution_status,
+                       COALESCE(er.retry_count,0) AS retry_count,
+                       so.status AS settlement_status
+                FROM ai_runs r
+                LEFT JOIN ai_execution_records er
+                  ON er.tenant_id=r.tenant_id AND er.idempotency_key=r.idempotency_key
+                LEFT JOIN LATERAL (
+                    SELECT status FROM ai_settlement_outbox
+                    WHERE execution_id=er.id
+                    ORDER BY created_at DESC LIMIT 1
+                ) so ON TRUE
+                WHERE r.recruitment_task_id=? AND r.tenant_id=? ORDER BY r.created_at DESC LIMIT 1
                 """, (rs, n) -> new AiRunView(rs.getObject("id", UUID.class), rs.getString("provider_task_id"),
                 rs.getString("status"), rs.getInt("progress"), rs.getInt("attempt_number"),
                 rs.getString("error_code"), rs.getString("error_message"),
                 rs.getTimestamp("created_at").toInstant(),
-                rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toInstant()),
+                rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toInstant(),
+                rs.getString("execution_status"), rs.getInt("retry_count"), rs.getString("settlement_status")),
                 taskId, tenantId);
         // 简历解析：源文件 + 解析草稿
         List<ResumeSourceFileView> resumeSourceFileList = resumeSourceFiles.list(tenantId, taskId).stream()
@@ -1450,7 +1463,8 @@ public class RecruitmentService {
                               String status, Instant updatedAt) { }
 
     public record AiRunView(UUID id, String providerTaskId, String status, int progress, int attemptNumber,
-                            String errorCode, String errorMessage, Instant createdAt, Instant completedAt) { }
+                            String errorCode, String errorMessage, Instant createdAt, Instant completedAt,
+                            String executionStatus, int retryCount, String settlementStatus) { }
 
     public record ResumeSourceFileView(UUID id, UUID fileAssetId, String filename, String mediaType, long sizeBytes,
                                        Instant createdAt) { }

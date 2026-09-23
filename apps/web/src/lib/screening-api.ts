@@ -17,7 +17,7 @@ export type ScreeningItem = {
 export type ScreeningRun = {
   id: string; jobId: string; jobTitle: string; planId: string; planName: string; status: string;
   progress: number; scenario: string; items: ScreeningItem[];
-  createdAt: string; completedAt: string | null; recruitmentTaskId: string | null;
+  createdAt: string; completedAt: string | null; recruitmentTaskId: string | null; settlementStatus: string | null;
 };
 export type ScreeningRunSummary = {
   id: string; jobId: string; jobTitle: string; status: string; progress: number; totalItems: number;

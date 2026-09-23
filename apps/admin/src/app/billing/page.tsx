@@ -51,7 +51,7 @@ export default function BillingPage() {
       setShowForm(false);
       queryClient.invalidateQueries({ queryKey: ["credit-adjustments"] });
     },
-    onError: (e: any) => setMessage(`调整失败：${e.message}`),
+    onError: (e: unknown) => setMessage(`调整失败：${e instanceof Error ? e.message : "操作失败，请稍后重试"}`),
   });
 
   const items = data ?? [];

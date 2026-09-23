@@ -55,6 +55,9 @@ export type AiRun = {
   attemptNumber: number;
   errorCode: string | null;
   errorMessage: string | null;
+  executionStatus: string | null;
+  retryCount: number;
+  settlementStatus: string | null;
   createdAt: string;
   completedAt: string | null;
 };
@@ -140,6 +143,7 @@ export function deleteTask(tenantId: string, taskId: string) {
 export function sendMessage(tenantId: string, taskId: string, content: string, jdDraftId?: string) {
   return apiFetch<TaskDetail>(`/tenants/${tenantId}/recruitment-tasks/${taskId}/messages`, {
     method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey("message") },
     body: JSON.stringify({ content, jdDraftId }),
   });
 }

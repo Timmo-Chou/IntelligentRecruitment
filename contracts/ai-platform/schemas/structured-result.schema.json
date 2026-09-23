@@ -32,12 +32,14 @@
     "provenance": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["skill_id", "skill_version", "prompt_version", "model_policy_version"],
+      "required": ["skill_id", "skill_version", "prompt_version", "model_id", "tokenizer_id"],
       "properties": {
         "skill_id": { "type": "string", "minLength": 1 },
         "skill_version": { "type": "string", "minLength": 1 },
         "prompt_version": { "type": "string", "minLength": 1 },
-        "model_policy_version": { "type": "string", "minLength": 1 }
+        "model_policy_version": { "type": ["string", "null"], "minLength": 1 },
+        "model_id": { "type": "string", "minLength": 1 },
+        "tokenizer_id": { "type": "string", "minLength": 1 }
       }
     },
     "usage": {

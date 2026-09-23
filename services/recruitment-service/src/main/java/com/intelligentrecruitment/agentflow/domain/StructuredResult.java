@@ -37,7 +37,12 @@ public record StructuredResult(
     public record Provenance(@JsonProperty("skill_id") String skillId,
                              @JsonProperty("skill_version") String skillVersion,
                              @JsonProperty("prompt_version") String promptVersion,
-                             @JsonProperty("model_policy_version") String modelPolicyVersion) {
+                             @JsonProperty("model_policy_version") String modelPolicyVersion,
+                             @JsonProperty("model_id") String modelId,
+                             @JsonProperty("tokenizer_id") String tokenizerId) {
+        public Provenance(String skillId, String skillVersion, String promptVersion, String modelPolicyVersion) {
+            this(skillId, skillVersion, promptVersion, modelPolicyVersion, null, null);
+        }
     }
 
     public record Usage(@JsonProperty("input_tokens") int inputTokens,

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch, apiStream } from "@/lib/api-client";
-import { deleteTask, renameTask, streamJdRunEvents, uploadJdSourceFile } from "@/lib/recruitment-api";
+import { deleteTask, renameTask, sendMessage, streamJdRunEvents, uploadJdSourceFile } from "@/lib/recruitment-api";
 
 vi.mock("@/lib/api-client", () => ({
   apiFetch: vi.fn(),
@@ -65,6 +65,24 @@ describe("JD source file requests", () => {
     expect(apiFetch).toHaveBeenCalledWith(
       "/tenants/tenant-1/recruitment-tasks/task-1/jd-source-files",
       expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
+    );
+  });
+});
+
+describe("AI conversation requests", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("为对话路由携带幂等键", async () => {
+    vi.mocked(apiFetch).mockResolvedValue({} as never);
+
+    await sendMessage("tenant-1", "task-1", "请补充技能要求");
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/tenants/tenant-1/recruitment-tasks/task-1/messages",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Idempotency-Key": expect.stringMatching(/^message-/) },
+      }),
     );
   });
 });

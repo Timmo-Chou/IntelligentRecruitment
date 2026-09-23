@@ -486,9 +486,27 @@ public class ScreeningService {
                 strings(rs.getString("negotiable_points")), strings(rs.getString("missing_information")),
                 strings(rs.getString("risks")), strings(rs.getString("evidence"))), runId, tenantId);
         RunRow run = runs.getFirst();
+        String settlementStatus = settlementStatusForRun(tenantId, runId);
         return new ScreeningRunDetail(run.id(), run.jobId(), run.jobTitle(), run.planId(), run.planName(),
                 run.status(), run.progress(), run.scenario(), items, run.createdAt(), run.completedAt(),
-                run.recruitmentTaskId());
+                run.recruitmentTaskId(), settlementStatus);
+    }
+
+    private String settlementStatusForRun(UUID tenantId, UUID runId) {
+        List<String> statuses = jdbc.query("""
+                SELECT DISTINCT er.status
+                FROM screening_run_items i
+                LEFT JOIN ai_execution_records er
+                  ON er.tenant_id=i.tenant_id AND er.business_task_id=i.id::text
+                WHERE i.run_id=? AND i.tenant_id=? AND er.status IS NOT NULL
+                """, (rs, n) -> rs.getString(1), runId, tenantId);
+        if (statuses.isEmpty()) return null;
+        if (statuses.contains("SETTLEMENT_FAILED")) return "SETTLEMENT_FAILED";
+        if (statuses.contains("USAGE_PENDING") || statuses.contains("CANCELLATION_PENDING")) return "PENDING";
+        if (statuses.stream().allMatch("SETTLED"::equals)) return "SETTLED";
+        if (statuses.stream().allMatch("CANCELLED"::equals)) return "CANCELLED";
+        return statuses.stream().anyMatch(status -> "AUTHORIZED".equals(status) || "AGENT_ACCEPTED".equals(status))
+                ? "EXECUTING" : statuses.getFirst();
     }
 
     private ScreeningPlanView planScoped(UUID tenantId, UUID planId) {
@@ -876,5 +894,5 @@ public class ScreeningService {
     public record ScreeningRunDetail(UUID id, UUID jobId, String jobTitle, UUID planId, String planName,
                                      String status, int progress, String scenario, List<ScreeningItemView> items,
                                      Instant createdAt, Instant completedAt,
-                                     UUID recruitmentTaskId) { }
+                                     UUID recruitmentTaskId, String settlementStatus) { }
 }

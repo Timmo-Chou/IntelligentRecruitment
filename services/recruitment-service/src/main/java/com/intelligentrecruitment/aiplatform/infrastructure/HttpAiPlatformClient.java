@@ -22,6 +22,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 通过 HTTP 调用 AIAgentPlatform 的客户端（对内面 /api/v1/*）。
@@ -37,14 +39,22 @@ public class HttpAiPlatformClient implements AiPlatformClient {
     private final ObjectMapper objectMapper;
     private final String baseUrl;
     private final BossControlPlaneClient boss;
+    private final String serviceToken;
+    private final AiExecutionLedger ledger;
+    private final Map<String, BossControlPlaneClient.AiAuthorization> authorizations = new ConcurrentHashMap<>();
+    private final Map<String, Integer> retryCounts = new ConcurrentHashMap<>();
 
     public HttpAiPlatformClient(RestClient.Builder builder, ObjectMapper objectMapper,
                                 @Value("${app.ai-platform.http.base-url:http://localhost:8083}") String baseUrl,
-                                BossControlPlaneClient boss) {
+                                BossControlPlaneClient boss,
+                                @Value("${app.ai-platform.http.service-token:}") String serviceToken,
+                                AiExecutionLedger ledger) {
         this.client = builder.baseUrl(baseUrl).build();
         this.objectMapper = objectMapper;
         this.baseUrl = baseUrl.replaceFirst("/+$", "");
         this.boss = boss;
+        this.serviceToken = serviceToken;
+        this.ledger = ledger;
     }
 
     /** BOSS-driven lifecycle cleanup; AIAgent retains accounting metadata but erases business payloads. */
@@ -62,6 +72,12 @@ public class HttpAiPlatformClient implements AiPlatformClient {
         }
         if (execution.tenantId() == null || execution.actorId() == null) {
             throw new IllegalStateException("AIAgentPlatform ExecutionContext 必须包含 tenant_id 与 actor_id");
+        }
+        if (!execution.tenantId().toString().equals(command.tenantId())
+                || !execution.actorId().toString().equals(command.actorId())
+                || !execution.businessTaskId().toString().equals(command.businessTaskId())
+                || !execution.idempotencyKey().equals(command.idempotencyKey())) {
+            throw new IllegalStateException("AI 命令与 ExecutionContext 的 Tenant、用户、业务任务或幂等键不一致");
         }
         Map<String, Object> context = Map.of(
                 "request_id", execution.requestId(),
@@ -82,19 +98,31 @@ public class HttpAiPlatformClient implements AiPlatformClient {
                 "requested_at", execution.requestedAt(),
                 "input", command.input());
 
+        BossControlPlaneClient.AiAuthorization authorization = null;
         try {
+            authorization = boss.authorizeAiExecution(execution.tenantId(), execution.actorId(),
+                    execution.businessTaskId().toString(), command.capability().name(), "RECRUITMENT", command.idempotencyKey());
+            ledger.authorized(execution.executionId(), execution.tenantId(), execution.actorId(), execution.businessTaskId().toString(), command.capability().name(), command.idempotencyKey(), authorization);
             String raw = client.post()
                     .uri("/api/v1/capability-executions")
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("Idempotency-Key", command.idempotencyKey())
                     .header("X-Request-Id", execution.requestId())
-                    .header("Authorization", "Bearer " + boss.internalAccessToken())
+                    .header("Authorization", "Bearer " + serviceToken)
+                    .header("X-AI-Grant", authorization.grant())
                     .body(body)
                     .retrieve()
                     .body(String.class);
             JsonNode node = objectMapper.readTree(raw);
-            return toAiTask(node, command.capability());
+            AiTask result = toAiTask(node, command.capability());
+            authorizations.put(result.aiTaskId(), authorization);
+            ledger.agentAccepted(execution.tenantId(), command.idempotencyKey(), result.aiTaskId());
+            return result;
         } catch (Exception ex) {
+            if (authorization != null) {
+                try { ledger.enqueueCancellation(authorization); }
+                catch (RuntimeException releaseFailure) { ex.addSuppressed(releaseFailure); }
+            }
             log.error("调用 AIAgentPlatform 失败 capability={}", command.capability(), ex);
             throw new RuntimeException("AIAgentPlatform 调用失败: " + ex.getMessage(), ex);
         }
@@ -105,12 +133,22 @@ public class HttpAiPlatformClient implements AiPlatformClient {
         try {
             String raw = client.get()
                     .uri("/api/v1/tasks/{id}", aiTaskId)
-                    .header("Authorization", "Bearer " + boss.internalAccessToken())
-                    .header("X-Boss-Actor-Id", requiredActor(actorId))
+                    .header("Authorization", "Bearer " + serviceToken)
+                    .header("X-IR-Actor-Id", requiredActor(actorId))
                     .retrieve()
                     .body(String.class);
             JsonNode node = objectMapper.readTree(raw);
-            return toAiTask(node, AiCapability.JD_GENERATION);
+            AiTask result = toAiTask(node, AiCapability.JD_GENERATION);
+            retryCounts.put(aiTaskId, result.retryCount());
+            ledger.authorizationForAgentTask(aiTaskId)
+                    .map(BossControlPlaneClient.AiAuthorization::tenantId)
+                    .ifPresent(tenantId -> ledger.recordRetryCount(tenantId, aiTaskId, result.retryCount()));
+            if (result.status() == AiTaskStatus.FAILED || result.status() == AiTaskStatus.CANCELLED) {
+                BossControlPlaneClient.AiAuthorization authorization = authorizations.get(aiTaskId);
+                if (authorization == null) authorization = ledger.authorizationForAgentTask(aiTaskId).orElse(null);
+                if (authorization != null) ledger.enqueueCancellation(authorization);
+            }
+            return result;
         } catch (Exception ex) {
             log.error("查询 AIAgentPlatform 任务失败 id={}", aiTaskId, ex);
             throw new RuntimeException("AIAgentPlatform 任务查询失败: " + ex.getMessage(), ex);
@@ -123,12 +161,16 @@ public class HttpAiPlatformClient implements AiPlatformClient {
             String raw = client.post()
                     .uri("/api/v1/tasks/{id}/cancel", aiTaskId)
                     .header("Idempotency-Key", idempotencyKey)
-                    .header("Authorization", "Bearer " + boss.internalAccessToken())
-                    .header("X-Boss-Actor-Id", requiredActor(actorId))
+                    .header("Authorization", "Bearer " + serviceToken)
+                    .header("X-IR-Actor-Id", requiredActor(actorId))
                     .retrieve()
                     .body(String.class);
             JsonNode node = objectMapper.readTree(raw);
-            return toAiTask(node, AiCapability.JD_GENERATION);
+            AiTask result = toAiTask(node, AiCapability.JD_GENERATION);
+            BossControlPlaneClient.AiAuthorization authorization = authorizations.get(aiTaskId);
+            if (authorization == null) authorization = ledger.authorizationForAgentTask(aiTaskId).orElse(null);
+            if (authorization != null) ledger.enqueueCancellation(authorization);
+            return result;
         } catch (Exception ex) {
             log.error("取消 AIAgentPlatform 任务失败 id={}", aiTaskId, ex);
             throw new RuntimeException("AIAgentPlatform 任务取消失败: " + ex.getMessage(), ex);
@@ -140,11 +182,23 @@ public class HttpAiPlatformClient implements AiPlatformClient {
         try {
             String raw = client.get()
                     .uri("/api/v1/tasks/{id}/result", aiTaskId)
-                    .header("Authorization", "Bearer " + boss.internalAccessToken())
-                    .header("X-Boss-Actor-Id", requiredActor(actorId))
+                    .header("Authorization", "Bearer " + serviceToken)
+                    .header("X-IR-Actor-Id", requiredActor(actorId))
                     .retrieve()
                     .body(String.class);
-            return objectMapper.readValue(raw, StructuredResult.class);
+            StructuredResult result = objectMapper.readValue(raw, StructuredResult.class);
+            BossControlPlaneClient.AiAuthorization authorization = authorizations.get(aiTaskId);
+            if (authorization == null) authorization = ledger.authorizationForAgentTask(aiTaskId).orElse(null);
+            if (authorization != null) {
+                var usage = result.usage();
+                String model = result.provenance() == null || result.provenance().modelId() == null
+                        ? authorization.modelId() : result.provenance().modelId();
+                int retryCount = ledger.retryCountForAgentTask(authorization.tenantId(), aiTaskId);
+                ledger.enqueueUsage(authorization.idempotencyKey(), authorization, "SUCCEEDED", model, usage == null ? 0 : usage.inputTokens(), usage == null ? 0 : usage.outputTokens(), retryCount, aiTaskId);
+                authorizations.remove(aiTaskId, authorization);
+                retryCounts.remove(aiTaskId);
+            }
+            return result;
         } catch (Exception ex) {
             log.error("获取 AIAgentPlatform 任务结果失败 id={}", aiTaskId, ex);
             throw new RuntimeException("AIAgentPlatform 结果获取失败: " + ex.getMessage(), ex);
@@ -159,21 +213,43 @@ public class HttpAiPlatformClient implements AiPlatformClient {
         Map<String, Object> body = Map.of(
                 "context", Map.of("request_id", command.requestId(), "trace_id", command.traceId(),
                         "tenant_id", command.tenantId(), "actor_id", command.actorId(),
-                        "business_task_id", command.businessTaskId(), "locale", "zh-CN",
+                        "business_task_id", command.businessTaskId(), "idempotency_key", command.idempotencyKey(), "locale", "zh-CN",
                         "timezone", "Asia/Shanghai", "contract_version", "v1"),
                 "message", command.message(),
                 "allowed_capabilities", command.allowedCapabilities() == null ? List.of()
                         : command.allowedCapabilities().stream().map(FlowCapability::value).toList());
+        BossControlPlaneClient.AiAuthorization routeAuthorization = null;
         try {
+            BossControlPlaneClient.AiAuthorization authorization = boss.authorizeAiExecution(UUID.fromString(command.tenantId()),
+                    UUID.fromString(command.actorId()), command.businessTaskId(), "CONVERSATION_ROUTE", "RECRUITMENT", command.idempotencyKey());
+            routeAuthorization = authorization;
+            ledger.authorized(UUID.randomUUID(), UUID.fromString(command.tenantId()), UUID.fromString(command.actorId()), command.businessTaskId(), "CONVERSATION_ROUTE", command.idempotencyKey(), authorization);
             String raw = client.post().uri("/api/v1/agent-routes")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .header("Authorization", "Bearer " + boss.internalAccessToken())
+                    .header("Authorization", "Bearer " + serviceToken)
+                    .header("X-AI-Grant", authorization.grant())
                     .header("X-Request-Id", command.requestId())
                     .body(body).retrieve().body(String.class);
-            return parseRouteDecision(objectMapper.readValue(raw, Map.class), command);
+            Map<String, Object> response = objectMapper.readValue(raw, Map.class);
+            Map<String, Object> usage = response.get("usage") instanceof Map<?, ?> map
+                    ? (Map<String, Object>) map : Map.of();
+            String model = response.get("model_id") == null ? authorization.modelId() : String.valueOf(response.get("model_id"));
+            int inputTokens = number(usage.get("input_tokens"));
+            int outputTokens = number(usage.get("output_tokens"));
+            RouteDecision decision = parseRouteDecision(response, command);
+            ledger.enqueueUsage(authorization.idempotencyKey(), authorization, "SUCCEEDED", model, inputTokens, outputTokens, 0, command.businessTaskId());
+            return decision;
         } catch (Exception ex) {
+            if (routeAuthorization != null) {
+                try { ledger.enqueueCancellation(routeAuthorization); }
+                catch (RuntimeException ignored) { }
+            }
             throw new RuntimeException("AIAgentPlatform 路由失败: " + ex.getMessage(), ex);
         }
+    }
+
+    private static int number(Object value) {
+        return value instanceof Number n ? Math.max(0, n.intValue()) : 0;
     }
 
     @Override
@@ -277,10 +353,11 @@ public class HttpAiPlatformClient implements AiPlatformClient {
         int completed = node.path("progress").path("completed").asInt(0);
         int total = node.path("progress").path("total").asInt(1);
         int percent = node.path("progress").path("percent").asInt(0);
+        int retryCount = node.path("retry_count").asInt(0);
         Instant acceptedAt = Instant.parse(node.path("accepted_at").asText(Instant.now().toString()));
         String errorCode = node.path("error").path("code").asText(null);
         String errorMessage = node.path("error").path("message").asText(null);
-        return new AiTask(id, businessTaskId, capability, status, completed, total, percent,
+        return new AiTask(id, businessTaskId, capability, status, completed, total, percent, retryCount,
                 acceptedAt, errorCode, errorMessage);
     }
 

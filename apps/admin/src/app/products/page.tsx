@@ -23,6 +23,7 @@ type PermissionCatalogItem = {
   description?: string;
   status?: string;
   frontend?: "USER" | "ADMIN";
+  product_domain?: "RECRUITMENT" | "OPEN_API";
 };
 
 type ProductForm = {
@@ -42,6 +43,8 @@ type ProductForm = {
   capabilityCode: string;
   permissionCode: string;
   entitlementFeatureCode: string;
+  modelId: string;
+  tokenizerId: string;
   reservationCredits: string;
   maxInputTokens: string;
   maxOutputTokens: string;
@@ -60,7 +63,7 @@ const initialForm: ProductForm = {
   version: "1", durationDays: "7", seatCapacity: "", creditAmount: "",
   audience: "ENTERPRISE", code: "", displayName: "", billingPeriod: "YEAR", durationMonths: "12",
   perSeatCreditAmount: "", priceMicroYuan: "", validUnit: "MONTH", validCount: "",
-  capabilityCode: "", permissionCode: "", entitlementFeatureCode: "", reservationCredits: "",
+  capabilityCode: "", permissionCode: "", entitlementFeatureCode: "", modelId: "", tokenizerId: "", reservationCredits: "",
   maxInputTokens: "", maxOutputTokens: "", inputTokensPerCredit: "", outputTokensPerCredit: "",
 };
 
@@ -124,7 +127,7 @@ export default function ProductsPage() {
     enabled: showForm && canEdit,
   });
   const activePermissions = useMemo(
-    () => (permissionCatalog ?? []).filter((item) => item.frontend === "USER" && (!item.status || item.status === "ACTIVE")),
+    () => (permissionCatalog ?? []).filter((item) => item.frontend === "USER" && item.status === "ACTIVE" && item.product_domain === "RECRUITMENT"),
     [permissionCatalog],
   );
 
@@ -169,10 +172,10 @@ export default function ProductsPage() {
       const inputTokensPerCredit = numericFormValue(form.inputTokensPerCredit, "输入 Token 兑换比", 1);
       const outputTokensPerCredit = numericFormValue(form.outputTokensPerCredit, "输出 Token 兑换比", 1);
       if ([reservationCredits, maxInputTokens, maxOutputTokens, inputTokensPerCredit, outputTokensPerCredit].some((value) => value == null)) throw new Error("请完整填写 AI 功能规则");
-      if (!form.capabilityCode.trim() || !form.permissionCode.trim() || !form.entitlementFeatureCode.trim()) throw new Error("请填写能力码、权限码和权益码");
+      if (!form.capabilityCode.trim() || !form.permissionCode.trim() || !form.entitlementFeatureCode.trim() || !form.modelId.trim() || !form.tokenizerId.trim()) throw new Error("请填写能力码、权限码、权益码、模型和 Tokenizer");
       const minimumReservation = Math.ceil(maxInputTokens! / inputTokensPerCredit!) + Math.ceil(maxOutputTokens! / outputTokensPerCredit!);
       if (reservationCredits! < minimumReservation) throw new Error(`预占积分不能低于 ${minimumReservation}`);
-      return adminApiFetch("/platform/recruitment/ai-feature-rules", { method: "POST", body: JSON.stringify({ capabilityCode: form.capabilityCode.trim(), permissionCode: form.permissionCode.trim(), entitlementFeatureCode: form.entitlementFeatureCode.trim(), reservationCredits, maxInputTokens, maxOutputTokens, inputTokensPerCredit, outputTokensPerCredit }) });
+      return adminApiFetch("/platform/recruitment/ai-feature-rules", { method: "POST", body: JSON.stringify({ capabilityCode: form.capabilityCode.trim(), permissionCode: form.permissionCode.trim(), entitlementFeatureCode: form.entitlementFeatureCode.trim(), modelId: form.modelId.trim(), tokenizerId: form.tokenizerId.trim(), reservationCredits, maxInputTokens, maxOutputTokens, inputTokensPerCredit, outputTokensPerCredit }) });
     },
     onSuccess: () => {
       setMessage("配置已发布"); setFormError(null); setShowForm(false); setForm(initialForm); setSelectedFeatureCodes([]);
@@ -211,7 +214,7 @@ export default function ProductsPage() {
         {activeKind === "trial-rules" && <><div className="grid grid-cols-1 gap-4 md:grid-cols-4">{field("版本", "version", "number")}<div><label className={labelClass}>Trial 有效期</label><select value={form.durationDays} onChange={(e) => setForm({ ...form, durationDays: e.target.value })} className={inputClass}><option value="3">3 天</option><option value="7">7 天</option><option value="10">10 天</option></select></div>{field("席位数", "seatCapacity", "number")}{field("积分数", "creditAmount", "number")}</div>{renderFeatureSelector()}</>}
         {activeKind === "plans" && <><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><div><label className={labelClass}>适用对象</label><select value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value as ProductForm["audience"] })} className={inputClass}><option value="ENTERPRISE">企业租户</option><option value="PERSONAL">个人租户</option></select></div>{field("套餐编码", "code", "text", "例如：RECRUITMENT_YEARLY")}{field("套餐名称", "displayName", "text", "面向运营人员展示")}{field("版本", "version", "number")}<div><label className={labelClass}>计费周期</label><select value={form.billingPeriod} onChange={(e) => setForm({ ...form, billingPeriod: e.target.value as ProductForm["billingPeriod"] })} className={inputClass}><option value="MONTH">月</option><option value="QUARTER">季</option><option value="YEAR">年</option></select></div>{field("有效期月份", "durationMonths", "number")}{field("每席套餐积分", "perSeatCreditAmount", "number")}{field("价格（微元）", "priceMicroYuan", "number", "1 元 = 1000000 微元")}</div>{renderFeatureSelector()}</>}
         {activeKind === "credit-packs" && <div className="grid grid-cols-1 gap-4 md:grid-cols-2"><div><label className={labelClass}>适用对象</label><select value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value as ProductForm["audience"] })} className={inputClass}><option value="ENTERPRISE">企业租户</option><option value="PERSONAL">个人租户</option></select></div>{field("积分包编码", "code", "text", "例如：CREDIT_PACK_1000")}{field("积分包名称", "displayName", "text")}{field("版本", "version", "number")}{field("积分数量", "creditAmount", "number")}<div><label className={labelClass}>有效期单位</label><select value={form.validUnit} onChange={(e) => setForm({ ...form, validUnit: e.target.value as ProductForm["validUnit"] })} className={inputClass}><option value="MONTH">月</option><option value="YEAR">年</option></select></div>{field("有效期数量", "validCount", "number")}{field("价格（微元）", "priceMicroYuan", "number", "1 元 = 1000000 微元")}</div>}
-        {activeKind === "ai-feature-rules" && <><div className="grid grid-cols-1 gap-4 md:grid-cols-3">{field("能力码", "capabilityCode", "text", "请输入已定义的能力码")}<div><label className={labelClass}>权限码</label><select value={form.permissionCode} onChange={(e) => setForm({ ...form, permissionCode: e.target.value })} className={inputClass}><option value="">请选择已启用权限码</option>{activePermissions.map((permission) => <option key={permission.code} value={permission.code}>{permission.code}</option>)}</select></div>{field("权益码", "entitlementFeatureCode", "text", "请输入已定义的权益码")}</div><div className="grid grid-cols-1 gap-4 md:grid-cols-3">{field("预占积分", "reservationCredits", "number")}{field("最大输入 Token", "maxInputTokens", "number")}{field("最大输出 Token", "maxOutputTokens", "number")}{field("输入 Token/积分", "inputTokensPerCredit", "number")}{field("输出 Token/积分", "outputTokensPerCredit", "number")}</div><p className="text-xs text-slate-500">预占积分必须覆盖最大输入和最大输出 Token 按兑换比计算的总消耗；能力码和权益码使用系统已有配置，不在页面内创建。</p></>}
+        {activeKind === "ai-feature-rules" && <><div className="grid grid-cols-1 gap-4 md:grid-cols-3">{field("能力码", "capabilityCode", "text", "请输入已定义的能力码")}<div><label className={labelClass}>权限码</label><select value={form.permissionCode} onChange={(e) => setForm({ ...form, permissionCode: e.target.value })} className={inputClass}><option value="">请选择已启用权限码</option>{activePermissions.map((permission) => <option key={permission.code} value={permission.code}>{permission.code}</option>)}</select></div>{field("权益码", "entitlementFeatureCode", "text", "请输入已定义的权益码")}{field("模型 ID", "modelId", "text", "由运营配置的实际模型标识")}{field("Tokenizer ID", "tokenizerId", "text", "由运营配置的 Tokenizer 标识")}</div><div className="grid grid-cols-1 gap-4 md:grid-cols-3">{field("预占积分", "reservationCredits", "number")}{field("最大输入 Token", "maxInputTokens", "number")}{field("最大输出 Token", "maxOutputTokens", "number")}{field("输入 Token/积分", "inputTokensPerCredit", "number")}{field("输出 Token/积分", "outputTokensPerCredit", "number")}</div><p className="text-xs text-slate-500">预占积分必须覆盖最大输入和最大输出 Token 按兑换比计算的总消耗；模型和 Tokenizer 由运营配置，不在代码中写死。</p></>}
         {formError && <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">{formError}</div>}
         <div className="flex gap-2"><button onClick={() => publishMutation.mutate()} disabled={publishMutation.isPending} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{publishMutation.isPending ? "发布中…" : "发布配置"}</button><button onClick={resetForm} className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-white">取消</button></div>
       </div>
@@ -236,7 +239,7 @@ export default function ProductsPage() {
     if (activeKind === "trial-rules") return <table className="w-full"><thead><tr className={tableHead}><th>版本</th><th>有效期</th><th>席位数</th><th>积分</th><th>功能权限</th><th>状态/操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={String(row.id ?? index)} className={tableRow}><td>v{numberValue(row.version)}</td><td>{numberValue(row.duration_days)} 天</td><td>{numberValue(row.seat_capacity)}</td><td>{numberValue(row.credit_amount)}</td><td className="max-w-xs truncate">{featureSnapshotValue(row.feature_snapshot)}</td><td>{renderAction(row)}</td></tr>)}</tbody></table>;
     if (activeKind === "plans") return <table className="w-full"><thead><tr className={tableHead}><th>名称/编码</th><th>适用对象</th><th>周期</th><th>每席积分</th><th>价格</th><th>状态/操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={String(row.id ?? index)} className={tableRow}><td><div className="flex items-center gap-2"><Package className="h-4 w-4 text-slate-400" /><div><div className="font-medium text-slate-800">{String(row.display_name ?? row.code ?? "未命名")}</div><div className="text-xs text-slate-400">{String(row.code ?? "-")} · v{numberValue(row.version)}</div></div></div></td><td>{row.audience === "PERSONAL" ? "个人" : "企业"}</td><td>{String(row.billing_period ?? "-")} / {numberValue(row.duration_months)} 个月</td><td>{numberValue(row.per_seat_credit_amount)}</td><td>{moneyValue(row.price_micro_yuan)}</td><td>{renderAction(row)}</td></tr>)}</tbody></table>;
     if (activeKind === "credit-packs") return <table className="w-full"><thead><tr className={tableHead}><th>名称/编码</th><th>适用对象</th><th>积分</th><th>有效期</th><th>价格</th><th>状态/操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={String(row.id ?? index)} className={tableRow}><td><div className="font-medium text-slate-800">{String(row.display_name ?? row.code ?? "未命名")}</div><div className="text-xs text-slate-400">{String(row.code ?? "-")} · v{numberValue(row.version)}</div></td><td>{row.audience === "PERSONAL" ? "个人" : "企业"}</td><td>{numberValue(row.credit_amount)}</td><td>{numberValue(row.valid_count)} {row.valid_unit === "YEAR" ? "年" : "月"}</td><td>{moneyValue(row.price_micro_yuan)}</td><td>{renderAction(row)}</td></tr>)}</tbody></table>;
-    return <table className="w-full"><thead><tr className={tableHead}><th>能力码</th><th>权限/权益码</th><th>预占积分</th><th>Token 上限</th><th>兑换比</th><th>状态/操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={String(row.id ?? index)} className={tableRow}><td className="font-medium text-slate-800">{String(row.capability_code ?? "-")}</td><td><div className="text-xs text-slate-600">权限：{String(row.permission_code ?? "-")}</div><div className="text-xs text-slate-400">权益：{String(row.entitlement_feature_code ?? "-")}</div></td><td>{numberValue(row.reservation_credits)}</td><td>输入 {numberValue(row.max_input_tokens)} / 输出 {numberValue(row.max_output_tokens)}</td><td>输入 {numberValue(row.input_tokens_per_credit)} / 输出 {numberValue(row.output_tokens_per_credit)}</td><td>{renderAction(row)}</td></tr>)}</tbody></table>;
+    return <table className="w-full"><thead><tr className={tableHead}><th>能力码</th><th>权限/权益码</th><th>模型/Tokenizer</th><th>预占积分</th><th>Token 上限</th><th>兑换比</th><th>状态/操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={String(row.id ?? index)} className={tableRow}><td className="font-medium text-slate-800">{String(row.capability_code ?? "-")}</td><td><div className="text-xs text-slate-600">权限：{String(row.permission_code ?? "-")}</div><div className="text-xs text-slate-400">权益：{String(row.entitlement_feature_code ?? "-")}</div></td><td><div className="text-xs text-slate-600">模型：{String(row.model_id ?? "-")}</div><div className="text-xs text-slate-400">Tokenizer：{String(row.tokenizer_id ?? "-")}</div></td><td>{numberValue(row.reservation_credits)}</td><td>输入 {numberValue(row.max_input_tokens)} / 输出 {numberValue(row.max_output_tokens)}</td><td>输入 {numberValue(row.input_tokens_per_credit)} / 输出 {numberValue(row.output_tokens_per_credit)}</td><td>{renderAction(row)}</td></tr>)}</tbody></table>;
   }
 
   return <div>

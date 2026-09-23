@@ -1,6 +1,8 @@
 // admin-api-client 单元测试：验证 Token 存储和请求头注入
 import { describe, expect, it, beforeEach, vi } from "vitest";
 
+vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "http://localhost:8081/api/v1");
+
 // 手动实现 localStorage（jsdom 环境可能不提供完整实现）
 const storage = new Map<string, string>();
 vi.stubGlobal("localStorage", {

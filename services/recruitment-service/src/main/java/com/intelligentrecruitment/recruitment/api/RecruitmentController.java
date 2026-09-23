@@ -78,9 +78,10 @@ public class RecruitmentController {
 
     @PostMapping("/{taskId}/agent-routes")
     RouteDecision route(@PathVariable UUID tenantId, @PathVariable UUID taskId,
+                        @RequestHeader("Idempotency-Key") String idempotencyKey,
                         @RequestBody RecruitmentService.RouteMessageInput input,
                         Authentication authentication) {
-        return recruitment.routeMessage(CurrentUser.id(authentication), tenantId, taskId, input);
+        return recruitment.routeMessage(CurrentUser.id(authentication), tenantId, taskId, idempotencyKey, input);
     }
 
     @PostMapping(value = "/{taskId}/jd-source-files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

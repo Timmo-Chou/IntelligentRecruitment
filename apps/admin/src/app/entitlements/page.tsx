@@ -34,7 +34,7 @@ export default function EntitlementsPage() {
       setMessage("权益覆盖已添加");
       setTenantId(""); setFeatureCode(""); setLimitValue(""); setReason("");
     },
-    onError: (e: any) => setMessage(`操作失败：${e.message}`),
+    onError: (e: unknown) => setMessage(`操作失败：${e instanceof Error ? e.message : "操作失败，请稍后重试"}`),
   });
 
   return (

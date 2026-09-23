@@ -15,7 +15,7 @@ import { ResumeParsingTenant } from "@/components/recruitment/resume-parsing-ten
 import {
   confirmJdDraft, createTask, fetchTask, fetchTasks, generateJd, generateInterviewKit, generateResumeParse, sendMessage, uploadJdSourceFile, uploadResumeSourceFile,
   streamJdRunEvents, updateJdDraft,
-  type JdDraft, type TaskDetail, type TaskSummary,
+  type AiRun, type JdDraft, type TaskDetail, type TaskSummary,
 } from "@/lib/recruitment-api";
 import { fetchJob, fetchJobs, type Job } from "@/lib/job-api";
 import { fetchCandidate, fetchCandidates, type CandidateDetail, type CandidateSummary } from "@/lib/candidate-api";
@@ -406,7 +406,7 @@ export default function RecruitmentPage() {
       </main>
 
       <aside className="flex min-h-0 flex-col rounded-xl border border-[#d6e5f5] bg-white shadow-[0_6px_20px_rgba(30,92,160,0.04)] lg:h-[calc(100dvh-190px)] lg:overflow-hidden">
-        <div className="flex items-center justify-between border-b border-[#e2ebf5] px-4 py-3"><span className="flex items-center gap-2 text-sm font-bold text-[#173568]"><Bot size={17} className="text-[#1478e8]"/>AI 招聘助手</span>{detail?.latestAiRun && <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${detail.latestAiRun.status === "FAILED" ? "bg-[#fff0f0] text-[#cf3030]" : "bg-[#e7f8f1] text-[#07885b]"}`}>{detail.latestAiRun.status === "FAILED" ? "生成失败" : detail.latestAiRun.status === "COMPLETED" ? "已完成" : "AI 生成"}</span>}</div>
+        <div className="flex items-center justify-between border-b border-[#e2ebf5] px-4 py-3"><span className="flex items-center gap-2 text-sm font-bold text-[#173568]"><Bot size={17} className="text-[#1478e8]"/>AI 招聘助手</span>{detail?.latestAiRun && <AiRunStatus run={detail.latestAiRun}/>}</div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
           {!detail && <div className="rounded-lg bg-[#eef7ff] p-3 text-xs leading-5 text-[#56749f]">创建招聘任务后，我会协助补充需求并生成结构化 JD 草稿。</div>}
           {detail?.messages.map((item) => <article key={item.id} className={`max-w-[92%] rounded-xl px-3 py-2.5 text-xs leading-5 ${item.role === "USER" ? "ml-auto bg-[#176ce5] text-white" : item.role === "SYSTEM" ? "bg-[#f3f5f8] text-[#657996]" : "bg-[#eef8ff] text-[#35577f]"}`}><p className="m-0 whitespace-pre-wrap">{item.content}</p></article>)}
@@ -1283,3 +1283,28 @@ function publicationWarnings(draft: JdDraft) {
 function WorkflowSection({ title, description }: { title: string; description: string }) { return <div className="grid min-h-[520px] place-items-center text-center"><div className="max-w-md"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#eaf8f5] text-[#169b83]"><Sparkles size={26}/></span><h2 className="mb-0 mt-5 text-xl font-bold text-[#173568]">{title}</h2><p className="mt-3 text-sm leading-6 text-[#60799f]">{description}</p><p className="mt-5 text-xs text-[#7187a8]">该功能正在此工作台分区中展开；右侧 AI 助手会持续提供操作提示。</p></div></div>; }
 function StatePage({ icon, text }: { icon: React.ReactNode; text: string }) { return <AppShell activeItem="智能招聘"><div className="flex h-64 flex-col items-center justify-center gap-3 text-[#6780a3]"><span className="text-[#2878da]">{icon}</span><p className="text-sm">{text}</p></div></AppShell>; }
 function messageOf(cause: unknown) { return cause instanceof ApiError ? cause.message : cause instanceof Error ? cause.message : "操作失败，请稍后重试"; }
+
+function AiRunStatus({ run }: { run: AiRun }) {
+  const label = aiRunStatusLabel(run);
+  const tone = label === "生成失败" || label === "结算失败"
+    ? "bg-[#fff0f0] text-[#cf3030]"
+    : label === "已完成" || label === "已取消"
+      ? "bg-[#e7f8f1] text-[#07885b]"
+      : "bg-[#eef7ff] text-[#176ce5]";
+  return <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${tone}`} title={run.settlementStatus ? `结算状态：${run.settlementStatus}` : undefined}>{label}</span>;
+}
+
+function aiRunStatusLabel(run: AiRun): string {
+  if (run.executionStatus === "SETTLEMENT_FAILED" || run.settlementStatus === "FAILED") return "结算失败";
+  if (run.executionStatus === "CANCELLED") return "已取消";
+  if (run.executionStatus === "SETTLED") return "已完成";
+  if (run.executionStatus === "USAGE_PENDING" || run.executionStatus === "CANCELLATION_PENDING"
+      || run.settlementStatus === "PENDING" || run.settlementStatus === "PROCESSING") return "结算处理中";
+  if (run.status === "FAILED") return "生成失败";
+  if (run.status === "COMPLETED") return "等待结算";
+  if (run.retryCount > 0 && ["QUEUED", "RUNNING"].includes(run.status)) return "任务重试中";
+  if (run.executionStatus === "AGENT_ACCEPTED") return "Agent 执行中";
+  if (run.executionStatus === "AUTHORIZED") return "积分已预占";
+  if (run.status === "QUEUED") return "等待授权";
+  return "AI 执行中";
+}
