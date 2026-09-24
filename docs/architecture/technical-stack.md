@@ -76,8 +76,8 @@ AI Recruitment Business Service
 - 模块化单体，不以 Agent 名称拆微服务。
 - 招聘业务服务拥有用户、企业、职位、候选人、任务、结果和客户账单。
 - 对 AI Platform 只依赖内部 `AIPlatformClient` 接口。
-- Mock 和真实 HTTP Adapter 可通过配置切换；业务代码应只依赖接口，禁止以本地模板伪装成成功的模型结果。
-- 企业招聘业务数据同时包含 `company_id + workspace_id`；个人业务数据使用 `workspace_id` 且 `company_id = NULL`。
+- 运行时使用正式 Agent HTTP Client；Mock 仅可用于测试，不能作为运行时回退，也不得以本地模板伪装成功的模型结果。
+- 招聘业务数据使用 `tenant_id` 作为唯一隔离范围。
 - JD、简历解析、筛选方案、筛选结果和面试题均绑定版本。
 - 金额使用最小货币单位整数或精确 Decimal，账本只追加不覆盖。
 - 原始简历不进入数据库大字段，使用对象存储及短效授权地址。
@@ -100,7 +100,7 @@ AI Recruitment Business Service
 - 文件通过短效签名 URL 或双方确认的受控文件接口传递。
 - AI Platform 返回供应商用量；业务服务独立完成用户定价和账本结算。
 
-当前实现中招聘服务不直连模型，所有 AI 能力经 BOSS 授权后调用 AIAgentPlatform；模型执行、用量上报和失败释放由 AIAgentPlatform 与 BOSS 契约处理。运行边界见 [AI 运行现状与 Mock 退役方案](ai-runtime-and-mock-retirement.md)。
+当前实现中招聘服务不直连模型：IR 先向 BOSS 请求授权，再调用 AIAgentPlatform；Agent 返回执行结果和用量事实，IR 通过结算 Outbox 向 BOSS 上报用量或取消，BOSS 完成实扣或释放。运行边界见 [AI 运行现状与 Mock 退役方案](ai-runtime-and-mock-retirement.md)。
 
 ## 5. 数据与基础设施
 
@@ -174,7 +174,7 @@ IntelligentRecruitment/
 
 日志采用结构化 JSON，并贯穿：
 
-`request_id`、`trace_id`、`company_id`、`workspace_id`、`business_task_id`、`ai_task_id`、账本业务引用。
+`request_id`、`trace_id`、`tenant_id`、`business_task_id`、`ai_task_id`、账本业务引用。
 
 禁止记录简历正文、完整联系方式、凭证、签名 URL 和包含 PII 的完整 Prompt。
 

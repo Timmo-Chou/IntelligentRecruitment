@@ -1,7 +1,7 @@
 # Agent 编排契约 V1
 
-状态：**Draft V1**  
-范围：P0 合同先行；不改变现有业务 API 或运行时实现。
+状态：**当前运行时契约**
+范围：招聘域 AI 正式链路；不保留旧 Workspace/Company、本地计费或运行时 Mock 兼容语义。
 
 ## 1. 决策
 
@@ -10,11 +10,14 @@
 ```text
 Web
   → 招聘业务服务：Flow Coordinator / Policy Gate
+  → BOSS：权益校验、授权 Grant、积分预占
   → AI Platform：单入口 Orchestration Agent / Skill Runtime / Tool Runtime
   → 模型、MCP、供应商能力
+  → 招聘业务服务：usage/cancellation Outbox
+  → BOSS：实扣或释放
 ```
 
-- 招聘业务服务拥有权限、租户范围、业务状态机、版本、报价、用户确认、账本和正式数据写入。
+- BOSS 拥有身份、Tenant、权限、套餐、权益、授权、积分预占和最终结算；招聘业务服务拥有招聘状态机、版本、业务记录和正式数据写入。
 - AI Platform 拥有自由对话的意图路由、Skill 选择、Prompt/模型策略和受控 Tool 执行。
 - RouteDecision 是建议，永远不是授权。任何收费、异步、写正式结果的能力都必须携带业务服务生成的 `PolicyDecision(decision=allow)`。
 
@@ -47,16 +50,18 @@ Web
   → [待确认时] 用户确认筛选方案、候选人范围或报价
   → 新 PolicyDecision: allow
   → ExecutionContext
+  → BOSS execution-authorization 与 Grant
   → AI Platform Skill 执行
   → StructuredResult
-  → 业务服务校验、持久化、结算或释放
+  → 招聘业务服务校验、持久化并写入 usage/cancellation Outbox
+  → BOSS 结算或释放
 ```
 
 业务校验不是用户确认。只有 `require_user_confirmation` 时才展示确认界面。
 
 | 场景 | 自动校验 | 用户必须确认 |
 |---|---|---|
-| JD 生成 | 工作空间权限、固定价格、余额 | 本次固定价生成；生成后确认 JD 版本 |
+| JD 生成 | Tenant 权限、AI 权益、积分预占 | 本次生成；生成后确认 JD 版本 |
 | 简历解析 | 文件授权、格式/安全状态、解析范围 | 上传和解析授权 |
 | 筛选方案 | 已确认 JD、规则合法性、敏感属性 | 方案维度、权重、必须/排除项与缺失规则 |
 | 候选人筛选 | 已确认 JD/方案、候选版本、余额 | 候选范围与不可变报价 |
@@ -66,7 +71,7 @@ Web
 
 1. 明确按钮或 API Capability 优先，直接进入业务校验；不调用意图识别。
 2. 只有自由对话才调用 `/agent-routes`。
-3. `RouteDecision.kind=route` 后，业务服务重新从当前 Workspace 查询资源；不得信任模型返回的任意资源 ID。
+3. `RouteDecision.kind=route` 后，业务服务只在当前 Tenant 范围重新查询资源；不得信任模型返回的任意资源 ID。
 4. `confidence` 仅影响是否追问，不能绕过确认或策略校验。
 5. 不支持的意图返回 `unsupported`；信息不全返回 `clarify`，不得猜测候选人范围或岗位版本。
 
@@ -141,10 +146,10 @@ V2 只补充两个语义，不扩大 AI Platform 的授权边界：
 
 `ExecutionContext` 是 AI Platform 可使用数据的全部边界：
 
-- `request_context.workspace_id`、`company_id`、`actor_id`、`business_task_id` 用于关联和审计，不授予查询我方数据的能力。
+- `request_context.tenant_id`、`actor_id`、`business_task_id` 用于关联和审计，不授予查询我方数据的能力。
 - `input_versions` 只能列出已冻结的业务引用和内容哈希；具体内容由业务服务按 Skill 数据策略投影。
 - PII、简历正文与短效文件引用仅在该次执行需要时提供；`data_handling.log_content=false` 是强制规则。
-- `PolicyDecision` 必须为 `allow`，且其中 `workspace_id`、`company_id`、`actor_id` 与 `request_context` 一致。
+- `PolicyDecision` 必须为 `allow`，且其中 `tenant_id`、`actor_id` 与 `request_context` 一致。
 
 ## 6. SkillManifest 与 Tool 约束
 
@@ -165,10 +170,10 @@ MCP 是 Tool Runtime 内的连接协议，不是业务授权机制。任何 Tool
 1. 验证 Result Envelope 和 Capability 专属输出 Schema。
 2. 验证 `execution_id`、能力、输入版本和本地 AI Task 映射。
 3. 验证分数范围、枚举、必填解释和 `evidence.source_ref` 属于本次 `ExecutionContext.input_versions`。
-4. 拒绝跨 Workspace、未知引用、缺少证据或版本不匹配的结果。
+4. 拒绝跨 Tenant、未知引用、缺少证据或版本不匹配的结果。
 5. 将 `skill/prompt/model policy` 版本作为可审计元数据保存；不保存完整 PII Prompt 或 Tool 输入日志。
 
-供应商用量属于 `StructuredResult.usage`，仅供技术对账；客户收费仍由业务服务按报价与成功业务单位计算。
+供应商用量属于 `StructuredResult.usage`，由招聘业务服务写入 BOSS `usage-reports` Outbox；BOSS 根据授权快照完成最终结算。
 
 ## 8. OpenAPI 入口
 
@@ -182,15 +187,15 @@ MCP 是 Tool Runtime 内的连接协议，不是业务授权机制。任何 Tool
 
 - 所有五种对象能通过 JSON Schema 校验，且外部引用可解析。
 - `RouteDecision` 无法作为执行请求；`PolicyDecision` 非 `allow` 时 `ExecutionContext` 不通过 Schema。
-- 任意 Result 的证据引用、Workspace Scope 或输入版本不匹配时，业务服务拒绝落库。
+- 任意 Result 的证据引用、Tenant Scope 或输入版本不匹配时，业务服务拒绝落库。
 - 每个 Capability 至少有一个活跃 `SkillManifest`；新增/变更 Skill、Prompt、模型策略或 Tool 白名单必须创建新版本。
 - 对话路由、业务授权、AI 执行和业务结算均可用 `request_id`、`business_task_id`、`execution_id` 和 `ai_task_id` 关联追踪。
 
 ## 10. 招聘服务 AI 调用边界
 
-招聘服务运行时不直接调用模型。所有 AI 能力均通过 BOSS 授权后，经 `HttpAiPlatformClient` 调用 AIAgentPlatform；AIAgentPlatform 负责模型供应商配置、实际执行、重试和用量回传，BOSS 负责积分预占、实扣或释放。
+招聘服务运行时不直接调用模型。所有 AI 能力均先由 IR 调用 BOSS 取得授权 Grant，再经 `HttpAiPlatformClient` 调用 AIAgentPlatform；AIAgentPlatform 只负责模型执行、重试和结果，IR 负责 usage/cancellation Outbox，BOSS 负责积分预占、实扣或释放。
 
-- 模型 API Key、模型标识和 Tokenizer 配置只能由 AIAgentPlatform 的部署环境注入，不能写入招聘服务仓库、前端代码、日志或任务输入。
+- 模型 API Key 只能由 AIAgentPlatform 的部署环境注入；模型标识和 Tokenizer 只能由 BOSS AI 规则下发，不能写入招聘服务仓库、前端代码、日志或任务输入。
 - JD、自由文本路由、招聘对话/JD 改写、简历解析、候选人筛选、面试题和咨询助手均遵循同一授权执行链；模型失败或输出不合约时任务明确失败，不以 Mock、规则结果或本地模板伪装成功。
 - 招聘服务不提供模型直连开关，也不保留未覆盖能力的本地模型回退路径。
 

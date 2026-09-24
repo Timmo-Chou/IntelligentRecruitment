@@ -52,10 +52,19 @@ public class AiExecutionLedger {
                     "idempotency_key", auth.idempotencyKey(), "task_status", status, "model_id", model,
                     "input_tokens", input, "output_tokens", output, "retry_count", retries, "result_reference", resultRef));
             UUID tenantId = auth.tenantId();
-            UUID recordId = jdbc.queryForObject("SELECT id FROM ai_execution_records WHERE tenant_id=? AND idempotency_key=?", UUID.class, tenantId, idempotencyKey);
-            jdbc.update("INSERT INTO ai_settlement_outbox(id,execution_id,effect_type,dedupe_key,payload_json) VALUES(?,?, 'USAGE',?,?::jsonb) ON CONFLICT (dedupe_key) DO NOTHING",
-                    UUID.randomUUID(), recordId, "usage:" + idempotencyKey, payload);
-            jdbc.update("UPDATE ai_execution_records SET status='USAGE_PENDING',model_id=?,retry_count=?,result_reference=?,updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND idempotency_key=?", model, retries, resultRef, tenantId, idempotencyKey);
+            ExecutionRecord record = lockRecord(tenantId, idempotencyKey);
+            SettlementEffect existing = lockSettlementEffect(record.id());
+            if (existing != null) {
+                if ("CANCELLATION".equals(existing.effectType())) {
+                    throw new IllegalStateException("AI 执行已进入取消结算，不能再提交成功用量");
+                }
+                // A replay of a successful result must retain its original payload and never
+                // create a second final settlement effect.
+                return;
+            }
+            jdbc.update("INSERT INTO ai_settlement_outbox(id,execution_id,effect_type,dedupe_key,payload_json) VALUES(?,?, 'USAGE',?,?::jsonb)",
+                    UUID.randomUUID(), record.id(), "usage:" + idempotencyKey, payload);
+            jdbc.update("UPDATE ai_execution_records SET status='USAGE_PENDING',model_id=?,retry_count=?,result_reference=?,updated_at=CURRENT_TIMESTAMP WHERE id=?", model, retries, resultRef, record.id());
         } catch (Exception ex) { throw new IllegalStateException("AI 用量记录写入失败", ex); }
     }
 
@@ -63,13 +72,21 @@ public class AiExecutionLedger {
     public void enqueueCancellation(BossControlPlaneClient.AiAuthorization auth) {
         try {
             UUID tenantId = auth.tenantId();
-            UUID recordId = jdbc.queryForObject("SELECT id FROM ai_execution_records WHERE tenant_id=? AND idempotency_key=?", UUID.class, tenantId, auth.idempotencyKey());
+            ExecutionRecord record = lockRecord(tenantId, auth.idempotencyKey());
+            SettlementEffect existing = lockSettlementEffect(record.id());
+            if (existing != null) {
+                // Once usage is queued it is the selected final effect.  A late task
+                // cancellation is obsolete; after completion it must not rewrite IR's
+                // ledger to CANCELLED or send a second BOSS effect.
+                if ("USAGE".equals(existing.effectType())) return;
+                return;
+            }
             String payload = json.writeValueAsString(Map.of("authorization_id", auth.authorizationId(), "reservation_id", auth.reservationId(),
                     "tenant_id", auth.tenantId(),
                     "idempotency_key", auth.idempotencyKey()));
-            jdbc.update("INSERT INTO ai_settlement_outbox(id,execution_id,effect_type,dedupe_key,payload_json) VALUES(?,?, 'CANCELLATION',?,?::jsonb) ON CONFLICT (dedupe_key) DO NOTHING",
-                    UUID.randomUUID(), recordId, "cancellation:" + auth.idempotencyKey(), payload);
-            jdbc.update("UPDATE ai_execution_records SET status='CANCELLATION_PENDING',updated_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND idempotency_key=?", tenantId, auth.idempotencyKey());
+            jdbc.update("INSERT INTO ai_settlement_outbox(id,execution_id,effect_type,dedupe_key,payload_json) VALUES(?,?, 'CANCELLATION',?,?::jsonb)",
+                    UUID.randomUUID(), record.id(), "cancellation:" + auth.idempotencyKey(), payload);
+            jdbc.update("UPDATE ai_execution_records SET status='CANCELLATION_PENDING',updated_at=CURRENT_TIMESTAMP WHERE id=?", record.id());
         } catch (Exception ex) { throw new IllegalStateException("AI 取消记录写入失败", ex); }
     }
 
@@ -128,6 +145,24 @@ public class AiExecutionLedger {
     }
 
     public record OutboxClaim(UUID id, UUID executionId, String effectType, String payloadJson, int attempts) { }
+
+    /** Locks one IR execution before choosing its single terminal BOSS effect. */
+    private ExecutionRecord lockRecord(UUID tenantId, String idempotencyKey) {
+        return jdbc.query("SELECT id FROM ai_execution_records WHERE tenant_id=? AND idempotency_key=? FOR UPDATE",
+                        (rs, n) -> new ExecutionRecord(rs.getObject(1, UUID.class)), tenantId, idempotencyKey)
+                .stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException("找不到 AI 执行台账"));
+    }
+
+    /** The V4 unique constraint is the database backstop for this application-level decision. */
+    private SettlementEffect lockSettlementEffect(UUID executionRecordId) {
+        return jdbc.query("SELECT effect_type,status FROM ai_settlement_outbox WHERE execution_id=? FOR UPDATE",
+                        (rs, n) -> new SettlementEffect(rs.getString(1), rs.getString(2)), executionRecordId)
+                .stream().findFirst().orElse(null);
+    }
+
+    private record ExecutionRecord(UUID id) { }
+    private record SettlementEffect(String effectType, String status) { }
 
     private static String safeError(String error) {
         if (error == null || error.isBlank()) return "BOSS settlement failed";

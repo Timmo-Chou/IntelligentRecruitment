@@ -63,6 +63,12 @@ public class TenancyController {
         return boss.submitEnterpriseRegistration(token(authentication), request.legalName(), request.creditCode(), request.licenseDocumentId(), request.contactName(), request.contactPhone());
     }
 
+    /** 查询当前用户最近一次企业注册申请（用于"所属企业"页面展示待审核/驳回状态） */
+    @GetMapping("/enterprise-registrations/me")
+    JsonNode myRegistration(Authentication authentication) {
+        return boss.myEnterpriseRegistration(token(authentication));
+    }
+
     @PostMapping("/{tenantId}/join-applications")
     JsonNode apply(@PathVariable UUID tenantId, @Valid @RequestBody JoinApplicationRequest request, Authentication authentication) {
         return boss.applyToJoin(token(authentication), tenantId, request.roleCode(), request.reason());

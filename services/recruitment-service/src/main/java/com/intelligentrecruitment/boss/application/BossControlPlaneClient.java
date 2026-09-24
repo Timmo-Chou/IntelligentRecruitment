@@ -149,6 +149,11 @@ public class BossControlPlaneClient {
                         + "\",\"contact_name\":" + quoted(contactName) + ",\"contact_phone\":" + quoted(contactPhone) + "}", null).body();
     }
 
+    /** 查询当前用户最近一次企业注册申请（含待审核状态与驳回原因），透传 BOSS 响应 */
+    public JsonNode myEnterpriseRegistration(String accessToken) {
+        return request("GET", "/api/v1/recruitment/enterprise-registrations/me", accessToken, null, null).body();
+    }
+
     public List<DirectoryTenant> searchEnterprises(String accessToken, String keyword) {
         JsonNode body = request("GET", "/api/v1/recruitment/enterprises/search?keyword=" + encode(keyword), accessToken, null, null).body();
         List<DirectoryTenant> result = new ArrayList<>();

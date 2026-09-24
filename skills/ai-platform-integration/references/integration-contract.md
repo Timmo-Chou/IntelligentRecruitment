@@ -1,5 +1,7 @@
 # AI Platform Integration Contract Baseline
 
+> 状态：历史契约基线，不得作为当前实现依据。现行边界：招聘隔离范围为 `tenant_id`；BOSS 是身份、权限、套餐权益、积分预占、实扣和释放的唯一权威；IR 负责编排及结算 Outbox；AIAgentPlatform 只执行已获授权的任务，并返回结果与用量事实。参见 `docs/architecture/agent-orchestration-contract-v1.md`。
+
 ## Ownership
 
 | Concern | Recruitment business service | Partner AI Platform |
@@ -159,4 +161,3 @@ Partner-specific DTOs are converted inside the HTTP adapter and do not enter dom
 - Supplier-cost currency precision.
 - Partner retention and deletion acknowledgement.
 - Version compatibility and deprecation window.
-

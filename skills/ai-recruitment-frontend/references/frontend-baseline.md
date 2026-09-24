@@ -1,5 +1,7 @@
 # Frontend Baseline
 
+> 状态：历史前端基线，不得作为当前认证、Tenant 或 AI 链路实现依据。当前身份和 Tenant 上下文由 BOSS 提供，招聘业务唯一隔离范围为 `tenant_id`。
+
 ## Selected stack
 
 - Next.js App Router, React, and strict TypeScript.

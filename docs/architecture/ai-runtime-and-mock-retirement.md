@@ -5,9 +5,9 @@
 
 ## 运行时边界
 
-招聘服务的所有 `AiPlatformClient` 能力统一通过 `HttpAiPlatformClient` 调用 AIAgentPlatform；招聘服务不保留模型直连、能力回退或本地生成降级路径。BOSS 负责 Tenant 权益、授权、积分预占与结算，AIAgentPlatform 负责模型执行和用量回传。
+招聘服务的所有 `AiPlatformClient` 能力统一由 IR 先调用 BOSS 授权，再通过 `HttpAiPlatformClient` 调用 AIAgentPlatform；招聘服务不保留模型直连、能力回退或本地生成降级路径。BOSS 负责 Tenant 权益、授权、积分预占与结算，AIAgentPlatform 只负责模型执行，IR 负责用量上报和失败释放的 Outbox。
 
-模型供应商及模型标识由 AIAgentPlatform 配置，招聘服务仅配置其内部地址和 BOSS 内部服务凭据。模型密钥不得提交到招聘服务仓库、前端、日志或任务输入。
+模型供应商密钥由 AIAgentPlatform 部署环境配置；模型标识和 Tokenizer 由 BOSS AI 规则随 Grant 下发。招聘服务仅配置内部地址和 BOSS 内部服务凭据。模型密钥不得提交到招聘服务仓库、前端、日志或任务输入。
 
 ## 能力处理语义
 
@@ -30,6 +30,6 @@
 
 ## 本地开发限制
 
-AIAgentPlatform 当前以任务协议跟踪异步调用；服务重启期间正在执行的请求需要由用户重试。进入生产前应将供应商任务状态、重试、用量、延迟与成本持久化，并补充限流、超时和告警。
+AIAgentPlatform 以持久化任务和派发记录跟踪异步调用；IR 以执行台账和结算 Outbox 在重启后恢复用量上报或失败释放。运行时不允许用本地模板或 Mock 结果替代模型执行。
 
 简历、JD 和人才档案可能包含个人信息。即使仅在本地开发，也应只使用获授权的测试数据，并在使用真实数据前完成数据处理告知、最小化传输、供应商协议和访问审计。

@@ -31,18 +31,23 @@
 Grant 状态：
 
 ```text
-ISSUED -> ACCEPTED -> CONSUMED
-                  -> REJECTED
-                  -> EXPIRED
+ISSUED -> CONSUMED
+       -> RELEASED
 ```
+
+当前正式运行路径只写入 `ISSUED`、`CONSUMED`、`RELEASED`。Grant 是否过期由
+`expires_at` 判断，过期后不能接受新执行；对应预占由取消/生命周期处理释放，不写入独立的
+`EXPIRED` 授权状态。
 
 Reservation 状态：
 
 ```text
 RESERVED -> EXECUTING -> CAPTURED
                       -> RELEASED
-                      -> CANCELLED
 ```
+
+取消和失败统一释放预占并写入 `RELEASED`；`CANCELLED` 只属于 Agent 任务状态，不属于
+BOSS 授权或积分预占状态。
 
 所有 usage、cancellation 和重试操作必须使用原授权记录和幂等键，不能创建新的本地积分预占记录。
 

@@ -121,14 +121,14 @@ public class RecruitmentService {
                 INSERT INTO recruitment_tasks
                 (id,tenant_id,title,initial_requirement,status,current_stage,idempotency_key,
                  request_hash,feature_type,linked_job_id,linked_candidate_id,created_by,created_at,updated_at)
-                VALUES (?,?,?, ?,?,'ACTIVE','COLLECTING_REQUIREMENTS',?, ?,?,?,?, ?,?,?)
+                VALUES (?,?,?, ?,'ACTIVE','COLLECTING_REQUIREMENTS',?, ?,?,?,?, ?,?,?)
                 """, taskId, tenantId, title, requirement, key, requestHash,
                 featureType.isBlank() ? null : featureType, linkedJobId, linkedCandidateId, userId,
                 timestamp(now), timestamp(now));
         jdbc.update("""
                 INSERT INTO conversations
                 (id,tenant_id,recruitment_task_id,status,created_at,updated_at)
-                VALUES (?,?,?,?, 'ACTIVE',?,?)
+                VALUES (?,?,?,'ACTIVE',?,?)
                 """, conversationId, tenantId, taskId, timestamp(now), timestamp(now));
         insertMessage(scope, conversationId, "USER", requirement, "REQUIREMENT_CHAT", userId, now);
         audit(userId, scope, "RECRUITMENT_TASK_CREATED", "RECRUITMENT_TASK", taskId);
@@ -325,7 +325,7 @@ public class RecruitmentService {
                 (id,tenant_id,recruitment_task_id,capability,status,progress,attempt_number,
                  idempotency_key,input_hash,created_by,created_at,
                  input_payload,policy_decision,execution_context)
-                VALUES (?,?,?,?, 'JD_GENERATION','QUEUED',0,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
+                VALUES (?,?,?,'JD_GENERATION','QUEUED',0,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
                 """, runId, tenantId, taskId, attempt, key, payloadHash,
                 userId, timestamp(now), protectedPayload(Map.of(
                         "requirement", requirement,
@@ -1180,7 +1180,7 @@ public class RecruitmentService {
                 (id,tenant_id,recruitment_task_id,source_ai_run_id,revision,title,company_name,
                  location,experience_level,education,job_type,salary_range,responsibilities,requirements,skills,nice_to_haves,benefits,talent_profile,
                  warnings,status,updated_by,created_at,updated_at)
-                VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, 'DRAFT', ?, ?, ?)
+                VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, 'DRAFT', ?, ?, ?)
                 """, UUID.randomUUID(), scope.tenantId(), taskId, runId, draft.title(),
                 draft.companyName(), draft.location(), draft.experienceLevel(), draft.education(), draft.jobType(), draft.salaryRange(),
                 draft.responsibilities(), draft.requirements(), draft.skills(), draft.niceToHaves(), draft.benefits(), draft.talentProfile(),
@@ -1221,7 +1221,7 @@ public class RecruitmentService {
         jdbc.update("""
                 INSERT INTO messages
                 (id,tenant_id,conversation_id,role,content,capability,sequence_number,created_by,created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?)
                 """, UUID.randomUUID(), scope.tenantId(), conversationId, role, pii.encrypt(content),
                 capability, sequence == null ? 1 : sequence, createdBy, timestamp(now));
         jdbc.update("UPDATE conversations SET updated_at=? WHERE id=?", timestamp(now), conversationId);
@@ -1269,8 +1269,8 @@ public class RecruitmentService {
         jdbc.update("""
                 INSERT INTO jd_run_events
                 (run_id,tenant_id,recruitment_task_id,event_type,data,created_at)
-                VALUES (?,?,?,?,?,?::jsonb,?)
-                """, run.id(), run.tenantId(), run.tenantId(), run.taskId(), eventType, json(data),
+                VALUES (?,?,?,?,?::jsonb,?)
+                """, run.id(), run.tenantId(), run.taskId(), eventType, json(data),
                 timestamp(Instant.now()));
     }
 
@@ -1357,7 +1357,7 @@ public class RecruitmentService {
         jdbc.update("""
                 INSERT INTO audit_logs
                 (id,actor_user_id,tenant_id,action,resource_type,resource_id,created_at)
-                VALUES (?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?)
                 """, UUID.randomUUID(), actor, scope.tenantId(), action, resourceType,
                 resourceId.toString(), timestamp(Instant.now()));
     }

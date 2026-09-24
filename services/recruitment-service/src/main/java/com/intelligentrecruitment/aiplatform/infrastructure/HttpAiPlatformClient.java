@@ -135,6 +135,7 @@ public class HttpAiPlatformClient implements AiPlatformClient {
                     .uri("/api/v1/tasks/{id}", aiTaskId)
                     .header("Authorization", "Bearer " + serviceToken)
                     .header("X-IR-Actor-Id", requiredActor(actorId))
+                    .header("X-IR-Tenant-Id", requiredTenantForAgentTask(aiTaskId))
                     .retrieve()
                     .body(String.class);
             JsonNode node = objectMapper.readTree(raw);
@@ -163,6 +164,7 @@ public class HttpAiPlatformClient implements AiPlatformClient {
                     .header("Idempotency-Key", idempotencyKey)
                     .header("Authorization", "Bearer " + serviceToken)
                     .header("X-IR-Actor-Id", requiredActor(actorId))
+                    .header("X-IR-Tenant-Id", requiredTenantForAgentTask(aiTaskId))
                     .retrieve()
                     .body(String.class);
             JsonNode node = objectMapper.readTree(raw);
@@ -184,6 +186,7 @@ public class HttpAiPlatformClient implements AiPlatformClient {
                     .uri("/api/v1/tasks/{id}/result", aiTaskId)
                     .header("Authorization", "Bearer " + serviceToken)
                     .header("X-IR-Actor-Id", requiredActor(actorId))
+                    .header("X-IR-Tenant-Id", requiredTenantForAgentTask(aiTaskId))
                     .retrieve()
                     .body(String.class);
             StructuredResult result = objectMapper.readValue(raw, StructuredResult.class);
@@ -379,5 +382,16 @@ public class HttpAiPlatformClient implements AiPlatformClient {
             throw new IllegalArgumentException("访问 AIAgentPlatform 任务必须提供 BOSS actor_id");
         }
         return actorId;
+    }
+
+    private String requiredTenantForAgentTask(String aiTaskId) {
+        BossControlPlaneClient.AiAuthorization authorization = authorizations.get(aiTaskId);
+        if (authorization == null) {
+            authorization = ledger.authorizationForAgentTask(aiTaskId).orElse(null);
+        }
+        if (authorization == null || authorization.tenantId() == null) {
+            throw new IllegalStateException("访问 AIAgentPlatform 任务必须找到持久化的 BOSS tenant_id");
+        }
+        return authorization.tenantId().toString();
     }
 }

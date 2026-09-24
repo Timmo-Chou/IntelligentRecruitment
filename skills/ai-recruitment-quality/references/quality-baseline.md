@@ -1,5 +1,7 @@
 # Quality Baseline
 
+> 状态：历史质量基线，不得作为当前实现依据。现行质量规则使用 `tenant_id` 进行隔离，BOSS 是身份、权限、套餐权益和积分的唯一权威，IR 不保留本地身份或积分账本。
+
 ## Test layers
 
 | Layer | Primary purpose |

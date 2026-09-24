@@ -1,4 +1,6 @@
-# P0 Product Baseline
+# P0 Product Baseline（历史归档）
+
+> 该文件只保留早期产品讨论，**不得作为当前设计、实现或验收依据**。当前权威边界见 `docs/architecture/recruitment-saas-boss-integration.md` 与 `docs/architecture/agent-orchestration-contract-v1.md`：Tenant 是唯一隔离范围；BOSS 负责身份、权益和积分；IR 负责编排；Agent 仅执行已授权任务。
 
 ## Product definition
 

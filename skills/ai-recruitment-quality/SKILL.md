@@ -26,13 +26,13 @@ Use this skill for implementation reviews, test design, security/privacy work, a
 
 ## Cross-cutting requirements
 
-- Enforce Company governance and Workspace authorization scope on the server for every tenant record and file.
+- Enforce BOSS Tenant authorization scope on the server for every recruitment record and file.
 - Mask PII by default and audit reveal, export, and deletion actions.
 - Do not use protected or sensitive personal attributes as default ranking signals.
 - Preserve evidence and model/input versions for AI-assisted screening.
 - Contract-test schemas, errors, task transitions, stream events, and callbacks.
 - Exercise duplicate requests, duplicate/out-of-order callbacks, timeouts, retries, cancellation races, and partial success.
-- Prove ledger idempotency and compensation behavior; never assert billing correctness from displayed balance alone.
+- Prove BOSS authorization, usage/cancellation Outbox idempotency, and settlement behavior; never assert credit correctness from displayed balance alone.
 - Keep secrets, resume content, contact details, raw signed URLs, and sensitive prompts out of logs and fixtures.
 
 ## Release posture

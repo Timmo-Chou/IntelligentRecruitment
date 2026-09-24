@@ -80,7 +80,7 @@ IR 调用 AIAgentPlatform 前必须完成 BOSS 授权和积分预占。
 - data_handling；
 - input_versions。
 
-AIAgentPlatform 完成、失败、取消或重试后，通过 BOSS 正式 usage-reports 或 execution-cancellations 契约完成用量上报和结算。
+Agent 完成、失败、取消或重试后仅持久化任务状态和结果；IR 通过 BOSS 正式 `usage-reports` 或 `execution-cancellations` 契约完成用量上报和结算。
 
 IR 不保留模型直连、本地扣费、本地预占或旧 settle 兼容路径。
 

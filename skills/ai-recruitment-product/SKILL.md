@@ -18,7 +18,7 @@ AI generates, analyzes, and recommends. A human confirms business records and re
 ## Working method
 
 1. Identify the actor, business object, entry condition, result, state change, and cost trigger.
-2. Check the requested behavior against [references/product-baseline.md](references/product-baseline.md).
+2. Check the requested behavior against `docs/architecture/recruitment-saas-boss-integration.md` and `docs/architecture/agent-orchestration-contract-v1.md`. [references/product-baseline.md](references/product-baseline.md) is a historical archive and must not be used as a current source of truth.
 3. Reuse canonical terminology and states. Do not create parallel concepts such as both "resume library" and "talent library".
 4. Keep P1/P2 capabilities out of P0 unless the user explicitly changes scope.
 5. For unresolved rules, expose the decision and its impact on UX, API, data, and billing.
@@ -26,6 +26,8 @@ AI generates, analyzes, and recommends. A human confirms business records and re
 
 ## Non-negotiable product rules
 
+- Tenant is the sole recruitment isolation scope. BOSS is the authority for identity, permissions, packages, entitlements, and credits; IR does not implement a local package or credit ledger.
+- Every billable AI operation follows `IR -> BOSS authorization -> AIAgentPlatform execution -> IR settlement Outbox -> BOSS`. Runtime Mock, local result fallback, or local settlement cannot replace this flow.
 - Generated JD content begins as a draft; confirmation creates or updates a business version.
 - Screening binds to a specific JD version and resume-parse version.
 - Screening results include evidence, matched points, gaps, missing information, risks, and a human-review recommendation—not only a score.

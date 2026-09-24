@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Bot, BriefcaseBusiness, ChevronRight, LayoutDashboard, Library, MoreHorizontal, Pencil, Plus, Settings, Sparkles, Trash2, Users } from "lucide-react";
+import { Bell, Bot, BriefcaseBusiness, ChevronRight, LayoutDashboard, Library, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import React, { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -13,7 +13,7 @@ import { AIChatDialog } from "../ai-assistant/ai-chat-dialog";
 
 const navItems = [
   ["概览", LayoutDashboard, "/"], ["智能招聘", Sparkles, "/recruitment"],
-  ["职位库", BriefcaseBusiness, "/jobs"], ["人才库", Users, "/candidates"], ["面试题库", Library, "/interviews"], ["设置", Settings, "/settings"],
+  ["职位库", BriefcaseBusiness, "/jobs"], ["人才库", Users, "/candidates"], ["面试题库", Library, "/interviews"],
 ] as const;
 
 function NotificationBell() {
@@ -211,7 +211,7 @@ export function AppShell({ children, activeItem = "概览", pageHeader }: { chil
         <nav className="space-y-1 overflow-y-auto overflow-x-hidden" aria-label="主导航">
           {navItems.map(([label, Icon, href]) => (
             <React.Fragment key={label}>
-              <Link href={href} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] transition ${label === "设置" ? "mt-5" : ""} ${activeItem === label ? "bg-[#ddf8ef] font-semibold text-[#07945f]" : "text-[#27477f] hover:bg-[#f3f8fe]"}`}>
+              <Link href={href} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[15px] transition ${activeItem === label ? "bg-[#ddf8ef] font-semibold text-[#07945f]" : "text-[#27477f] hover:bg-[#f3f8fe]"}`}>
                 <Icon aria-hidden="true" size={18} strokeWidth={1.9}/>{label}
               </Link>
               {label === "智能招聘" && (

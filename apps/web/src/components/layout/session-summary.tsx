@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, ChevronRight, LogOut, UserRound } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError, setAccessToken } from "@/lib/api-client";
@@ -59,10 +59,11 @@ export function SessionSummary() {
             <span className="min-w-0 truncate font-medium text-[#20242c]">{item.type === "PERSONAL" ? "个人账号" : item.name}</span>
             {tenant?.id === item.id && <Check size={19} className="ml-3 shrink-0 text-[#2f75ff]"/>}
           </button>)}</div>
-          <Link href="/onboarding" onClick={() => { setMenuOpen(false); setSwitchOpen(false); }} className="mt-2 block rounded-lg px-3 py-3 text-xs font-medium text-[#2467ca] hover:bg-[#f6f8fb]">注册或申请加入企业</Link>
         </div>}
+        <Link href="/onboarding" onClick={() => { setMenuOpen(false); setSwitchOpen(false); }} className="mt-1 flex h-12 w-full items-center rounded-lg px-4 text-xs font-medium text-[#20242c] transition-colors hover:bg-[#f0f1f3]">注册或申请加入企业</Link>
+        <Link href="/settings" onClick={() => { setMenuOpen(false); setSwitchOpen(false); }} className="flex h-12 w-full items-center rounded-lg px-4 text-xs font-medium text-[#20242c] transition-colors hover:bg-[#f0f1f3]">设置</Link>
+        <button type="button" onClick={() => { setMenuOpen(false); setSwitchOpen(false); void logout(); }} className="flex h-12 w-full items-center rounded-lg px-4 text-xs font-medium text-[#20242c] transition-colors hover:bg-[#f0f1f3]">退出</button>
       </div>}
     </div>
-    <button type="button" aria-label="退出当前设备" onClick={logout} className="grid h-9 w-9 place-items-center rounded-full hover:bg-white/70"><LogOut size={17}/></button>
   </div>;
 }
