@@ -69,6 +69,9 @@ app:
     http:
       base-url: ${AI_AGENT_PLATFORM_URL:http://localhost:8083}
       service-token: ${AI_AGENT_IR_SERVICE_TOKEN:}
+    webhook:
+      signing-secret: ${AI_AGENT_WEBHOOK_SIGNING_SECRET:}
+      time-window-seconds: ${AI_AGENT_WEBHOOK_TIME_WINDOW_SECONDS:300}
   ai-assistant:
     help-manual-url: ${AI_ASSISTANT_HELP_MANUAL_URL:https://help.intelligentrecruitment.com}
     cooperation-qr-code-url: ${AI_ASSISTANT_COOPERATION_QR_CODE_URL:}

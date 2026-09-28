@@ -83,10 +83,14 @@ public class TenancyController {
     @GetMapping("/{tenantId}/credit-consumptions") JsonNode enterpriseCreditConsumptions(@PathVariable UUID tenantId, Authentication a) { return boss.enterpriseCreditConsumptions(token(a), tenantId); }
     @GetMapping("/{tenantId}/roles") JsonNode roles(@PathVariable UUID tenantId, Authentication a) { return boss.enterpriseRoles(token(a), tenantId); }
     @GetMapping("/{tenantId}/permission-catalog") JsonNode permissionCatalog(@PathVariable UUID tenantId, Authentication a) { return boss.permissionCatalog(token(a), tenantId); }
+    @GetMapping("/{tenantId}/permissions/{permissionCode}")
+    Map<String, Boolean> permission(@PathVariable UUID tenantId, @PathVariable String permissionCode, Authentication a) {
+        return Map.of("allowed", boss.hasPermission(token(a), tenantId, permissionCode));
+    }
 
     @PostMapping("/{tenantId}/invitations")
     JsonNode invite(@PathVariable UUID tenantId, @Valid @RequestBody InvitationRequest r, Authentication a) {
-        return boss.createInvitation(token(a), tenantId, r.roleCode(), r.maxUses(), r.expiresAt(), r.note());
+        return boss.createInvitation(token(a), tenantId, r.roleCode(), r.maxUses(), r.validityHours(), r.note());
     }
     @PostMapping("/invitations/claim") void claim(@Valid @RequestBody ClaimInvitationRequest r, Authentication a) { boss.claimInvitation(token(a), r.invitationToken()); }
     @PostMapping("/join-applications/{applicationId}/decision") void decide(@PathVariable UUID applicationId, @Valid @RequestBody DecisionRequest r, Authentication a) { boss.decideJoinApplication(token(a), applicationId, r.approve(), r.reason()); }
@@ -104,7 +108,8 @@ public class TenancyController {
     public record EnterpriseSearchResult(UUID tenantId, String tenantName, String legalName) { }
     public record RegistrationRequest(@NotBlank @Size(max = 200) String legalName, @NotBlank @Pattern(regexp = "[0-9A-Z]{18}") String creditCode, @NotNull UUID licenseDocumentId, @NotBlank @Size(max = 80) String contactName, @NotBlank @Pattern(regexp = "1\\d{10}") String contactPhone) { }
     public record JoinApplicationRequest(@NotBlank @Size(max = 64) String roleCode, @Size(max = 500) String reason) { }
-    public record InvitationRequest(@NotBlank @Size(max = 64) String roleCode, @Min(1) @Max(10000) int maxUses, @NotNull Instant expiresAt, @Size(max = 500) String note) { }
+    public record InvitationRequest(@NotBlank @Size(max = 64) String roleCode, @Min(1) @Max(10000) int maxUses,
+                                    @NotNull Integer validityHours, @Size(max = 500) String note) { }
     public record ClaimInvitationRequest(@NotBlank String invitationToken) { }
     public record DecisionRequest(boolean approve, @Size(max = 500) String reason) { }
     public record FeatureSettingsRequest(boolean talentPoolSharingEnabled, boolean jobPoolSharingEnabled) { }

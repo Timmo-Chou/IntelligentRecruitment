@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.MDC;
 
 /**
  * 通过 HTTP 调用 AIAgentPlatform 的客户端（对内面 /api/v1/*）。
@@ -60,7 +61,9 @@ public class HttpAiPlatformClient implements AiPlatformClient {
     /** BOSS-driven lifecycle cleanup; AIAgent retains accounting metadata but erases business payloads. */
     public void logicallyDeleteTenantBusinessData(java.util.UUID tenantId) {
         client.post().uri("/api/v1/internal/tenants/{tenantId}/logical-delete", tenantId)
-                .header("Authorization", "Bearer " + boss.internalAccessToken()).retrieve().toBodilessEntity();
+                // AIAgentPlatform's internal API is protected by the dedicated IR service
+                // credential. The BOSS machine token is used only for BOSS callbacks.
+                .header("Authorization", "Bearer " + serviceToken).retrieve().toBodilessEntity();
     }
 
     @Override
@@ -162,6 +165,7 @@ public class HttpAiPlatformClient implements AiPlatformClient {
             String raw = client.post()
                     .uri("/api/v1/tasks/{id}/cancel", aiTaskId)
                     .header("Idempotency-Key", idempotencyKey)
+                    .header("X-Request-Id", downstreamRequestId("agent-cancel", idempotencyKey))
                     .header("Authorization", "Bearer " + serviceToken)
                     .header("X-IR-Actor-Id", requiredActor(actorId))
                     .header("X-IR-Tenant-Id", requiredTenantForAgentTask(aiTaskId))
@@ -229,6 +233,7 @@ public class HttpAiPlatformClient implements AiPlatformClient {
             ledger.authorized(UUID.randomUUID(), UUID.fromString(command.tenantId()), UUID.fromString(command.actorId()), command.businessTaskId(), "CONVERSATION_ROUTE", command.idempotencyKey(), authorization);
             String raw = client.post().uri("/api/v1/agent-routes")
                     .contentType(MediaType.APPLICATION_JSON)
+                    .header("Idempotency-Key", command.idempotencyKey())
                     .header("Authorization", "Bearer " + serviceToken)
                     .header("X-AI-Grant", authorization.grant())
                     .header("X-Request-Id", command.requestId())
@@ -253,6 +258,13 @@ public class HttpAiPlatformClient implements AiPlatformClient {
 
     private static int number(Object value) {
         return value instanceof Number n ? Math.max(0, n.intValue()) : 0;
+    }
+
+    private static String downstreamRequestId(String operation, String idempotencyKey) {
+        String current = MDC.get("request_id");
+        if (current != null && !current.isBlank()) return current;
+        return UUID.nameUUIDFromBytes(("ir-agent:" + operation + ":" + idempotencyKey)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
     }
 
     @Override

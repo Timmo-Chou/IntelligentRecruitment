@@ -34,7 +34,9 @@ public class SecurityConfiguration {
                         .requestMatchers("/actuator/health/**", "/api/v1/system/**", "/api/v1/internal/foundation/**",
                                 "/api/v1/auth/challenges", "/api/v1/auth/verify", "/api/v1/auth/refresh",
                                 "/api/v1/auth/password-login", "/api/v1/auth/password-reset",
-                                "/internal/v1/platform/tickets/**") // BOSS 工单代理使用独立服务凭证
+                                "/internal/v1/platform/tickets/**",
+                                "/internal/v1/platform/notifications/**",
+                                "/internal/v1/ai/webhooks/**") // 内部服务使用 Webhook HMAC，不要求用户 Bearer
                         .permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .anyRequest().authenticated())

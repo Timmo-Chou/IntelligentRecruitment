@@ -31,7 +31,7 @@ export default function SettingsPage() {
   </AppShell>;
 }
 
-/** 个人设置 TAB：账号资料表单（保存走 PUT /me/display-name） */
+/** 个人设置 TAB：账号资料和密码设置 */
 function ProfilePanel() {
   const [me, setMe] = useState<Me | null>(null); const [displayName, setDisplayName] = useState(""); const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
   useEffect(() => { void apiFetch<Me>("/me").then(item => { setMe(item); setDisplayName(item.displayName ?? ""); }).catch(() => undefined); }, []);
@@ -44,7 +44,47 @@ function ProfilePanel() {
     } catch (cause) { setMessage(cause instanceof ApiError ? cause.message : "保存失败"); }
     finally { setBusy(false); }
   }
-  return <section className="rounded-2xl border border-[#d8e6f5] bg-white p-6"><h2 className="m-0 text-base font-bold">账号资料</h2><form className="mt-4 space-y-4" onSubmit={save}><label className="block text-sm font-medium">手机号<input disabled value={me?.maskedPhone ?? ""} className="mt-2 h-10 w-full rounded-lg border border-[#d8e6f5] bg-[#f7fbff] px-3"/></label><label className="block text-sm font-medium">显示名称<input value={displayName} maxLength={80} onChange={event => setDisplayName(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-[#cddbea] px-3"/></label>{message && <p className="rounded-lg bg-[#f4f8fc] px-3 py-2 text-sm text-[#526e96]">{message}</p>}<button className="primary-button" disabled={busy} type="submit">{busy ? "保存中…" : "保存"}</button></form></section>;
+  return <div className="space-y-4">
+    <section className="rounded-2xl border border-[#d8e6f5] bg-white p-6"><h2 className="m-0 text-base font-bold">账号资料</h2><form className="mt-4 space-y-4" onSubmit={save}><label className="block text-sm font-medium">手机号<input disabled value={me?.maskedPhone ?? ""} className="mt-2 h-10 w-full rounded-lg border border-[#d8e6f5] bg-[#f7fbff] px-3"/></label><label className="block text-sm font-medium">显示名称<input value={displayName} maxLength={80} onChange={event => setDisplayName(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-[#cddbea] px-3"/></label>{message && <p className="rounded-lg bg-[#f4f8fc] px-3 py-2 text-sm text-[#526e96]">{message}</p>}<button className="primary-button" disabled={busy} type="submit">{busy ? "保存中…" : "保存"}</button></form></section>
+    <PasswordPanel />
+  </div>;
+}
+
+function PasswordPanel() {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const valid = password.length >= 8 && password.length <= 64 && /[A-Za-z]/.test(password) && /\d/.test(password);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setMessage("");
+    if (!valid) { setMessage("新密码须为 8 至 64 位，并同时包含英文字母和数字。"); return; }
+    if (password !== confirmPassword) { setMessage("两次输入的新密码不一致。"); return; }
+    setBusy(true);
+    try {
+      await apiFetch<void>("/auth/password", {
+        method: "POST",
+        body: JSON.stringify({ password, current_password: currentPassword || undefined }),
+      });
+      setCurrentPassword(""); setPassword(""); setConfirmPassword("");
+      setMessage("密码已更新，下次登录请使用新密码。");
+    } catch (cause) { setMessage(cause instanceof ApiError ? cause.message : "密码更新失败，请稍后重试。"); }
+    finally { setBusy(false); }
+  }
+
+  return <section className="rounded-2xl border border-[#d8e6f5] bg-white p-6">
+    <h2 className="m-0 text-base font-bold">设置或修改密码</h2>
+    <p className="mt-2 text-sm text-[#60799f]">首次设置密码时当前密码可留空；已有密码时请输入当前密码。</p>
+    <form className="mt-4 max-w-xl space-y-4" onSubmit={submit}>
+      <label className="block text-sm font-medium">当前密码<input value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} type="password" autoComplete="current-password" className="mt-2 h-10 w-full rounded-lg border border-[#cddbea] px-3" placeholder="首次设置可留空"/></label>
+      <label className="block text-sm font-medium">新密码<input value={password} onChange={event => setPassword(event.target.value)} type="password" autoComplete="new-password" maxLength={64} className="mt-2 h-10 w-full rounded-lg border border-[#cddbea] px-3" placeholder="8至64位，包含字母和数字"/></label>
+      <label className="block text-sm font-medium">确认新密码<input value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} type="password" autoComplete="new-password" maxLength={64} className="mt-2 h-10 w-full rounded-lg border border-[#cddbea] px-3" placeholder="请再次输入新密码"/></label>
+      {message && <p className="rounded-lg bg-[#f4f8fc] px-3 py-2 text-sm text-[#526e96]">{message}</p>}
+      <button className="primary-button" disabled={busy || !password || !confirmPassword} type="submit">{busy ? "更新中…" : "更新密码"}</button>
+    </form>
+  </section>;
 }
 
 /** 所属企业 TAB：待审核申请 + 已注册企业 + 已加入企业 列表 */

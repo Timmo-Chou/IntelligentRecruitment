@@ -76,6 +76,7 @@ public class CandidateService {
     @Transactional
     public CandidateDetail upload(UUID userId, UUID tenantId, MultipartFile file) {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        tenantAccess.requirePermission(userId, tenantId, "TALENT_LIBRARY_EDIT");
         byte[] bytes = validateAndRead(file);
         String hash = SecurityHashes.sha256(bytes);
         String duplicateOwner = scope.enterprise() ? " AND c.created_by=?" : "";
@@ -332,6 +333,7 @@ public class CandidateService {
     @Transactional
     public CandidateDetail createManual(UUID userId, UUID tenantId, ManualTalentInput input) {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        tenantAccess.requirePermission(userId, tenantId, "TALENT_LIBRARY_EDIT");
         if (input == null || isBlank(input.fullName())) throw validation("姓名不能为空");
         Instant now = Instant.now();
         UUID candidateId = UUID.randomUUID();
@@ -355,21 +357,21 @@ public class CandidateService {
                     INSERT INTO file_assets
                     (id,tenant_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
-                    VALUES (?,?,?,?,?,?,?,?,'CLEAN','ACTIVE',?,?)
+                    VALUES (?,?,?,?,?,?,?,'CLEAN','ACTIVE',?,?)
                     """, assetId, scope.tenantId(), objectKey, pii.encrypt(filename), "text/plain",
                     bytes.length, SecurityHashes.sha256(bytes), userId, timestamp(now));
             jdbc.update("""
                     INSERT INTO candidates
                     (id,tenant_id,display_name_masked,full_name_ciphertext,email_ciphertext,
                      phone_ciphertext,full_name_search_hash,phone_search_hash,status,created_by,created_at,updated_at,profile,search_text)
-                    VALUES (?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
+                    VALUES (?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
                     """, candidateId, scope.tenantId(), mask(name), pii.encrypt(name),
                     pii.encrypt(email), pii.encrypt(phone), pii.searchToken(name), pii.searchToken(phone), userId, timestamp(now), timestamp(now),
                     json(profile), searchText);
             jdbc.update("""
                     INSERT INTO resume_files
                     (id,tenant_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
-                    VALUES (?,?,?,?,?,'PARSED',NULL,?,?,?)
+                    VALUES (?,?,?,?,'PARSED',NULL,?,?,?)
                     """, resumeFileId, scope.tenantId(), candidateId, assetId, userId,
                     timestamp(now), timestamp(now));
             ParsedResume parsed = new ParsedResume(name, email == null ? "" : email, phone == null ? "" : phone,
@@ -396,6 +398,7 @@ public class CandidateService {
     public CandidateDetail createFromResumeSource(UUID userId, UUID tenantId, UUID assetId,
                                                   String filename, String extractedText) {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        tenantAccess.requirePermission(userId, tenantId, "TALENT_LIBRARY_EDIT");
         // 幂等：该简历资产已入库为候选人则直接返回已有候选人
         String linkedOwner = scope.enterprise() ? " AND c.created_by=?" : "";
         List<Object> linkedParams = new ArrayList<>(List.of(assetId, tenantId));
@@ -632,6 +635,7 @@ public class CandidateService {
     @Transactional
     public CandidateDetail retryParse(UUID userId, UUID tenantId, UUID candidateId) {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        tenantAccess.requirePermission(userId, tenantId, "TALENT_LIBRARY_EDIT");
         requireSourceOwner(scope,userId,candidateId);
         CandidateDetail existing = detailScoped(tenantId, candidateId);
         jdbc.update("UPDATE resume_files SET status='QUEUED',error_code=NULL,provider_task_id=NULL,updated_at=? WHERE id=? AND tenant_id=?",
@@ -644,6 +648,7 @@ public class CandidateService {
     @Transactional
     public void delete(UUID userId, UUID tenantId, UUID candidateId) {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        tenantAccess.requirePermission(userId, tenantId, "TALENT_LIBRARY_EDIT");
         requireSourceOwner(scope,userId,candidateId);
         List<FileRow> files = jdbc.query("""
                 SELECT f.object_key,f.original_filename,f.media_type FROM candidates c
@@ -679,7 +684,7 @@ public class CandidateService {
                 (id,tenant_id,candidate_id,resume_file_id,version_number,schema_version,status,
                  headline,years_experience,highest_education,skills,work_experience,education_experience,
                  summary,warnings,raw_text,created_at)
-                VALUES (?,?,?,?,?,?,'RESUME_V1','CONFIRMED',?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?::jsonb,?,?)
+                VALUES (?,?,?,?,?,'RESUME_V1','CONFIRMED',?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?::jsonb,?,?)
                 """, parseId, scope.tenantId(), candidateId, resumeFileId, version,
                 parsed.headline(), parsed.yearsExperience(), parsed.education(), json(parsed.skills()),
                 json(parsed.workExperience()), json(parsed.educationExperience()), parsed.summary(),
@@ -735,7 +740,9 @@ public class CandidateService {
 
     @Transactional
     public CandidateDetail updateTags(UUID userId, UUID tenantId, UUID candidateId, List<String> tags) {
-        TenantScope scope=tenantAccess.requireBusinessAccess(userId, tenantId); requireSourceOwner(scope,userId,candidateId);
+        TenantScope scope=tenantAccess.requireBusinessAccess(userId, tenantId);
+        tenantAccess.requirePermission(userId, tenantId, "TALENT_LIBRARY_EDIT");
+        requireSourceOwner(scope,userId,candidateId);
         CandidateDetail existing = detailScoped(tenantId, candidateId);
         Map<String, Object> profile = parseProfileMap(existing.profileJson());
         List<String> cleaned = tags == null ? List.of() : tags.stream()
@@ -985,7 +992,7 @@ public class CandidateService {
         jdbc.update("""
                 INSERT INTO audit_logs
                 (id,actor_user_id,tenant_id,action,resource_type,resource_id,created_at)
-                VALUES (?,?,?,?,?,'CANDIDATE',?,?)
+                VALUES (?,?,?,?,'CANDIDATE',?,?)
                 """, UUID.randomUUID(), actor, scope.tenantId(), action,
                 resourceId.toString(), timestamp(Instant.now()));
     }

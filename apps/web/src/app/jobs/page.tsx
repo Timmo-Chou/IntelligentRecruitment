@@ -10,6 +10,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { apiDownload, apiFetch } from "@/lib/api-client";
 import { CategoryTreePanel } from "@/components/jobs/category-tree-panel";
 import { useTenant } from "@/lib/tenant-context";
+import { useTenantPermission } from "@/lib/tenant-permission";
 import {
   fetchJobStats, fetchJobs, fetchJob, createJob, updateJob, deleteJob,
   batchUpdateStatus, batchDelete, updateJobStatus,
@@ -122,6 +123,7 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
 export default function JobsPage() {
   const { tenantId, tenant, loading: wsLoading, notAuthenticated, error: wsError, refresh: refreshTenant } = useTenant();
+  const { allowed: canEdit } = useTenantPermission(tenantId, "JOB_LIBRARY_EDIT");
 
   useEffect(() => {
     if (notAuthenticated) window.location.replace("/login");
@@ -640,12 +642,12 @@ export default function JobsPage() {
                   {moreOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 </button>
 
-                <button className="primary-button !h-10" type="button" onClick={() => handleOpenEdit()}>
+                {canEdit && <button className="primary-button !h-10" type="button" onClick={() => handleOpenEdit()}>
                   <Plus size={16} /> 新建职位
-                </button>
+                </button>}
                 {tenant?.type === "ENTERPRISE" && jobPoolSharingEnabled && tenant?.status !== "EXPIRED_READONLY" && <button className="outline-button !h-10" type="button" onClick={() => { if (tenantId) void apiFetch(`/tenants/${tenantId}/enterprise-pools/jobs/sync`, { method: "POST" }).catch((cause) => setError(cause instanceof Error ? cause.message : "同步失败")); }}>同步至企业池</button>}
 
-                <div className="relative" ref={batchMenuRef}>
+                {canEdit && <div className="relative" ref={batchMenuRef}>
                   <button
                     className="outline-button !h-10 !border-[#bdd3ef] !text-[13px] !font-semibold !text-[#36527f]"
                     type="button"
@@ -704,7 +706,7 @@ export default function JobsPage() {
                       </button>
                     </div>
                   )}
-                </div>
+                </div>}
               </div>
             </div>
 
@@ -746,7 +748,7 @@ export default function JobsPage() {
                 <p className="mt-1 text-xs">
                   {hasFilters ? "试试清空筛选条件或切换招聘状态" : "点击「新建职位」开始创建第一个职位"}
                 </p>
-                {!hasFilters && (
+                {!hasFilters && canEdit && (
                   <button className="primary-button mt-4" type="button" onClick={() => handleOpenEdit()}>
                     <Plus size={16} /> 新建职位
                   </button>
@@ -789,9 +791,8 @@ export default function JobsPage() {
                           <td className="border-b border-[#eaf1fa] whitespace-nowrap px-3 py-3 font-medium text-[#0874e8]">
                             <button className="hover:underline" onClick={() => handleViewDetail(job)} type="button">查看</button>
                             <span className="mx-1 text-[#c4d3e8]">|</span>
-                            <button className="hover:underline" onClick={() => handleOpenEdit(job)} type="button">编辑</button>
-                            <span className="mx-1 text-[#c4d3e8]">|</span>
-                            <button
+                            {canEdit && <><button className="hover:underline" onClick={() => handleOpenEdit(job)} type="button">编辑</button><span className="mx-1 text-[#c4d3e8]">|</span></>}
+                            {canEdit && <><button
                               className="hover:underline disabled:cursor-not-allowed disabled:text-[#9db0c9] disabled:no-underline"
                               disabled={job.status === "ACTIVE"}
                               onClick={() => void handleChangeStatus(job, "ACTIVE")}
@@ -807,9 +808,8 @@ export default function JobsPage() {
                               type="button"
                             >
                               停用
-                            </button>
-                            <span className="mx-1 text-[#c4d3e8]">|</span>
-                            <button className="hover:underline" onClick={() => setDeleteConfirm(job)} type="button">删除</button>
+                            </button></>}
+                            {canEdit && <><span className="mx-1 text-[#c4d3e8]">|</span><button className="hover:underline" onClick={() => setDeleteConfirm(job)} type="button">删除</button></>}
                           </td>
                         </tr>
                       ))}

@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -171,7 +172,7 @@ public class BossControlPlaneClient {
     public JsonNode enterpriseCreditConsumptions(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "credit-consumptions"); }
     public JsonNode enterpriseRoles(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "roles"); }
     public JsonNode permissionCatalog(String accessToken, UUID tenantId) { return recruitmentGet(accessToken, tenantId, "permission-catalog"); }
-    public JsonNode createInvitation(String accessToken, UUID tenantId, String roleCode, int maxUses, Instant expiresAt, String note) { return request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/invitations", accessToken, "{\"role_code\":" + quoted(roleCode) + ",\"max_uses\":" + maxUses + ",\"expires_at\":" + quoted(expiresAt.toString()) + ",\"note\":" + quoted(note) + "}", null).body(); }
+    public JsonNode createInvitation(String accessToken, UUID tenantId, String roleCode, int maxUses, int validityHours, String note) { return request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/invitations", accessToken, "{\"role_code\":" + quoted(roleCode) + ",\"max_uses\":" + maxUses + ",\"validity_hours\":" + validityHours + ",\"note\":" + quoted(note) + "}", null).body(); }
     public void claimInvitation(String accessToken, String invitationToken) { request("POST", "/api/v1/recruitment/invitations/claim", accessToken, "{\"invitation_token\":" + quoted(invitationToken) + "}", null); }
     public void decideJoinApplication(String accessToken, UUID applicationId, boolean approve, String reason) { request("POST", "/api/v1/recruitment/join-applications/" + applicationId + "/decision", accessToken, "{\"approve\":" + approve + ",\"reason\":" + quoted(reason) + "}", null); }
     public void assignOwnerSeat(String accessToken, UUID tenantId) { request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/owner-seat/assign", accessToken, "{}", null); }
@@ -181,7 +182,45 @@ public class BossControlPlaneClient {
     public JsonNode createRole(String accessToken, UUID tenantId, String code, String displayName, JsonNode permissionCodes) { return request("POST", "/api/v1/recruitment/tenants/" + tenantId + "/roles", accessToken, "{\"code\":" + quoted(code) + ",\"display_name\":" + quoted(displayName) + ",\"permission_codes\":" + permissionCodes + "}", null).body(); }
     public void updateRolePermissions(String accessToken, UUID tenantId, UUID roleId, JsonNode permissionCodes) { request("PUT", "/api/v1/recruitment/tenants/" + tenantId + "/roles/" + roleId + "/permissions", accessToken, "{\"permission_codes\":" + permissionCodes + "}", null); }
     public void updateMemberRole(String accessToken, UUID tenantId, UUID userId, String roleCode) { request("PUT", "/api/v1/recruitment/tenants/" + tenantId + "/members/" + userId + "/role", accessToken, "{\"role_code\":" + quoted(roleCode) + "}", null); }
-    private JsonNode recruitmentGet(String accessToken, UUID tenantId, String resource) { return request("GET", "/api/v1/recruitment/tenants/" + tenantId + "/" + resource, accessToken, null, null).body(); }
+    /**
+     * BOSS deliberately exposes its public JSON contract in snake_case.  These
+     * tenant-management responses are proxied to the browser by the IR BFF,
+     * whose first-party UI contract is camelCase.  Convert only this read path
+     * at the anti-corruption boundary; internal authorization and AI payloads
+     * continue to use their original BOSS field names.
+     */
+    private JsonNode recruitmentGet(String accessToken, UUID tenantId, String resource) {
+        return camelize(request("GET", "/api/v1/recruitment/tenants/" + tenantId + "/" + resource,
+                accessToken, null, null).body());
+    }
+
+    private JsonNode camelize(JsonNode value) {
+        if (value == null || value.isValueNode()) return value;
+        if (value.isArray()) {
+            var array = json.createArrayNode();
+            value.forEach(item -> array.add(camelize(item)));
+            return array;
+        }
+        var object = json.createObjectNode();
+        value.fields().forEachRemaining(entry -> object.set(toCamelCase(entry.getKey()), camelize(entry.getValue())));
+        return object;
+    }
+
+    private static String toCamelCase(String value) {
+        StringBuilder result = new StringBuilder(value.length());
+        boolean upper = false;
+        for (char character : value.toCharArray()) {
+            if (character == '_') {
+                upper = true;
+            } else if (upper) {
+                result.append(Character.toUpperCase(character));
+                upper = false;
+            } else {
+                result.append(character);
+            }
+        }
+        return result.toString();
+    }
 
     private Session session(Response response) {
         JsonNode body = response.body();
@@ -290,12 +329,26 @@ public class BossControlPlaneClient {
 
     private Response request(String method, String path, String bearer, String body, String userAgent, String cookie,
                              String contentType) {
+        return request(method, path, bearer, body, userAgent, cookie, contentType, null, null);
+    }
+
+    private Response request(String method, String path, String bearer, String body, String userAgent, String cookie,
+                             String contentType, String requestId, String idempotencyKey) {
         try {
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path)).timeout(Duration.ofSeconds(8))
                     .header("Accept", "application/json");
             if (bearer != null) builder.header("Authorization", "Bearer " + bearer);
             if (userAgent != null && !userAgent.isBlank()) builder.header("User-Agent", userAgent);
             if (cookie != null && !cookie.isBlank()) builder.header("Cookie", "boss_refresh=" + cookie);
+            if (path.startsWith("/internal/ai/") && "POST".equalsIgnoreCase(method)) {
+                builder.header("X-Request-Id", outboundRequestId(path, body));
+                if (body != null) {
+                    String key = text(json.readTree(body), "idempotency_key");
+                    if (key != null && !key.isBlank()) builder.header("Idempotency-Key", key);
+                }
+            }
+            if (requestId != null && !requestId.isBlank()) builder.header("X-Request-Id", requestId);
+            if (idempotencyKey != null && !idempotencyKey.isBlank()) builder.header("Idempotency-Key", idempotencyKey);
             if (body == null) builder.method(method, HttpRequest.BodyPublishers.noBody());
             else builder.header("Content-Type", contentType).method(method, HttpRequest.BodyPublishers.ofString(body));
             HttpResponse<String> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
@@ -323,6 +376,7 @@ public class BossControlPlaneClient {
             case 403 -> HttpStatus.FORBIDDEN;
             case 404 -> HttpStatus.NOT_FOUND;
             case 409 -> HttpStatus.CONFLICT;
+            case 410 -> HttpStatus.GONE;
             case 422 -> HttpStatus.UNPROCESSABLE_ENTITY;
             case 429 -> HttpStatus.TOO_MANY_REQUESTS;
             default -> HttpStatus.BAD_GATEWAY;
@@ -345,6 +399,12 @@ public class BossControlPlaneClient {
     private String quoted(String value) { try { return json.writeValueAsString(value == null ? "" : value); } catch (Exception e) { throw new IllegalStateException(e); } }
     private static String encode(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }
     private static String trimSlash(String value) { return value.endsWith("/") ? value.substring(0, value.length() - 1) : value; }
+    private static String outboundRequestId(String path, String body) {
+        String current = MDC.get("request_id");
+        if (current != null && !current.isBlank()) return current;
+        return UUID.nameUUIDFromBytes(("ir-boss:" + path + ":" + (body == null ? "" : body))
+                .getBytes(StandardCharsets.UTF_8)).toString();
+    }
 
     public record Challenge(UUID id, Instant expiresAt, String mockCode) { }
     public record Session(UUID userId, String accessToken, Instant expiresAt, boolean newUser,

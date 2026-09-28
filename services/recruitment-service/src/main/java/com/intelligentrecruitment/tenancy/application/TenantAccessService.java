@@ -35,6 +35,12 @@ public class TenantAccessService {
                 overview.talentPoolSharingEnabled(), overview.jobPoolSharingEnabled(), false);
     }
 
+    public void requirePermission(UUID userId, UUID tenantId, String permissionCode) {
+        if (!boss.hasPermission(BossRequestContext.accessToken(userId), tenantId, permissionCode)) {
+            throw new ApiException("TENANT_PERMISSION_DENIED", "当前账号没有执行该操作所需权限", HttpStatus.FORBIDDEN);
+        }
+    }
+
     /**
      * Expired enterprise owners retain the agreed 30-day read/export window for
      * enterprise pools only. No source-data or membership operation uses this scope.

@@ -11,6 +11,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -46,6 +47,16 @@ public class GlobalExceptionHandler {
         log.warn("Duplicate key conflict, requestId={}", requestId(request), exception);
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new ApiError("DUPLICATE_RESOURCE", "该简历已存在或正在处理，请刷新后重试", requestId(request)));
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    ResponseEntity<ApiError> handleResponseStatus(ResponseStatusException exception, HttpServletRequest request) {
+        HttpStatus status = HttpStatus.resolve(exception.getStatusCode().value());
+        if (status == null) status = HttpStatus.INTERNAL_SERVER_ERROR;
+        String code = status == HttpStatus.UNAUTHORIZED ? "UNAUTHENTICATED"
+                : status == HttpStatus.BAD_REQUEST ? "VALIDATION_FAILED" : "INTERNAL_ERROR";
+        String message = exception.getReason() == null ? "请求无法处理" : exception.getReason();
+        return ResponseEntity.status(status).body(new ApiError(code, message, requestId(request)));
     }
 
     @ExceptionHandler(Exception.class)

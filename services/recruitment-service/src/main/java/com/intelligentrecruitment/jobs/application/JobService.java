@@ -84,6 +84,7 @@ public class JobService {
     @Transactional
     public JobView create(UUID userId, UUID tenantId, JobInput input) {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        tenantAccess.requirePermission(userId, tenantId, "JOB_LIBRARY_EDIT");
         UUID jobId = UUID.randomUUID();
         Instant now = Instant.now();
         JobInput clean = clean(input);
@@ -105,6 +106,7 @@ public class JobService {
     public JobView createFromConfirmedJd(UUID userId, UUID tenantId, UUID recruitmentTaskId, UUID jdDraftId, UUID sourceAiRunId,
                                          JobInput input, String talentProfile, String warningsJson) {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        tenantAccess.requirePermission(userId, tenantId, "JOB_LIBRARY_EDIT");
         JobInput clean = clean(input);
         String cleanProfile = optional(talentProfile, 10_000);
         String safeWarnings = warningsJson == null || warningsJson.isBlank() ? "[]" : warningsJson;
@@ -138,6 +140,7 @@ public class JobService {
     @Transactional
     public JobView update(UUID userId, UUID tenantId, UUID jobId, JobInput input) {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        tenantAccess.requirePermission(userId, tenantId, "JOB_LIBRARY_EDIT");
         JobView existing = getScoped(tenantId, jobId);
         requireSourceOwner(scope, userId, jobId);
         JobInput clean = clean(input);
@@ -171,6 +174,7 @@ public class JobService {
     @Transactional
     public JobView updateStatus(UUID userId, UUID tenantId, UUID jobId, String status) {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        tenantAccess.requirePermission(userId, tenantId, "JOB_LIBRARY_EDIT");
         String normalized = normalizedStatus(status);
         requireSourceOwner(scope, userId, jobId);
         JobView existing = getScoped(tenantId, jobId);
@@ -188,6 +192,7 @@ public class JobService {
     @Transactional
     public void delete(UUID userId, UUID tenantId, UUID jobId) {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        tenantAccess.requirePermission(userId, tenantId, "JOB_LIBRARY_EDIT");
         requireSourceOwner(scope, userId, jobId);
         int updated = jdbc.update("""
                 UPDATE jobs SET status='ARCHIVED',lock_version=lock_version+1,updated_at=?
@@ -200,6 +205,7 @@ public class JobService {
     @Transactional
     public void batchUpdateStatus(UUID userId, UUID tenantId, List<UUID> jobIds, String status) {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        tenantAccess.requirePermission(userId, tenantId, "JOB_LIBRARY_EDIT");
         String normalized = normalizedStatus(status);
         for (UUID jobId : safeIds(jobIds)) {
             requireSourceOwner(scope, userId, jobId);
@@ -215,6 +221,7 @@ public class JobService {
     @Transactional
     public void batchDelete(UUID userId, UUID tenantId, List<UUID> jobIds) {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        tenantAccess.requirePermission(userId, tenantId, "JOB_LIBRARY_EDIT");
         for (UUID jobId : safeIds(jobIds)) {
             requireSourceOwner(scope, userId, jobId);
             jdbc.update("""
@@ -281,7 +288,7 @@ public class JobService {
         jdbc.update("""
                 INSERT INTO audit_logs
                 (id,actor_user_id,tenant_id,action,resource_type,resource_id,created_at)
-                VALUES (?,?,?,?,?,'JOB',?,?)
+                VALUES (?,?,?,?,'JOB',?,?)
                 """, UUID.randomUUID(), actor, scope.tenantId(), action,
                 resourceId.toString(), timestamp(Instant.now()));
     }

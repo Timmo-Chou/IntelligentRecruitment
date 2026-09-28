@@ -20,6 +20,7 @@ import {
   TALENT_STATUS_OPTIONS, TALENT_TAGS, YEARS_OPTIONS,
 } from "@/lib/talent-constants";
 import { useTenant } from "@/lib/tenant-context";
+import { useTenantPermission } from "@/lib/tenant-permission";
 
 type StatKey = "total" | "active" | "highMatch" | "dormant" | "inPool";
 type DetailTab = "ai" | "basic" | "work" | "edu" | "skills" | "files" | "activity";
@@ -78,6 +79,7 @@ export default function CandidatesPage() {
 function CandidatesTenant({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter();
   const { tenantId, loading: tenantLoading, notAuthenticated } = useTenant();
+  const { allowed: canEdit } = useTenantPermission(tenantId, "TALENT_LIBRARY_EDIT");
   const [items, setItems] = useState<CandidateSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -435,22 +437,22 @@ function CandidatesTenant({ embedded = false }: { embedded?: boolean }) {
             />
           </label>
           <div className="flex shrink-0 items-center gap-2">
-            <button
+            {canEdit && <button
               type="button"
               onClick={() => setImportOpen(true)}
               className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-[#d9e2ec] bg-white px-4 text-sm font-medium text-[#334155] hover:bg-[#f8fafc]"
             >
               <Import size={16} />
               导入人才
-            </button>
-            <button
+            </button>}
+            {canEdit && <button
               type="button"
               onClick={() => router.push("/candidates/new")}
               className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-[#2f6bff] px-4 text-sm font-medium text-white hover:bg-[#1f5aef]"
             >
               <Plus size={16} /> 新增人才
-            </button>
-            <div className="relative" ref={batchMenuRef}>
+            </button>}
+            {canEdit && <div className="relative" ref={batchMenuRef}>
               <button
                 type="button"
                 disabled={batchBusy}
@@ -468,7 +470,7 @@ function CandidatesTenant({ embedded = false }: { embedded?: boolean }) {
                   <button type="button" disabled={selectedIds.size === 0} className="block w-full px-3 py-2 text-left text-sm text-[#dc2626] hover:bg-[#fef2f2] disabled:text-[#f0b4b4]" onClick={() => void handleBatchDelete()}>批量删除</button>
                 </div>
               )}
-            </div>
+            </div>}
           </div>
         </div>
 
@@ -737,8 +739,8 @@ function CandidatesTenant({ embedded = false }: { embedded?: boolean }) {
             <div className="grid h-56 place-items-center text-sm text-[#7185a3]"><Loader2 className="animate-spin" /></div>
           ) : displayedItems.length === 0 ? (
             <EmptyCandidates
-              onImport={() => setImportOpen(true)}
-              onCreate={() => router.push("/candidates/new")}
+              onImport={canEdit ? () => setImportOpen(true) : undefined}
+              onCreate={canEdit ? () => router.push("/candidates/new") : undefined}
             />
           ) : (
             <>
@@ -822,14 +824,13 @@ function CandidatesTenant({ embedded = false }: { embedded?: boolean }) {
                           <td className="border-b border-[#eef3f8] px-3 py-3 align-middle whitespace-nowrap text-[#2f6bff]" onClick={(e) => e.stopPropagation()}>
                             <button type="button" className="hover:underline" onClick={() => void openDetail(item.id)}>查看</button>
                             <span className="mx-1 text-[#d0dbe8]">|</span>
-                            <button type="button" className="hover:underline" onClick={() => void openDetail(item.id)}>编辑</button>
-                            <span className="mx-1 text-[#d0dbe8]">|</span>
+                            {canEdit && <><button type="button" className="hover:underline" onClick={() => void openDetail(item.id)}>编辑</button><span className="mx-1 text-[#d0dbe8]">|</span></>}
                             <span className="relative inline-block">
                               <button type="button" className="hover:underline" onClick={() => setRowMoreId((id) => id === item.id ? null : item.id)}>更多</button>
                               {rowMoreId === item.id && (
                                 <div className="absolute right-0 z-30 mt-1 w-32 overflow-hidden rounded-lg border border-[#d6e5f5] bg-white py-1 shadow-lg">
                                   <button type="button" className="block w-full px-3 py-2 text-left text-xs text-[#36527f] hover:bg-[#f5f9ff]" onClick={() => { setRowMoreId(null); void openDetail(item.id); }}>查看详情</button>
-                                  <button type="button" className="block w-full px-3 py-2 text-left text-xs text-[#dc2626] hover:bg-[#fef2f2]" onClick={() => void handleDelete(item)}>删除</button>
+                                  {canEdit && <button type="button" className="block w-full px-3 py-2 text-left text-xs text-[#dc2626] hover:bg-[#fef2f2]" onClick={() => void handleDelete(item)}>删除</button>}
                                 </div>
                               )}
                             </span>
@@ -904,7 +905,8 @@ function CandidatesTenant({ embedded = false }: { embedded?: boolean }) {
               onReveal={() => void handleReveal()}
               onRetry={() => void handleRetry()}
               onDownload={() => void downloadResume(tenantId, selected)}
-              onDelete={() => void handleDelete(selected)}
+              onDelete={canEdit ? () => void handleDelete(selected) : undefined}
+              canEdit={canEdit}
               onUpdated={(next) => {
                 setSelected(next);
                 void load();
@@ -1071,7 +1073,7 @@ function ImportTalentModal({
 
 function TalentDetailDrawer({
   candidate, revealed, tab, busy, duplicateCount, tenantId,
-  onTabChange, onClose, onReveal, onRetry, onDownload, onDelete, onUpdated, onOpenPortrait,
+  onTabChange, onClose, onReveal, onRetry, onDownload, onDelete, canEdit, onUpdated, onOpenPortrait,
 }: {
   candidate: CandidateDetail;
   revealed: RevealedPii | null;
@@ -1084,7 +1086,8 @@ function TalentDetailDrawer({
   onReveal: () => void;
   onRetry: () => void;
   onDownload: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
+  canEdit: boolean;
   onUpdated: (next: CandidateDetail) => void;
   onOpenPortrait: () => void;
 }) {
@@ -1461,11 +1464,11 @@ function TalentDetailDrawer({
           <button type="button" className="h-9 w-full rounded-lg border border-[#f0c7c7] bg-white text-xs font-semibold text-[#dc2626]" onClick={() => setFooterMenu(footerMenu === "more" ? null : "more")}>更多操作</button>
           {footerMenu === "more" && (
             <FooterMenu
-              items={["编辑人才", "添加标签", "移动人才池", "下载简历", "查看操作记录", "合并重复人才", "删除人才"]}
+              items={["下载简历", "查看操作记录", ...(canEdit ? ["编辑人才", "添加标签", "移动人才池", "合并重复人才", "删除人才"] : [])]}
               onPick={(item) => {
                 if (item === "下载简历") onDownload();
                 else if (item === "添加标签") { onTabChange("ai"); setTagEditing(true); setFooterMenu(null); }
-                else if (item === "删除人才") onDelete();
+                else if (item === "删除人才") onDelete?.();
                 else if (item === "合并重复人才") notify("已标记疑似重复，待合并确认");
                 else notify(`${item}功能已打开`);
               }}
@@ -1625,16 +1628,16 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function EmptyCandidates({ onImport, onCreate }: { onImport: () => void; onCreate: () => void }) {
+function EmptyCandidates({ onImport, onCreate }: { onImport?: () => void; onCreate?: () => void }) {
   return (
     <div className="flex h-[420px] flex-col items-center justify-center text-center">
       <span className="grid h-14 w-14 place-items-center rounded-2xl bg-[#eaf8f5] text-[#169b83]"><Users size={27} /></span>
       <h2 className="mb-0 mt-4 text-lg text-[#193866]">开始建设人才库</h2>
       <p className="mt-2 max-w-md text-sm text-[#7185a3]">支持搜索、筛选、手动新增与批量导入；导入后自动完成校验、去重与画像生成。</p>
-      <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-        <button type="button" className="primary-button" onClick={onCreate}><Plus size={16} />新增人才</button>
-        <button type="button" className="outline-button" onClick={onImport}><Import size={16} />导入人才</button>
-      </div>
+      {(onCreate || onImport) && <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+        {onCreate && <button type="button" className="primary-button" onClick={onCreate}><Plus size={16} />新增人才</button>}
+        {onImport && <button type="button" className="outline-button" onClick={onImport}><Import size={16} />导入人才</button>}
+      </div>}
     </div>
   );
 }
