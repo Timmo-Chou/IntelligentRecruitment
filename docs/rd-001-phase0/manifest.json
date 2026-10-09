@@ -4,16 +4,17 @@
   "files": {
     ".gitignore": "4cad133d4f0a6cf4bba15f1b8bbae48d6a55f20b94f75487c51a93cc6a5af59f",
     "CONTRACT.md": "b60eb964c9e45830a31abb25ae6d31cd6b822c3de8534566b3c5065f2e1b6197",
+    "EXECUTION-2026-10-09.md": "b4839073710689aaa9559a4bbdafb547c78f4f9f42890639b20d9d51ce8791e4",
     "IMPLEMENTATION.md": "a3beb76f7a99de3946532aa6a0f60b7b1fee0461bc80e3b951a753b407240541",
-    "README.md": "0e7fd32344754619462c917f915ffacc1384beb5c8a1b3518474e30c1714b227",
+    "README.md": "3dc265d8bed32c2e904ab022378992ec782180b57818bc3030871f5488a6cef8",
     "VERIFICATION.md": "eb29b0c4a14f7685c1574d47a3a83d57eea383d349e013412100a8c1db126325",
     "baseline-matrix.json": "dd79092b859ec2c2a0be04bf13da037354a4746ada3d54f0d03b202fb65f737e",
-    "contracts/internal-v2.schema.json": "96ff7c89d2a84c8ac86d48bdf3b36b9f80198a8a6e3aada7e735deaab8d99273",
+    "contracts/internal-v2.schema.json": "26c4c8d054cc1f82810dd1491f40ef52b094c85b01e8b9ebd63c9fd29047855b",
     "contracts/routes.json": "92759b917e2b24dd887710629d990581bfd968a230811fc55d944a0c3d26946e",
     "contracts/states.json": "174edf9ce3a807ada5d356f8c4ef21086e8428df8083d334a82b9e95b548687c",
     "external/04-openapi-v1.1.0.json": "55d54a472318302b679605df554c62403a53f6a0af0e950a03a6cb19b6303f20",
-    "external/05-核心响应数据结构说明.md": "9028822b03e8a634bb24217cb40d6d89f61b87911db099acec9055acd4e1219a",
-    "external/06-API完整请求响应示例.md": "744f9df38fe267ac05c0b9030c38f3ac757d269bf0522b1543df6ecab7b192e9",
+    "external/05-核心响应数据结构说明.md": "5105ac26115b69f2856923b436c055710a520cb1c20d5e41159115fbb2a78e0f",
+    "external/06-API完整请求响应示例.md": "b404362189b7c923d8b43eecbda7f0f4ed373f99aaaccac2317b9046e5725e22",
     "fixtures/error-response.json": "f413d1bc24364533aeb494a95bfc02ac28827703914abf9e8d327f4ed51e2d57",
     "fixtures/execution-request.json": "8c670ea43857c265b663e5513d65cfbc9e915330346edb6e2dcd8934ae7b699f",
     "fixtures/grant-complex.json": "5dac207906253be85c06f0468b03f154bbeb1615d40c23580ceb5bf120c09c90",
@@ -30,7 +31,6 @@
     "fixtures/unified-resume-result.json": "8459afdfadea20b0b4b9ff688b58716d6a24f98c06ff93e116b28b89f1d7b70a",
     "requirements.txt": "cb9e5058abe248be8579db704a1c9e30e655b30cb7d5dd093bebf97f44766591",
     "scripts/contract_tools.py": "fbcd724b880924e3936ebc56a7dd16ab9d10eee1fbe2a8b82d4d32f088b89d7d",
-    "scripts/fake_rd.py": "9b6509ce2aab98c5e9442c36df14e9339cc17614c45b153feedee34099ccd422",
     "scripts/verify_phase0.py": "4f66f971d0da1e33a804c338602ee56d3d10cdca2c950d9a20aaa348c977b51e"
   }
 }

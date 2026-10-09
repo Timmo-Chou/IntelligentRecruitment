@@ -13,17 +13,10 @@
 - `IMPLEMENTATION.md`：P0/P1 划分、三仓库任务和验收依赖。
 - `external/`：OpenAPI 与交付包 05/06 的原样快照。
 - `fixtures/`：交付包合成响应、本方示例 Grant claims、统一结果和哈希向量。无真实 JWS、Key、简历或业务数据。
-- `scripts/fake_rd.py`：仅监听 127.0.0.1 的合成 HTTP 服务，覆盖 readiness 和三个 Direct 接口，不调用供应商。
+- 原 `scripts/fake_rd.py` Fake RD 服务已按要求删除；本包不再提供模拟接口或合成业务验收入口。
 - `scripts/verify_phase0.py`：离线契约与本地 HTTP 校验。
 - `manifest.json`：除 manifest 自身及 Python 缓存以外的文件 SHA-256，便于校验三仓库副本一致。
 
-在独立 Python 环境安装 `requirements.txt` 后运行：
-
-```sh
-python scripts/verify_phase0.py
-python scripts/fake_rd.py --port 18081
-```
-
-Fake 使用测试常量 `Authorization: Bearer phase0-fake-key`，不读取真实凭据。multipart 测试内容只是合成字节；Fake 不验证 PDF/DOCX 文档内部格式，不实现真实模型、计费、Worker 或状态生命周期。其契约覆盖不等于真实 RD、Java Adapter 或端到端联调已通过。
+在独立 Python 环境安装 `requirements.txt` 后可运行 `python scripts/verify_phase0.py` 做离线合同校验。Fake RD 服务和依赖它的旧验收脚本已删除；后续能力验收只允许使用真实服务接口及真实业务输入。历史 N00–N04 结果仅作为当时使用模拟环境的审计记录，不能证明真实模型或真实 RD 已通过。
 
 本工作区总包是本阶段编辑源；三个仓库 `docs/rd-001-phase0/` 保存同一完整副本供独立开发/审查。后续修改必须同步所有副本并更新 manifest；发布矩阵在三仓库代码提交与部署时填入实际版本。本阶段不提交、不推送，也不运行数据库迁移。

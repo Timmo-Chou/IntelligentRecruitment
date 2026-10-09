@@ -36,7 +36,9 @@ public final class ExecutionBillingQualification {
      }
      if(decimalInteger(batch.get("failed_count"))!=failed||decimalInteger(batch.get("hard_filtered_count"))!=hard
              ||decimalInteger(batch.get("succeeded_count"))!=rows.size()-failed)return null;
-     return new Decision(units,"VERIFIED_VALID_RESULT","RD_MATCH_BATCH_COMPLETED");
+     return units == 0
+             ? new Decision(0,"CONFIRMED_NO_RESULT","RD_MATCH_BATCH_CONFIRMED_NO_RESULT")
+             : new Decision(units,"VERIFIED_VALID_RESULT","RD_MATCH_BATCH_COMPLETED");
    }
    if("candidate_screening".equals(capabilityCode)){
      BigDecimal score=decimal(data.get("score"));
@@ -62,6 +64,25 @@ public final class ExecutionBillingQualification {
              ||!fullText&&!(job.get("requirements") instanceof String||stringList(job.get("requirements"))))return null;
      return new Decision(1,"VERIFIED_VALID_RESULT","JD_GENERATION_COMPLETED");
    }
+   if("jd_in_place_revision".equals(capabilityCode)&&"revise".equals(operationCode)){
+     if(!(data.get("action") instanceof String action)
+             ||!Set.of("UPDATE_CURRENT_JD","CREATE_NEW_JD").contains(action)
+             ||!nonBlank(data.get("title"))||!nonBlank(data.get("company_name"))
+             ||!nonBlankTextOrList(data.get("responsibilities"))
+             ||!nonBlankTextOrList(data.get("requirements"))
+             ||!nonBlankTextOrList(data.get("skills")))return null;
+     return new Decision(1,"VERIFIED_VALID_RESULT","JD_IN_PLACE_REVISION_COMPLETED");
+   }
+   if("interview_kit_generation".equals(capabilityCode)){
+     if(!(data.get("match_summary") instanceof String summary)||summary.isBlank()
+             ||!(data.get("core_competencies") instanceof List<?> competencies)||competencies.size()!=3
+             ||!(data.get("questions") instanceof List<?> questions)||questions.size()<4||questions.size()>20)return null;
+     for(Object item:competencies)if(!(item instanceof Map<?,?> competency)
+             ||!nonBlank(competency.get("name"))||!nonBlank(competency.get("description")))return null;
+     String[] required={"category","content","rationale","focus_points","reference_answer_points","scoring_points","evidence_refs","core_competency"};
+     for(Object item:questions){if(!(item instanceof Map<?,?> question))return null;for(String field:required)if(!nonBlank(question.get(field)))return null;}
+     return new Decision(1,"VERIFIED_VALID_RESULT","INTERVIEW_KIT_GENERATION_COMPLETED");
+   }
    if("conversation_route".equals(capabilityCode)&&"route".equals(operationCode)){
      if(!(data.get("kind") instanceof String kind)||!Set.of("ROUTE","CLARIFY","INFORM","UNSUPPORTED","FALLBACK").contains(kind.toUpperCase(Locale.ROOT))
              ||!(data.get("confidence") instanceof Number confidence)||!Double.isFinite(confidence.doubleValue())
@@ -85,6 +106,12 @@ public final class ExecutionBillingQualification {
            &&resume.get("work_experience") instanceof List<?>&&resume.get("education_experience") instanceof List<?>;
  }
  private static boolean textOrNull(Object value){return value==null||value instanceof String;}
+ private static boolean nonBlank(Object value){return value instanceof String text&&!text.isBlank();}
+ private static boolean nonBlankTextOrList(Object value){
+   if(nonBlank(value))return true;
+   if(!(value instanceof List<?> items)||items.isEmpty())return false;
+   return items.stream().allMatch(ExecutionBillingQualification::nonBlank);
+ }
  private static boolean stringList(Object value){return value instanceof List<?> values&&values.stream().allMatch(String.class::isInstance);}
  private static boolean validWarnings(Object value){return value instanceof List<?> values&&values.stream().allMatch(item->item instanceof String||item instanceof Map<?,?> map&&map.get("description") instanceof String&&map.get("verification_question") instanceof String);}
  private static BigDecimal decimal(Object value){try{return value instanceof Number n?new BigDecimal(n.toString()):null;}catch(RuntimeException ex){return null;}}

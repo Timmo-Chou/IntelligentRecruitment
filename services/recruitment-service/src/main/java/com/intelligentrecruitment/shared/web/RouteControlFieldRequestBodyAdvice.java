@@ -10,14 +10,14 @@ import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpInputMessage;
 import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
-import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.converter.json.AbstractJackson2HttpMessageConverter;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 /** Rejects attempts to steer server-owned Agent routing through public business APIs. */
 @ControllerAdvice
@@ -38,8 +38,9 @@ public final class RouteControlFieldRequestBodyAdvice extends org.springframewor
     public HttpInputMessage beforeBodyRead(HttpInputMessage inputMessage, MethodParameter parameter,
                                            java.lang.reflect.Type targetType,
                                            Class<? extends HttpMessageConverter<?>> converterType) throws IOException {
-        if (!(inputMessage instanceof ServletServerHttpRequest servletRequest)) return inputMessage;
-        String path = servletRequest.getServletRequest().getRequestURI();
+        if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes requestAttributes))
+            return inputMessage;
+        String path = requestAttributes.getRequest().getRequestURI();
         if (!path.startsWith("/api/v1/tenants/") && !path.startsWith("/api/v1/recruitment/")) return inputMessage;
 
         byte[] body = inputMessage.getBody().readAllBytes();

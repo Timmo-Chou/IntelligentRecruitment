@@ -20,6 +20,26 @@ class RecruitmentRouteResolverTest {
     }
 
     @Test
+    void disabledComplexFlagKeepsAllFiveCapabilitiesOnSimpleWithExpectedSelectionSource() {
+        RecruitmentRouteResolver resolver = new RecruitmentRouteResolver("false", "route-20261008-2");
+
+        assertSimpleRoute(resolver, FlowCapability.JD_GENERATION, "create", "deployment_config");
+        assertSimpleRoute(resolver, FlowCapability.RESUME_PARSING, "analyze", "deployment_config");
+        assertSimpleRoute(resolver, FlowCapability.CANDIDATE_SCREENING, "match", "deployment_config");
+        assertSimpleRoute(resolver, FlowCapability.JD_IN_PLACE_REVISION, "revise", "fixed_capability_rule");
+        assertSimpleRoute(resolver, FlowCapability.INTERVIEW_KIT_GENERATION, "generate", "fixed_capability_rule");
+    }
+
+    private static void assertSimpleRoute(RecruitmentRouteResolver resolver, FlowCapability capability,
+                                         String operation, String selectionSource) {
+        var route = resolver.resolve(capability);
+        assertThat(route.agentId()).isEqualTo("simple_recruitment_agent");
+        assertThat(route.operation()).isEqualTo(operation);
+        assertThat(route.selectionSource()).isEqualTo(selectionSource);
+        assertThat(route.routeConfigVersion()).isEqualTo("route-20261008-2");
+    }
+
+    @Test
     void invalidOrMissingConfigurationFailsImmediately() {
         assertThatThrownBy(() -> new RecruitmentRouteResolver("", "route-v1"))
                 .isInstanceOf(IllegalStateException.class);

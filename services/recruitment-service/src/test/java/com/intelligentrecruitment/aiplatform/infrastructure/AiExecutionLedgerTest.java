@@ -5,7 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.startsWith;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intelligentrecruitment.boss.application.BossControlPlaneClient;
@@ -16,6 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
@@ -92,5 +95,18 @@ class AiExecutionLedgerTest {
         assertDoesNotThrow(()->ledger.enqueueUsage(authorization.idempotencyKey(),authorization,"SUCCEEDED","configured-model",11L,7L,0,"task-1"));
         assertThrows(IllegalStateException.class,()->ledger.enqueueUsage(authorization.idempotencyKey(),authorization,"SUCCEEDED","configured-model",11L,7L,0,"task-2"));
         org.junit.jupiter.api.Assertions.assertEquals(1,outboxInserts.get());
+    }
+
+    @Test
+    void zeroBillableUnitsQueueReleaseInsteadOfCapture() {
+        AiExecutionLedger ledger = new AiExecutionLedger(jdbc, new ObjectMapper());
+        ledger.enqueueUsage(authorization.idempotencyKey(), authorization, "SUCCEEDED", "configured-model",
+                11L, 7L, 0, "task-zero", 0, "CONFIRMED_NO_RESULT", "RD_CANDIDATE_FAILED");
+
+        ArgumentCaptor<Object[]> arguments = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).update(startsWith("INSERT INTO ai_settlement_outbox"), arguments.capture());
+        org.junit.jupiter.api.Assertions.assertEquals("RELEASE", arguments.getValue()[2]);
+        org.junit.jupiter.api.Assertions.assertEquals("task-zero", arguments.getValue()[4].toString().contains("task-zero")
+                ? "task-zero" : "missing result reference");
     }
 }

@@ -1,5 +1,7 @@
 # RD execution record — 2026-10-09
 
+> Historical Fake-provider execution record. Its pass results describe isolated synthetic data and local Fake providers only. All Fake Provider and old execution scripts plus isolated test data have since been removed; this report does not establish real DeepSeek or real RD acceptance.
+
 ## Scope and safety
 
 - Ran BOSS, AIAgentPlatform, and IntelligentRecruitment against isolated PostgreSQL databases `rd_boss_fresh`, `rd_aep_fresh`, and `rd_ir_fresh`, isolated Redis DB 15, RabbitMQ vhost `/rd-validation`, local MinIO bucket `rd-validation`, and Fake providers on loopback.

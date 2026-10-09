@@ -55,8 +55,23 @@ class JdStructuredResultMapperTest {
         assertThat(draft.skills()).isEqualTo("- Java\n- Spring Boot");
     }
 
+    @Test
+    void mapsInPlaceRevisionResultWithoutReclassifyingItsCapability() {
+        var draft = mapper.toDraft(result(FlowCapability.JD_IN_PLACE_REVISION, Map.ofEntries(
+                Map.entry("action", "UPDATE_CURRENT_JD"), Map.entry("title", "Platform Engineer"),
+                Map.entry("company_name", "Synthetic Co"), Map.entry("responsibilities", "Build services"),
+                Map.entry("requirements", "Experience with reliable systems"), Map.entry("skills", "Java"))));
+
+        assertThat(draft.title()).isEqualTo("Platform Engineer");
+        assertThat(draft.responsibilities()).isEqualTo("Build services");
+    }
+
     private StructuredResult result(Map<String, Object> data) {
-        return new StructuredResult(null, "ait-1", FlowCapability.JD_GENERATION, StructuredResult.Status.DRAFT_READY,
+        return result(FlowCapability.JD_GENERATION, data);
+    }
+
+    private StructuredResult result(FlowCapability capability, Map<String, Object> data) {
+        return new StructuredResult(null, "ait-1", capability, StructuredResult.Status.DRAFT_READY,
                 "jd-v1", data, List.of(), List.of(),
                 new StructuredResult.Provenance("test", "v1", "prompt-v1", "mock"), null, Instant.now());
     }

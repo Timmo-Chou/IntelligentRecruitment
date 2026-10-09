@@ -295,6 +295,7 @@ public class HttpAiPlatformClient implements AiPlatformClient {
             return out;
         }
         if (value instanceof List<?> list) return list.stream().map(this::stable).toList();
+        if(value instanceof Number number){java.math.BigDecimal decimal=new java.math.BigDecimal(number.toString()).stripTrailingZeros();return decimal.scale()<=0?decimal.toBigIntegerExact():decimal;}
         try { if (value != null && !value.getClass().isPrimitive() && !(value instanceof String) && !(value instanceof Number) && !(value instanceof Boolean)) return stable(objectMapper.convertValue(value,Map.class)); }
         catch (IllegalArgumentException ignored) { }
         return value;

@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 public class JdStructuredResultMapper {
 
     public JdDraftContent toDraft(StructuredResult result) {
-        if (result == null || result.capability() != FlowCapability.JD_GENERATION
+        if (result == null || !List.of(FlowCapability.JD_GENERATION, FlowCapability.JD_IN_PLACE_REVISION).contains(result.capability())
                 || !List.of(StructuredResult.Status.DRAFT_READY, StructuredResult.Status.COMPLETED).contains(result.status())) {
             throw invalid("JD 生成未返回可用的结构化结果");
         }

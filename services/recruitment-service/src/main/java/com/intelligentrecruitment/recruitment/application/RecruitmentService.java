@@ -237,45 +237,64 @@ public class RecruitmentService {
         audit(userId, scope, "RECRUITMENT_TASK_DELETED", "RECRUITMENT_TASK", taskId);
     }
 
-    @Transactional
     public TaskDetail addMessage(UUID userId, UUID tenantId, UUID taskId, MessageInput input) {
-        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
-        TaskRow task = taskForUpdate(tenantId, taskId);
-        String content = required(input == null ? null : input.content(), "消息不能为空", 20_000);
-        Instant now = Instant.now();
-        insertMessage(scope, task.conversationId(), "USER", content, "REQUIREMENT_CHAT", userId, now);
-        Map<String, Object> currentDraft = jdDraftContext(tenantId, taskId, input.jdDraftId());
-        FlowCapability conversationCapability = currentDraft.isEmpty()
-                ? FlowCapability.CONVERSATION_CONTINUE : FlowCapability.JD_IN_PLACE_REVISION;
-        PolicyDecision conversationPolicy = flowCoordinator.evaluateAuthoritative(conversationCapability, scope, userId);
-        ExecutionContext conversationExecution = flowCoordinator.createExecutionContext(conversationPolicy, taskId,
-                "conversation:" + UUID.randomUUID(), "conversation:" + taskId,
-                List.of(new ExecutionContext.InputVersion("conversation", task.conversationId().toString(), "current",
-                        SecurityHashes.sha256(content))), false);
-        ConversationAgentCommand command = new ConversationAgentCommand(tenantId.toString(),
-                userId.toString(), taskId.toString(),
-                conversationContext(task.conversationId(), tenantId), currentDraft, conversationExecution);
+        PreparedConversation prepared = resultTransaction.execute(status -> {
+            TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+            TaskRow task = taskForUpdate(tenantId, taskId);
+            String content = required(input == null ? null : input.content(), "消息不能为空", 20_000);
+            insertMessage(scope, task.conversationId(), "USER", content, "REQUIREMENT_CHAT", userId, Instant.now());
+            Map<String, Object> currentDraft = jdDraftContext(tenantId, taskId, input.jdDraftId());
+            FlowCapability conversationCapability = currentDraft.isEmpty()
+                    ? FlowCapability.CONVERSATION_CONTINUE : FlowCapability.JD_IN_PLACE_REVISION;
+            PolicyDecision conversationPolicy = flowCoordinator.evaluateAuthoritative(conversationCapability, scope, userId);
+            ExecutionContext conversationExecution = flowCoordinator.createExecutionContext(conversationPolicy, taskId,
+                    "conversation:" + UUID.randomUUID(), "conversation:" + taskId,
+                    List.of(new ExecutionContext.InputVersion("conversation", task.conversationId().toString(), "current",
+                            SecurityHashes.sha256(content))), false);
+            ConversationAgentCommand command = new ConversationAgentCommand(tenantId.toString(),
+                    userId.toString(), taskId.toString(),
+                    conversationContext(task.conversationId(), tenantId), currentDraft, conversationExecution);
+            return new PreparedConversation(scope, task.conversationId(), taskId, userId,
+                    input.jdDraftId(), currentDraft, command);
+        });
         String reply;
+        StructuredResult completedResult = null;
         try {
-            if (!command.jdDraft().isEmpty()) {
-                StructuredResult revisedResult = aiPlatform.reviseJdInPlace(command);
-                JdDraftContent revised = structuredResultMapper.toDraft(revisedResult);
-                if ("CREATE_NEW_JD".equals(revisedResult.data().get("action"))) insertAdditionalDraft(scope, taskId, userId, revised);
-                else updateDraftInPlace(scope, taskId, input.jdDraftId(), userId, revised);
-                reply = optionalAssistantMessage(revisedResult);
+            if (!prepared.currentDraft().isEmpty()) {
+                completedResult = aiPlatform.reviseJdInPlace(prepared.command());
+                reply = optionalAssistantMessage(completedResult);
             } else {
-                reply = aiPlatform.continueConversation(command);
+                reply = aiPlatform.continueConversation(prepared.command());
             }
         } catch (RuntimeException exception) {
             log.warn("Recruitment conversation update failed for task {}: {}", taskId, exception.getMessage());
             reply = "当前无法完成 AI 修改，请稍后重试。你的需求已保存，不会丢失。";
         }
-        insertMessage(scope, task.conversationId(), "ASSISTANT", reply, "REQUIREMENT_CHAT", null, Instant.now());
-        jdbc.update("""
-                UPDATE recruitment_tasks SET current_stage='COLLECTING_REQUIREMENTS',updated_at=?
-                WHERE id=? AND tenant_id=?
-                """, timestamp(Instant.now()), taskId, tenantId);
-        return detailScoped(tenantId, taskId);
+        StructuredResult resultToPersist = completedResult;
+        String assistantReply = reply;
+        try {
+            resultTransaction.executeWithoutResult(status -> {
+                if (resultToPersist != null && !prepared.currentDraft().isEmpty()) {
+                    JdDraftContent revised = structuredResultMapper.toDraft(resultToPersist);
+                    if ("CREATE_NEW_JD".equals(resultToPersist.data().get("action"))) {
+                        insertAdditionalDraft(prepared.scope(), taskId, userId, revised);
+                    } else {
+                        updateDraftInPlace(prepared.scope(), taskId, prepared.jdDraftId(), userId, revised);
+                    }
+                }
+                insertMessage(prepared.scope(), prepared.conversationId(), "ASSISTANT", assistantReply,
+                        "REQUIREMENT_CHAT", null, Instant.now());
+                jdbc.update("""
+                        UPDATE recruitment_tasks SET current_stage='COLLECTING_REQUIREMENTS',updated_at=?
+                        WHERE id=? AND tenant_id=?
+                        """, timestamp(Instant.now()), taskId, tenantId);
+            });
+        } catch (RuntimeException persistenceFailure) {
+            if (resultToPersist != null) aiPlatform.holdForReconciliation(resultToPersist.aiTaskId(), "RESULT_MAPPING_FAILED");
+            throw persistenceFailure;
+        }
+        if (resultToPersist != null) aiPlatform.confirmResultPersisted(resultToPersist.aiTaskId(), resultToPersist);
+        return resultTransaction.execute(status -> detailScoped(tenantId, taskId));
     }
 
     /**
@@ -1605,6 +1624,9 @@ public class RecruitmentService {
     }
 
     private record TaskRow(UUID id, String title, String initialRequirement, UUID conversationId) { }
+    private record PreparedConversation(TenantScope scope, UUID conversationId, UUID taskId, UUID userId,
+                                       UUID jdDraftId, Map<String, Object> currentDraft,
+                                       ConversationAgentCommand command) { }
 
     private record RunExecution(UUID id, UUID tenantId, UUID taskId, UUID createdBy,
                                 UUID conversationId, String idempotencyKey, String status, int progress,

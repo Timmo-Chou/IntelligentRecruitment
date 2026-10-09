@@ -135,7 +135,9 @@ public class AiExecutionLedger {
     @Transactional
     public void enqueueUsage(String idempotencyKey, BossControlPlaneClient.AiAuthorization auth, String status, String model,
                              Long input, Long output, int retries, String resultRef, int units, String validity, String reason) {
-        finalizeDecision(idempotencyKey, auth, "CAPTURE", status, model, input, output, retries, resultRef, units, validity, reason);
+        String decision = units > 0 ? "CAPTURE" : "RELEASE";
+        finalizeDecision(idempotencyKey, auth, decision, status, units > 0 ? model : null,
+                units > 0 ? input : null, units > 0 ? output : null, retries, resultRef, units, validity, reason);
     }
 
     @Transactional
@@ -350,7 +352,7 @@ public class AiExecutionLedger {
         List<Map<String,Object>> rows=jdbc.query("""
                 SELECT b.id,b.candidate_count,b.status,COUNT(i.id) AS persisted_count,
                   COALESCE(SUM(CASE WHEN i.result_validity='VERIFIED_VALID_RESULT' THEN i.billable_unit_count ELSE 0 END),0) AS billable_unit_count,
-                  COUNT(*) FILTER(WHERE i.result_validity='CONFIRMED_NO_RESULT') AS confirmed_no_result_count,
+                  COUNT(*) FILTER(WHERE i.result_validity IN ('CONFIRMED_NO_RESULT','VERIFIED_NO_BILLABLE_RESULT')) AS confirmed_no_result_count,
                   COUNT(*) FILTER(WHERE i.billing_reason_code='RECONCILIATION_DEADLINE_EXPIRED') AS deadline_closed_unknown_count,
                   COUNT(*) FILTER(WHERE i.status IN ('PENDING','PROCESSING','RECONCILIATION_REQUIRED') OR i.billable_unit_count IS NULL) AS unresolved_count
                 FROM screening_execution_batches b JOIN screening_run_items i ON i.batch_id=b.id
