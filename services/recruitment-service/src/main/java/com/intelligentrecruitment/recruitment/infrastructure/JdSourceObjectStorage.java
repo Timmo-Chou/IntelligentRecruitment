@@ -13,7 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 
 @Component
-public class JdSourceObjectStorage {
+public class JdSourceObjectStorage implements com.intelligentrecruitment.shared.storage.PrivateObjectStorage {
 
     private final MinioClient minio;
     private final String bucket;
@@ -39,15 +39,28 @@ public class JdSourceObjectStorage {
 
     /** 生成对象存储临时下载 URL（默认 10 分钟），供前端预览文件使用。 */
     public String presignedGetUrl(String objectKey) {
+        return presignedGetUrl(objectKey, 600);
+    }
+
+    public String presignedGetUrl(String objectKey,int expirySeconds) {
         try {
             return minio.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
                     .bucket(bucket)
                     .object(objectKey)
                     .method(Method.GET)
-                    .expiry(10, TimeUnit.MINUTES)
+                    .expiry(expirySeconds, TimeUnit.SECONDS)
                     .build());
         } catch (Exception exception) {
             throw new ApiException("OBJECT_STORAGE_FAILED", "生成文件下载链接失败", HttpStatus.SERVICE_UNAVAILABLE);
         }
+    }
+
+    @Override public byte[] get(String objectKey) {
+        try (var stream=minio.getObject(io.minio.GetObjectArgs.builder().bucket(bucket).object(objectKey).build())) { return stream.readAllBytes(); }
+        catch (Exception exception) { throw new ApiException("OBJECT_STORAGE_FAILED","读取私有文件失败",HttpStatus.SERVICE_UNAVAILABLE); }
+    }
+    @Override public void remove(String objectKey) {
+        try { minio.removeObject(io.minio.RemoveObjectArgs.builder().bucket(bucket).object(objectKey).build()); }
+        catch (Exception exception) { throw new ApiException("OBJECT_DELETE_FAILED","删除私有文件失败",HttpStatus.SERVICE_UNAVAILABLE); }
     }
 }

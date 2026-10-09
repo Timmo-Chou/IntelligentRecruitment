@@ -1,0 +1,52 @@
+{
+  "material": {
+    "hash_contract_version": "rd-input-hash-v1",
+    "agent_id": "complex_recruitment_agent",
+    "capability": "jd_generation",
+    "operation": "create",
+    "business_task_id": "synthetic-task",
+    "input_versions": [
+      {
+        "kind": "job_input",
+        "ref": "00000000-0000-4000-8000-000000000001",
+        "version": "1",
+        "content_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    ],
+    "files": [],
+    "policy_snapshot": {},
+    "input": {
+      "custom_fields": {},
+      "slots": {
+        "job_title": {
+          "status": "answered",
+          "value": "高级 Python 后端工程师"
+        },
+        "required_skills": {
+          "status": "answered",
+          "value": [
+            {
+              "minimum_years": 3,
+              "name": "Python",
+              "note": "具备生产环境后端服务开发经验。"
+            },
+            {
+              "minimum_years": 2,
+              "name": "PostgreSQL",
+              "note": "具备关系型数据库设计和调优经验。"
+            }
+          ]
+        },
+        "responsibilities": {
+          "status": "answered",
+          "value": [
+            "负责 Python 后端服务设计、开发与稳定性建设。",
+            "负责 PostgreSQL 数据模型设计和性能优化。"
+          ]
+        }
+      }
+    }
+  },
+  "canonical_utf8": "{\"agent_id\":\"complex_recruitment_agent\",\"business_task_id\":\"synthetic-task\",\"capability\":\"jd_generation\",\"files\":[],\"hash_contract_version\":\"rd-input-hash-v1\",\"input\":{\"custom_fields\":{},\"slots\":{\"job_title\":{\"status\":\"answered\",\"value\":\"高级 Python 后端工程师\"},\"required_skills\":{\"status\":\"answered\",\"value\":[{\"minimum_years\":3,\"name\":\"Python\",\"note\":\"具备生产环境后端服务开发经验。\"},{\"minimum_years\":2,\"name\":\"PostgreSQL\",\"note\":\"具备关系型数据库设计和调优经验。\"}]},\"responsibilities\":{\"status\":\"answered\",\"value\":[\"负责 Python 后端服务设计、开发与稳定性建设。\",\"负责 PostgreSQL 数据模型设计和性能优化。\"]}}},\"input_versions\":[{\"content_hash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"kind\":\"job_input\",\"ref\":\"00000000-0000-4000-8000-000000000001\",\"version\":\"1\"}],\"operation\":\"create\",\"policy_snapshot\":{}}",
+  "sha256": "6bd239db916d4c073abe25dcef93c284582a7e2ba754e1bf99c1315de94e7a7c"
+}

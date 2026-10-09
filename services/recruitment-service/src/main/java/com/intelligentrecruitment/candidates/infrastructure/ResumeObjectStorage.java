@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 import java.io.ByteArrayInputStream;
 
 @Component
-public class ResumeObjectStorage {
+public class ResumeObjectStorage implements com.intelligentrecruitment.shared.storage.PrivateObjectStorage {
 
     private final MinioClient minio;
     private final String bucket;
@@ -43,6 +43,12 @@ public class ResumeObjectStorage {
         } catch (Exception exception) {
             throw new ApiException("RESUME_FILE_UNAVAILABLE", "简历原文件暂不可用", HttpStatus.SERVICE_UNAVAILABLE);
         }
+    }
+
+    public String presignedGetUrl(String objectKey,int expirySeconds) {
+        try { return minio.getPresignedObjectUrl(io.minio.GetPresignedObjectUrlArgs.builder().bucket(bucket).object(objectKey)
+                .method(io.minio.http.Method.GET).expiry(expirySeconds,java.util.concurrent.TimeUnit.SECONDS).build()); }
+        catch (Exception exception) { throw new ApiException("OBJECT_STORAGE_FAILED","生成文件下载链接失败",HttpStatus.SERVICE_UNAVAILABLE); }
     }
 
     public void remove(String objectKey) {

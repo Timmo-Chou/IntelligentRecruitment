@@ -2,5 +2,8 @@ logging:
   level:
     com.intelligentrecruitment: INFO
 app:
+  recruitment-distribution:
+    complex-agent-enabled: ${RECRUITMENT_COMPLEX_AGENT_ENABLED:}
+    route-config-version: ${RECRUITMENT_ROUTE_CONFIG_VERSION:}
   auth:
     secure-cookie: false

@@ -101,12 +101,12 @@ public class InterviewService {
         jdbc.update("""
                 INSERT INTO interview_kits(id,tenant_id,job_version_id,candidate_id,screening_result_id,status,
                                            core_competencies,match_summary,created_by,created_at,updated_at)
-                VALUES(?,?,?,?,?,?,'DRAFT',?::jsonb,?,?,?,?)
+                VALUES(?,?,?,?,?,'DRAFT',?::jsonb,?,?,?,?)
                 """, kitId, tenantId, input.jobVersionId(), input.candidateId(), input.screeningResultId(),
                 protectedJson(competencies), pii.encrypt(summary), userId, timestamp(now), timestamp(now));
         jdbc.update("""
                 INSERT INTO interview_kit_versions(id,tenant_id,kit_id,screening_result_id,version_no,status,created_by,created_at)
-                VALUES(?,?,?,?,?,1,'DRAFT',?,?)
+                VALUES(?,?,?,?,1,'DRAFT',?,?)
                 """, versionId, tenantId, kitId, input.screeningResultId(), userId, timestamp(now));
         insertQuestions(versionId, tenantId, questions);
         return getAuthorized(tenantId, kitId);
@@ -124,7 +124,7 @@ public class InterviewService {
         UUID nextVersion = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO interview_kit_versions(id,tenant_id,kit_id,screening_result_id,version_no,status,created_by,created_at)
-                VALUES(?,?,?,?,?,?,'DRAFT',?,?)
+                VALUES(?,?,?,?,?,'DRAFT',?,?)
                 """, nextVersion, tenantId, kitId, current.screeningResultId(), current.versionNo() + 1, userId, timestamp(Instant.now()));
         List<Question> normalized = new ArrayList<>();
         for (int i = 0; i < questions.size(); i++) {
@@ -246,7 +246,7 @@ public class InterviewService {
     private void insertQuestions(UUID versionId, UUID tenantId, List<Question> questions) {
         for (Question q : questions) jdbc.update("""
                 INSERT INTO interview_questions(id,tenant_id,kit_version_id,category,content,rationale,focus_points,reference_answer_points,scoring_points,evidence_refs,sort_order)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?)
                 """, q.id(), tenantId, versionId, q.category(), pii.encrypt(q.content()), pii.encrypt(q.rationale()), pii.encrypt(q.focusPoints()), pii.encrypt(q.referenceAnswerPoints()), pii.encrypt(q.scoringPoints()), pii.encrypt(q.evidenceRefs()), q.sortOrder());
     }
 

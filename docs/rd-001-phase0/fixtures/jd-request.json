@@ -1,0 +1,31 @@
+{
+  "custom_fields": {},
+  "slots": {
+    "job_title": {
+      "status": "answered",
+      "value": "高级 Python 后端工程师"
+    },
+    "required_skills": {
+      "status": "answered",
+      "value": [
+        {
+          "minimum_years": 3,
+          "name": "Python",
+          "note": "具备生产环境后端服务开发经验。"
+        },
+        {
+          "minimum_years": 2,
+          "name": "PostgreSQL",
+          "note": "具备关系型数据库设计和调优经验。"
+        }
+      ]
+    },
+    "responsibilities": {
+      "status": "answered",
+      "value": [
+        "负责 Python 后端服务设计、开发与稳定性建设。",
+        "负责 PostgreSQL 数据模型设计和性能优化。"
+      ]
+    }
+  }
+}

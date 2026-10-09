@@ -46,6 +46,7 @@ public class ResumeParseOutboxWorker {
             try {
                 recruitment.finalizeResumeParseRunIfReady(runId);
             } catch (RuntimeException exception) {
+                try{recruitment.recordResultMappingFailure(runId);}catch(RuntimeException unresolved){ /* A later reconciliation pass retries. */ }
                 log.warn("Resume parse run {} finalization check failed", runId, exception);
             }
         }

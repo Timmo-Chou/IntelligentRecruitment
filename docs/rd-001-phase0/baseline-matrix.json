@@ -1,0 +1,94 @@
+{
+  "recorded_at": "2026-10-07T14:26:57.914708+00:00",
+  "remote_fetch": "all three origins fetched successfully",
+  "scope": "source baseline, not deployment verification",
+  "repositories": [
+    {
+      "repository": "BOSS",
+      "remote_url": "https://github.com/Timmo-Chou/BOSS.git",
+      "branch": "feature/RD-001-boss-agent-routing",
+      "head": "b603543b5a5c9f7ef56c619546f2ee8cbca23f12",
+      "origin_main": "b603543b5a5c9f7ef56c619546f2ee8cbca23f12",
+      "origin_feature": "b603543b5a5c9f7ef56c619546f2ee8cbca23f12",
+      "worktree_before_phase0": "clean",
+      "migration_files": {
+        "V10__api_rate_card_interface_type.sql": "104e1ee11d9fea1fcb757cf989589c5f8d0784c337ee33d15a106f60c1fc88ba",
+        "V11__trial_expired_no_contract.sql": "551d31b8352b93790b0b821ddec5333a18f30f4b18f0d962c3f632a211b2dbfd",
+        "V12__personal_identities.sql": "9f299adda78f2d624c439b72fbbef155781382c14e43ccf0767d9faff5f36645",
+        "V13__permission_catalog_and_entitlement_permissions.sql": "cda48b6e4c1102495f7e5ff602d94bcaef685da594b90c265469416bd763d7c8",
+        "V14__platform_admin_account_system.sql": "fa130647fe9aa2faa5d643d6603f48df699310a045a82b44b65af1318f4b5c78",
+        "V15__platform_recharge_and_menus.sql": "7b1b7ad1feb16088ec4d305901b3301e7566bd5649ea35fd951d6ae779fcd4a0",
+        "V16__api_rate_card_model_tokenizer.sql": "aeb70c923ceccd2f6287868f4ee3da59477ffdd8ed7e00191735d5d334dec63d",
+        "V17__ai_execution_usage_reports.sql": "2404d8338ccf4a976ad65592ba04add99f4edc3105d0bc6357d48789693bb437",
+        "V18__remove_platform_admin_api_key.sql": "b37af7e02ec1bce7244b23b09b104dfca70986e6adbbc6c7f2544e6c642b0386",
+        "V19__ai_grant_authorizations.sql": "2e8394f73798f59e3ba3e91797a813258cf7e8c5c05e7c871ba2ed2815fc685d",
+        "V1__tenant_commercial_foundation.sql": "2e7c213fc8e2349c81966c4343c00875debd089cb545685e89591906204ab767",
+        "V20__permission_catalog_product_domain.sql": "2326a53fa6ca4006fbbf48a5367f7c711acf3ac77fb14e2e5e6a9132be5f6645",
+        "V21__ai_authorization_rule_snapshots.sql": "2b3eef51a876fd5c5b6d598021b8722f6d6addc5813035d16e4383c0b4284f97",
+        "V22__ai_authorization_status_alignment.sql": "ea4eb4bd4f47b3cf2288ed9d838d8dc5351cf53255b61bcbc06072a6ef2bbd7c",
+        "V23__align_ai_feature_rule_admin_audit_fk.sql": "f95f278878b66cf1f76a332dc8cb400d300c97cad5b4cfbf8dc3d94e460abb2c",
+        "V24__canonicalize_entitlement_snapshots.sql": "42075281f078132e6af546a76449391024d92838b7cae33b47a4f68a15807b6b",
+        "V25__fix_ai_feature_rule_status_uniqueness.sql": "f21e4ac85145966cb58d037bf2aae2fa1093ee591a598d6d07ca2d248707ba6b",
+        "V26__settlement_rejections_and_pending_join_uniqueness.sql": "511a467f446b80fb6c30520895ffc3cc23ac4bb92e58c41d479adcca459436f5",
+        "V2__internal_ai_credit_control.sql": "5c80047b47beb4ca24b020b6ff1c336e4caf067dfa4340eda5afe9f280580348",
+        "V3__recruitment_pool_export_permissions.sql": "43cd3dd3b0dfc543c34c72b42fab2314cdffb3dc19763362c0a6c65619491814",
+        "V4__entitlement_override_batches_and_operator_views.sql": "8ac8e8ee94b5929602c77180740d0aa3290a2504dc7d2ccd691d6ce15b561322",
+        "V5__tenant_data_deletion_tasks.sql": "5e4317a614bd8b78de2290e9e4c6c67dde1647db3855e396c098e51ff76a2767",
+        "V6__open_api_product_line.sql": "6b28e139ea80ee12eb50bc722abf8e2d25b44fb353d49dd38605b5c666b8c040",
+        "V7__personal_commercial_orders.sql": "e3fe0d0a67cf1de971517b54ed51f634a0c4b357d7bcbf1d5a61c2dd8f8f6ffa",
+        "V8__api_wallet_ledger_and_operator_recharge.sql": "03fcf3f5d50a1759616fa99bd83fd9bde52d8be4ccc25d5db66faf85e36b8c28",
+        "V9__personal_subscription_and_api_balance_alerts.sql": "2a72438f2cc0ca86e16c27a9daae5d0616202a87f1ce9aec1cad61ba56f478bd"
+      },
+      "deployed_version": null,
+      "live_database_flyway_version": null
+    },
+    {
+      "repository": "AIAgentPlatform",
+      "remote_url": "https://github.com/Timmo-Chou/AIAgentPlatform.git",
+      "branch": "feature/RD-001-ai-agent-adapter",
+      "head": "0945a002adf41b51ca2fcf09f1e3eb253a7a6f58",
+      "origin_main": "0945a002adf41b51ca2fcf09f1e3eb253a7a6f58",
+      "origin_feature": "0945a002adf41b51ca2fcf09f1e3eb253a7a6f58",
+      "worktree_before_phase0": "clean",
+      "migration_files": {
+        "V1__ai_tasks.sql": "e29f597fc3f64c819f1efe7c2b67f4c8f83f3a7ba550b51e1069b84913eecddb"
+      },
+      "deployed_version": null,
+      "live_database_flyway_version": null
+    },
+    {
+      "repository": "IntelligentRecruitment",
+      "remote_url": "git@github.com:Timmo-Chou/IntelligentRecruitment.git",
+      "branch": "feature/RD-001-ir-route-and-mapping",
+      "head": "abcf9f27c7da967bcec270321124a343f8f0bd7e",
+      "origin_main": "abcf9f27c7da967bcec270321124a343f8f0bd7e",
+      "origin_feature": "abcf9f27c7da967bcec270321124a343f8f0bd7e",
+      "worktree_before_phase0": "clean",
+      "migration_files": {
+        "V1__baseline.sql": "4fc9f32fdb6c30a2a033dd863bdf46ceb0c35fe6ec54bf817099144e15dcc0c6",
+        "V2__ai_execution_records.sql": "fa33c0697c4575598c51164f4e3b1a281404628fb31f54a7e7c22539402ebe27",
+        "V3__ai_settlement_outbox_retry_indexes.sql": "597680364216087cd27e66671bca9e6a7a7948291af4bb8cc2dd9abff9019f45",
+        "V4__ai_settlement_outbox_terminal_effect.sql": "6fc4caa09b4a1391d6776ca6535b56ef6085689e26742a1aa212715bfcf079da",
+        "V5__notification_deduplication.sql": "cdc15d528c123414b2307dee49ae83669d53b77ff0bb6ff112cd8896724f306b",
+        "V6__ai_webhook_events.sql": "885e87ee22c846c32ab3fb26fed4474491491b851445e9f25d79921921e70f52"
+      },
+      "deployed_version": null,
+      "live_database_flyway_version": null
+    }
+  ],
+  "rd_contract_version": "1.1.0",
+  "rd_canonical_sha256": "25c840aed0f2eb637ff589caf34b5901efee4b7646ef4a6ad7a10b95d61625a4",
+  "internal_grant_version": "v2",
+  "execution_contract_version": "rd-execution-v2",
+  "result_contract_version": "recruitment-result-v2",
+  "input_hash_version": "rd-input-hash-v1",
+  "deployment_configuration": {
+    "environment": null,
+    "complex_agent_enabled": null,
+    "route_config_version": null,
+    "published_pricing_rule_versions": null,
+    "endpoint_version": null,
+    "credential_version": null
+  },
+  "phase0_status": "contract baseline; runtime not implemented"
+}

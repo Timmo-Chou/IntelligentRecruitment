@@ -1,0 +1,20 @@
+{
+  "declared_requirements": [
+    "Product planning experience"
+  ],
+  "department": "product",
+  "description": "Own product planning and delivery for an enterprise platform.",
+  "employment_type": "full_time",
+  "job_ref": "job_partner_product_manager_001",
+  "location": "Shanghai",
+  "qualifications": [
+    "Experience with requirements analysis and cross-team delivery."
+  ],
+  "raw_text": null,
+  "responsibilities": [
+    "Research customer needs and maintain the product roadmap."
+  ],
+  "schema_version": "1.0",
+  "source": "external_hr_system",
+  "title": "Product Manager"
+}

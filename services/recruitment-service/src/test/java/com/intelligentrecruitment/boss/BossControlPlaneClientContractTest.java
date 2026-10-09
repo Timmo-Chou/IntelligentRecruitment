@@ -101,7 +101,7 @@ class BossControlPlaneClientContractTest {
         try {
             BossControlPlaneClient.AiAuthorization auth = client.authorizeAiExecution(
                     tenantId, UUID.randomUUID(), "task-1", "JD_GENERATION", "RECRUITMENT", key);
-            client.reportAiUsage(auth, "SUCCEEDED", "model", 2, 3, 0, "task-1");
+            client.reportAiUsage(auth, "SUCCEEDED", "model", 2L, 3L, 0, "task-1");
             client.cancelAiExecution(auth);
         } finally {
             MDC.remove("request_id");

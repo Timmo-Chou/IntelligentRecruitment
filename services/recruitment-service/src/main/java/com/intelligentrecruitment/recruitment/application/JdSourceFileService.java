@@ -2,7 +2,7 @@ package com.intelligentrecruitment.recruitment.application;
 
 import com.intelligentrecruitment.candidates.application.ResumeTextExtractor;
 import com.intelligentrecruitment.candidates.application.PiiCipher;
-import com.intelligentrecruitment.recruitment.infrastructure.JdSourceObjectStorage;
+import com.intelligentrecruitment.shared.storage.PrivateObjectStorage;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
 import com.intelligentrecruitment.tenancy.application.TenantAccessService;
@@ -26,12 +26,12 @@ public class JdSourceFileService {
 
     private final JdbcTemplate jdbc;
     private final TenantAccessService tenantAccess;
-    private final JdSourceObjectStorage storage;
+    private final @org.springframework.beans.factory.annotation.Qualifier("jdSourceObjectStorage") PrivateObjectStorage storage;
     private final ResumeTextExtractor extractor;
     private final PiiCipher pii;
     private final long maxFileSize;
 
-    public JdSourceFileService(JdbcTemplate jdbc, TenantAccessService tenantAccess, JdSourceObjectStorage storage,
+    public JdSourceFileService(JdbcTemplate jdbc, TenantAccessService tenantAccess, @org.springframework.beans.factory.annotation.Qualifier("jdSourceObjectStorage") PrivateObjectStorage storage,
                                ResumeTextExtractor extractor, PiiCipher pii,
                                @Value("${app.storage.max-file-size-bytes:10485760}") long maxFileSize) {
         this.jdbc = jdbc;

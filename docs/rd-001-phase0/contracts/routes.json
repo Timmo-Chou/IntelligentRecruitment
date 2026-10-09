@@ -1,0 +1,68 @@
+[
+  {
+    "boss_capability": "JD_GENERATION",
+    "platform_capability": "jd_generation",
+    "operation": "create",
+    "agents": [
+      "simple_recruitment_agent",
+      "complex_recruitment_agent"
+    ],
+    "selection_source": "deployment_config"
+  },
+  {
+    "boss_capability": "RESUME_PARSING",
+    "platform_capability": "resume_parsing",
+    "operation": "analyze",
+    "agents": [
+      "simple_recruitment_agent",
+      "complex_recruitment_agent"
+    ],
+    "selection_source": "deployment_config"
+  },
+  {
+    "boss_capability": "CANDIDATE_SCREENING",
+    "platform_capability": "candidate_screening",
+    "operation": "match",
+    "agents": [
+      "simple_recruitment_agent",
+      "complex_recruitment_agent"
+    ],
+    "selection_source": "deployment_config"
+  },
+  {
+    "boss_capability": "JD_IN_PLACE_REVISION",
+    "platform_capability": "jd_in_place_revision",
+    "operation": "revise",
+    "agents": [
+      "simple_recruitment_agent"
+    ],
+    "selection_source": "fixed_capability_rule"
+  },
+  {
+    "boss_capability": "INTERVIEW_KIT_GENERATION",
+    "platform_capability": "interview_kit_generation",
+    "operation": "generate",
+    "agents": [
+      "simple_recruitment_agent"
+    ],
+    "selection_source": "fixed_capability_rule"
+  },
+  {
+    "boss_capability": "CONVERSATION_CONTINUE",
+    "platform_capability": "conversation_continue",
+    "operation": "continue",
+    "agents": [
+      "simple_recruitment_agent"
+    ],
+    "selection_source": "fixed_capability_rule"
+  },
+  {
+    "boss_capability": "CONVERSATION_ROUTE",
+    "platform_capability": "conversation_route",
+    "operation": "route",
+    "agents": [
+      "simple_recruitment_agent"
+    ],
+    "selection_source": "fixed_capability_rule"
+  }
+]

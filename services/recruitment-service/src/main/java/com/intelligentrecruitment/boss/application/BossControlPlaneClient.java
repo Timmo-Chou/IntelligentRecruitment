@@ -261,12 +261,66 @@ public class BossControlPlaneClient {
                 text(body,"model_id"), text(body,"tokenizer_id"), uuid(body,"tenant_id"));
     }
 
-    public void reportAiUsage(AiAuthorization auth, String status, String model, long input, long output,
+    public AiAuthorization authorizeAiExecutionV2(UUID tenantId,UUID actorId,String taskId,String capability,String operation,
+            String agentId,UUID attemptId,String idempotencyKey,String routeVersion,String inputHash,int authorizedUnits){
+        String bodyText="{\"tenant_id\":\""+tenantId+"\",\"actor_user_id\":\""+actorId+"\",\"task_id\":"+quoted(taskId)
+                +",\"product_domain\":\"RECRUITMENT\",\"capability_code\":"+quoted(capability)+",\"operation\":"+quoted(operation)
+                +",\"agent_id\":"+quoted(agentId)+",\"attempt_id\":\""+attemptId+"\",\"idempotency_key\":"+quoted(idempotencyKey)
+                +",\"route_config_version\":"+quoted(routeVersion)+",\"input_hash\":"+quoted(inputHash)+",\"authorized_unit_count\":"+authorizedUnits+"}";
+        JsonNode b=request("POST","/internal/ai/execution-authorizations/v2",machineAccessToken(),bodyText,null).body();
+        return new AiAuthorization(uuid(b,"authorization_id"),uuid(b,"grant_id"),uuid(b,"reservation_id"),text(b,"grant"),
+                text(b,"idempotency_key"),instant(b,"authorization_expires_at"),text(b,"model_id"),text(b,"tokenizer_id"),uuid(b,"tenant_id"),uuid(b,"actor_user_id"),
+                text(b,"task_id"),text(b,"product_domain"),text(b,"capability_code"),text(b,"agent_id"),text(b,"operation"),
+                uuid(b,"attempt_id"),text(b,"route_config_version"),text(b,"input_hash"),b.path("pricing_snapshot"),b.path("agent_constraints"));
+    }
+
+    public JsonNode executionReservation(AiAuthorization auth){return request("GET","/internal/ai/execution-reservations/"+auth.reservationId(),machineAccessToken(),null,null).body();}
+
+    public boolean legacyExecutionsDrained(){return request("GET","/internal/ai/upgrade-drain-status",machineAccessToken(),null,null).body().path("active_legacy_executions").asInt(-1)==0;}
+
+    public JsonNode acceptAiExecution(AiAuthorization a,String acceptedTaskId){
+        return request("POST","/internal/ai/execution-acceptances",machineAccessToken(),controlJson(a,acceptedTaskId)+",\"execution_status\":\"QUEUED\",\"state_version\":0}",null).body();
+    }
+
+    public void heartbeatAiExecution(AiAuthorization a,String acceptedTaskId,String status,long stateVersion){
+        request("POST","/internal/ai/execution-heartbeats",machineAccessToken(),controlJson(a,acceptedTaskId)+",\"execution_status\":"+quoted(status)+",\"state_version\":"+stateVersion+"}",null);
+    }
+
+    public void holdAiExecutionV2(AiAuthorization a,String acceptedTaskId,String reason,java.time.Instant deadline){
+        request("POST","/internal/ai/execution-holds",machineAccessToken(),controlJson(a,acceptedTaskId)+",\"reason_code\":"+quoted(reason)+",\"reconciliation_deadline\":"+quoted(deadline.toString())+"}",null);
+    }
+
+    public void settleAiExecutionV2(AiAuthorization a,String acceptedTaskId,String status,String model,Long input,Long output,int retries,String resultRef){
+        settleAiExecutionV2(a,acceptedTaskId,"CAPTURE",1,"VERIFIED","EXECUTION_COMPLETED",status,model,input,output,retries,resultRef);
+    }
+
+    public void settleAiExecutionV2(AiAuthorization a,String acceptedTaskId,String decision,int units,String validity,String reason,
+                                    String status,String model,Long input,Long output,int retries,String resultRef){
+        settleAiExecutionV2(a,acceptedTaskId,decision,units,validity,reason,status,model,input,output,retries,resultRef,null);
+    }
+
+    public void settleAiExecutionV2(AiAuthorization a,String acceptedTaskId,String decision,int units,String validity,String reason,
+                                    String status,String model,Long input,Long output,int retries,String resultRef,JsonNode batchSummary){
+        Map<String,Object> usage=new java.util.LinkedHashMap<>();usage.put("input_tokens",input);usage.put("output_tokens",output);
+        if(batchSummary!=null&&!batchSummary.isNull())usage.put("batch_summary",batchSummary);
+        String serializedUsage;try{serializedUsage=json.writeValueAsString(usage);}catch(Exception ex){throw new IllegalStateException("AI 结算用量无法序列化",ex);}
+        String body=controlJson(a,acceptedTaskId)+",\"final_decision\":"+quoted(decision)+",\"executed_unit_count\":"+units+",\"unit_validity\":"+quoted(validity)+",\"billing_reason_code\":"+quoted(reason)+",\"task_status\":"+quoted(status)+",\"model_id\":"+nullableQuoted(model)+",\"input_tokens\":"+number(input)+",\"output_tokens\":"+number(output)+",\"retry_count\":"+retries+",\"result_reference\":"+quoted(resultRef)+",\"usage\":"+serializedUsage+"}";
+        request("POST","/internal/ai/execution-settlements/v2",machineAccessToken(),body,null);
+    }
+
+    public void settleAiExecutionV2(AiAuthorization a,String acceptedTaskId,String decision,int units,String validity,String reason,
+                                    String status,String model,Long input,Long output,int retries,String resultRef,boolean explicit) {
+        settleAiExecutionV2(a,acceptedTaskId,decision,units,validity,reason,status,model,input,output,retries,resultRef);
+    }
+
+    private String controlJson(AiAuthorization a,String acceptedTaskId){return "{\"tenant_id\":\""+a.tenantId()+"\",\"actor_id\":\""+a.actorId()+"\",\"task_id\":"+quoted(a.taskId())+",\"attempt_id\":\""+a.attemptId()+"\",\"authorization_id\":\""+a.authorizationId()+"\",\"reservation_id\":\""+a.reservationId()+"\",\"capability_code\":"+quoted(a.capabilityCode())+",\"operation\":"+quoted(a.operation())+",\"agent_id\":"+quoted(a.agentId())+",\"idempotency_key\":"+quoted(a.idempotencyKey())+",\"route_config_version\":"+quoted(a.routeConfigVersion())+",\"input_hash\":"+quoted(a.inputHash())+",\"accepted_task_id\":"+nullableQuoted(acceptedTaskId);}
+
+    public void reportAiUsage(AiAuthorization auth, String status, String model, Long input, Long output,
                               int retryCount, String resultReference) {
         request("POST", "/internal/ai/usage-reports", machineAccessToken(),
                 "{\"authorization_id\":\"" + auth.authorizationId() + "\",\"reservation_id\":\"" + auth.reservationId()
                         + "\",\"idempotency_key\":" + quoted(auth.idempotencyKey()) + ",\"task_status\":" + quoted(status)
-                        + ",\"model_id\":" + quoted(model) + ",\"input_tokens\":" + input + ",\"output_tokens\":" + output
+                        + ",\"model_id\":" + quoted(model) + ",\"input_tokens\":" + number(input) + ",\"output_tokens\":" + number(output)
                         + ",\"retry_count\":" + retryCount + ",\"result_reference\":" + quoted(resultReference) + "}", null);
     }
 
@@ -278,7 +332,10 @@ public class BossControlPlaneClient {
 
     public record AiAuthorization(UUID authorizationId, UUID grantId, UUID reservationId, String grant,
                                   String idempotencyKey, Instant expiresAt, String modelId, String tokenizerId,
-                                  UUID tenantId) {
+                                  UUID tenantId,UUID actorId,String taskId,String productDomain,String capabilityCode,String agentId,String operation,
+                                  UUID attemptId,String routeConfigVersion,String inputHash,JsonNode pricingSnapshot,JsonNode agentConstraints) {
+        public AiAuthorization(UUID authorizationId,UUID grantId,UUID reservationId,String grant,String idempotencyKey,Instant expiresAt,
+                               String modelId,String tokenizerId,UUID tenantId){this(authorizationId,grantId,reservationId,grant,idempotencyKey,expiresAt,modelId,tokenizerId,tenantId,null,null,null,null,null,null,null,null,null,null,null);}
         public AiAuthorization(UUID authorizationId, UUID grantId, UUID reservationId, String grant,
                                String idempotencyKey, Instant expiresAt, String modelId, String tokenizerId) {
             this(authorizationId, grantId, reservationId, grant, idempotencyKey, expiresAt, modelId, tokenizerId, null);
@@ -397,6 +454,8 @@ public class BossControlPlaneClient {
     }
     private static String text(JsonNode node, String field) { return node.hasNonNull(field) ? node.path(field).asText() : null; }
     private String quoted(String value) { try { return json.writeValueAsString(value == null ? "" : value); } catch (Exception e) { throw new IllegalStateException(e); } }
+    private String nullableQuoted(String value) { try { return json.writeValueAsString(value); } catch (Exception e) { throw new IllegalStateException(e); } }
+    private static String number(Long value) { return value == null ? "null" : value.toString(); }
     private static String encode(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }
     private static String trimSlash(String value) { return value.endsWith("/") ? value.substring(0, value.length() - 1) : value; }
     private static String outboundRequestId(String path, String body) {

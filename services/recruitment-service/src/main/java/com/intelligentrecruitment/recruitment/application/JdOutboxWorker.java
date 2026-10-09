@@ -33,6 +33,7 @@ public class JdOutboxWorker {
             try {
                 recruitment.finalizeJdRunIfReady(runId);
             } catch (RuntimeException exception) {
+                try{recruitment.recordResultMappingFailure(runId);}catch(RuntimeException unresolved){ /* A later reconciliation pass retries. */ }
                 log.warn("JD run {} finalization check failed", runId, exception);
             }
         }

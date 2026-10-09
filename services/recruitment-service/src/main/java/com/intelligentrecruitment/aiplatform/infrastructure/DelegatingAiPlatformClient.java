@@ -50,6 +50,26 @@ public class DelegatingAiPlatformClient implements AiPlatformClient {
     }
 
     @Override
+    public void confirmResultPersisted(String aiTaskId, StructuredResult result) {
+        httpClient.confirmResultPersisted(aiTaskId, result);
+    }
+
+    @Override
+    public void confirmResultPersisted(String aiTaskId, StructuredResult result, int units, String validity, String reason) {
+        httpClient.confirmResultPersisted(aiTaskId, result, units, validity, reason);
+    }
+
+    @Override
+    public void confirmNoBillableResult(String aiTaskId, String reason) {
+        httpClient.confirmNoBillableResult(aiTaskId, reason);
+    }
+
+    @Override
+    public void holdForReconciliation(String aiTaskId, String reason) {
+        httpClient.holdForReconciliation(aiTaskId, reason);
+    }
+
+    @Override
     public RouteDecision routeMessage(RouteAgentCommand command) {
         return httpClient.routeMessage(command);
     }

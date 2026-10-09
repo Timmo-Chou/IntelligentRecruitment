@@ -38,13 +38,26 @@ public class AiSettlementOutboxWorker {
                     null,
                     body.path("idempotency_key").asText(), null,
                     body.path("model_id").asText(null), null,
-                    UUID.fromString(body.path("tenant_id").asText()));
+                    UUID.fromString(body.path("tenant_id").asText()),
+                    body.hasNonNull("actor_id")?UUID.fromString(body.path("actor_id").asText()):null,
+                    body.path("task_id").asText(null),body.path("product_domain").asText(null),body.path("capability_code").asText(null),
+                    body.path("agent_id").asText(null),body.path("operation").asText(null),
+                    body.hasNonNull("attempt_id")?UUID.fromString(body.path("attempt_id").asText()):null,
+                    body.path("route_config_version").asText(null),body.path("input_hash").asText(null),
+                    body.path("pricing_snapshot"),body.path("agent_constraints"));
             if ("USAGE".equals(claim.effectType())) {
-                boss.reportAiUsage(auth, body.path("task_status").asText(), body.path("model_id").asText(),
-                        body.path("input_tokens").asInt(), body.path("output_tokens").asInt(),
-                        body.path("retry_count").asInt(), body.path("result_reference").asText());
-            } else if ("CANCELLATION".equals(claim.effectType())) {
-                boss.cancelAiExecution(auth);
+                if(body.hasNonNull("agent_id"))boss.settleAiExecutionV2(auth,body.path("accepted_task_id").asText(null),"CAPTURE",
+                        body.path("executed_unit_count").asInt(1),body.path("unit_validity").asText("VERIFIED"),body.path("billing_reason_code").asText("EXECUTION_COMPLETED"),
+                        body.path("task_status").asText(),body.path("model_id").asText(null),nullableLong(body,"input_tokens"),nullableLong(body,"output_tokens"),
+                        body.path("retry_count").asInt(),body.path("result_reference").asText(null),body.hasNonNull("batch_summary")?body.path("batch_summary"):null);
+                else boss.reportAiUsage(auth, body.path("task_status").asText(), body.path("model_id").asText(),
+                        nullableLong(body,"input_tokens"), nullableLong(body,"output_tokens"), body.path("retry_count").asInt(), body.path("result_reference").asText(null));
+            } else if ("RELEASE".equals(claim.effectType())) {
+                if(body.hasNonNull("agent_id"))boss.settleAiExecutionV2(auth,body.path("accepted_task_id").asText(null),"RELEASE",0,
+                        body.path("unit_validity").asText("CONFIRMED_NO_RESULT"),body.path("billing_reason_code").asText("NO_RESULT_CONFIRMED"),
+                        body.path("task_status").asText("FAILED"),body.path("model_id").asText(null),nullableLong(body,"input_tokens"),nullableLong(body,"output_tokens"),
+                        body.path("retry_count").asInt(),body.path("result_reference").asText(null),body.hasNonNull("batch_summary")?body.path("batch_summary"):null);
+                else boss.cancelAiExecution(auth);
             } else {
                 throw new IllegalStateException("未知 AI settlement effect: " + claim.effectType());
             }
@@ -62,5 +75,10 @@ public class AiSettlementOutboxWorker {
         } catch (RuntimeException exception) {
             log.warn("AI reservation expiry reconciliation failed", exception);
         }
+    }
+
+    private static Long nullableLong(JsonNode body,String field) {
+        JsonNode value=body.get(field);
+        return value==null||value.isNull()?null:value.longValue();
     }
 }

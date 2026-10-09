@@ -1,0 +1,64 @@
+{
+  "business_result": {
+    "candidates": [
+      {
+        "ai_match_executed": true,
+        "attachment_ref": "attachment_synthetic_001",
+        "capabilities": {
+          "llm": "available"
+        },
+        "eligibility": "eligible",
+        "error_code": null,
+        "failure_stage": null,
+        "hard_filter_failed": false,
+        "input_order": 1,
+        "rank": 1,
+        "result": {
+          "criteria_results": [],
+          "eligibility": "eligible",
+          "hard_requirement_summary": {
+            "reason": "Synthetic requirements are satisfied.",
+            "source": "rule",
+            "status": "satisfied"
+          },
+          "hard_rule_results": [],
+          "interview_suggestions": [],
+          "missing_items": [],
+          "overall_score": 82,
+          "recommendation": "recommend",
+          "result_ref": "candidate_match_synthetic_001",
+          "result_status": "completed",
+          "risks": [],
+          "schema_version": "1.0",
+          "score_coverage": 100,
+          "strengths": [],
+          "summary": "Synthetic candidate meets the core requirements.",
+          "uncertainties": []
+        },
+        "status": "completed",
+        "vector_retrieval_executed": false
+      }
+    ],
+    "execution_ref": "direct_match_synthetic_001",
+    "failed_count": 0,
+    "hard_filtered_count": 0,
+    "implementation_code": "self",
+    "input_count": 1,
+    "job_snapshot_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "policy_ref": "recruitment_default_v1",
+    "result_ref": "match_synthetic_001",
+    "schema_version": "recruitment_match_batch_v1",
+    "status": "completed",
+    "succeeded_count": 1
+  },
+  "execution": {
+    "child_trace_ids": [
+      "trace_synthetic_candidate_001"
+    ],
+    "execution_ref": "direct_match_synthetic_001",
+    "request_id": "req_synthetic_match_001",
+    "root_trace_id": "trace_synthetic_match_001",
+    "status": "completed",
+    "usage": null
+  }
+}

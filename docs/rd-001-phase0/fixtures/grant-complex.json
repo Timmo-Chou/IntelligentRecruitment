@@ -1,0 +1,36 @@
+{
+  "tenant_id": "00000000-0000-4000-8000-000000000001",
+  "actor_id": "00000000-0000-4000-8000-000000000001",
+  "attempt_id": "00000000-0000-4000-8000-000000000001",
+  "grant_id": "00000000-0000-4000-8000-000000000001",
+  "authorization_id": "00000000-0000-4000-8000-000000000001",
+  "reservation_id": "00000000-0000-4000-8000-000000000001",
+  "task_id": "synthetic-task",
+  "product_domain": "RECRUITMENT",
+  "capability": "JD_GENERATION",
+  "operation": "create",
+  "agent_id": "complex_recruitment_agent",
+  "idempotency_key": "rd-001-synthetic-0001",
+  "route_config_version": "routing-phase0-synthetic",
+  "input_hash": "6bd239db916d4c073abe25dcef93c284582a7e2ba754e1bf99c1315de94e7a7c",
+  "grant_version": "v2",
+  "iss": "boss",
+  "aud": "AIAgentPlatform",
+  "iat": 1791381600,
+  "nbf": 1791381600,
+  "exp": 1791381900,
+  "authorized_unit_count": 1,
+  "pricing_snapshot": {
+    "rule_id": "00000000-0000-4000-8000-000000000001",
+    "rule_version": 1,
+    "billing_method": "FIXED_PER_EXECUTION",
+    "maximum_charge": 3,
+    "fixed_credits_per_unit": 3
+  },
+  "external_api_constraints": {
+    "contract_version": "1.1.0",
+    "max_file_bytes": 10485760,
+    "max_job_text_chars": 100000,
+    "max_resume_count": 5
+  }
+}

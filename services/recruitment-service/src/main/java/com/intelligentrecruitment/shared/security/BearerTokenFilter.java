@@ -18,10 +18,19 @@ import java.io.IOException;
 @Component
 public class BearerTokenFilter extends OncePerRequestFilter {
 
+    private static final String INTERNAL_FILE_GRANT_PATH = "/internal/recruitment/file-download-grants";
+
     private final BossControlPlaneClient boss;
 
     public BearerTokenFilter(BossControlPlaneClient boss) {
         this.boss = boss;
+    }
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        // This endpoint authenticates its own service token. Do not send that token
+        // to BOSS as though it were an interactive user's access token.
+        return INTERNAL_FILE_GRANT_PATH.equals(request.getRequestURI())||request.getRequestURI().startsWith("/internal/recruitment/maintenance");
     }
 
     @Override

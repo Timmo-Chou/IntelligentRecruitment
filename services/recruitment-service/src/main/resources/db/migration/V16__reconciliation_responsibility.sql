@@ -1,0 +1,2 @@
+ALTER TABLE ai_execution_records ADD COLUMN reconciliation_owner VARCHAR(100),ADD COLUMN reconciliation_started_at TIMESTAMPTZ,ADD COLUMN first_response_due_at TIMESTAMPTZ;
+CREATE INDEX idx_ai_execution_reconciliation_deadline ON ai_execution_records(reconciliation_deadline) WHERE final_decision IS NULL;

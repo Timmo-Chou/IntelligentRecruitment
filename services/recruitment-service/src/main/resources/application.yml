@@ -55,6 +55,13 @@ management:
         enabled: true
 
 app:
+  release:
+    control-token: ${RECRUITMENT_RELEASE_CONTROL_TOKEN:}
+    sha: ${IR_RELEASE_SHA:unreleased}
+  recruitment-distribution:
+    # Every profile must explicitly provide both values; the resolver fails startup otherwise.
+    complex-agent-enabled: ${RECRUITMENT_COMPLEX_AGENT_ENABLED:}
+    route-config-version: ${RECRUITMENT_ROUTE_CONFIG_VERSION:}
   boss:
     # BOSS is the authority for user, tenant, authorization, billing and audit.
     # Production must inject the internal client credentials through its secret manager.

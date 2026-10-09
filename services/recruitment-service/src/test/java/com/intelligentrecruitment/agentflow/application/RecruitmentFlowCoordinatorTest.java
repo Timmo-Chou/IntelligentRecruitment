@@ -12,7 +12,8 @@ import org.junit.jupiter.api.Test;
 
 class RecruitmentFlowCoordinatorTest {
 
-    private final RecruitmentFlowCoordinator coordinator = new RecruitmentFlowCoordinator();
+    private final RecruitmentFlowCoordinator coordinator = new RecruitmentFlowCoordinator(
+            new RecruitmentRouteResolver("false", "test-route-v1"),org.mockito.Mockito.mock(RecruitmentExecutionMaintenance.class));
     private final UUID tenantId = UUID.randomUUID();
     private final UUID actorId = UUID.randomUUID();
     private final TenantScope scope = new TenantScope(tenantId, "ENTERPRISE", "招聘组", "RECRUITER");
@@ -40,5 +41,7 @@ class RecruitmentFlowCoordinatorTest {
         assertThat(context.inputVersions()).singleElement().extracting(ExecutionContext.InputVersion::kind)
                 .isEqualTo("job_version");
         assertThat(context.dataHandling().logContent()).isFalse();
+        assertThat(context.agentRoute().agentId()).isEqualTo("simple_recruitment_agent");
+        assertThat(context.agentRoute().routeConfigVersion()).isEqualTo("test-route-v1");
     }
 }

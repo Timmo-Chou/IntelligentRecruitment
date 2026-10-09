@@ -1,0 +1,6728 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.local/rd-001/internal-v2.schema.json",
+  "$defs": {
+    "pricing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rule_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "rule_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "billing_method": {
+          "enum": [
+            "TOKEN",
+            "FIXED_PER_EXECUTION",
+            "FIXED_PER_CANDIDATE"
+          ]
+        },
+        "maximum_charge": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fixed_credits_per_unit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "input_tokens_per_credit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "output_tokens_per_credit": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "rule_id",
+        "rule_version",
+        "billing_method",
+        "maximum_charge"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "billing_method": {
+                "const": "TOKEN"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "input_tokens_per_credit",
+              "output_tokens_per_credit"
+            ],
+            "not": {
+              "required": [
+                "fixed_credits_per_unit"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "fixed_credits_per_unit"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "input_tokens_per_credit"
+                  ]
+                },
+                {
+                  "required": [
+                    "output_tokens_per_credit"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tokenizer_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "max_input_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_output_tokens": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "model_id",
+        "tokenizer_id",
+        "max_input_tokens",
+        "max_output_tokens"
+      ]
+    },
+    "external": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contract_version": {
+          "const": "1.1.0"
+        },
+        "max_file_bytes": {
+          "const": 10485760
+        },
+        "max_job_text_chars": {
+          "const": 100000
+        },
+        "max_resume_count": {
+          "const": 5
+        }
+      },
+      "required": [
+        "contract_version",
+        "max_file_bytes",
+        "max_job_text_chars",
+        "max_resume_count"
+      ]
+    },
+    "grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_domain": {
+          "const": "RECRUITMENT"
+        },
+        "capability": {
+          "enum": [
+            "JD_GENERATION",
+            "RESUME_PARSING",
+            "CANDIDATE_SCREENING",
+            "JD_IN_PLACE_REVISION",
+            "INTERVIEW_KIT_GENERATION",
+            "CONVERSATION_CONTINUE",
+            "CONVERSATION_ROUTE"
+          ]
+        },
+        "operation": {
+          "enum": [
+            "create",
+            "analyze",
+            "match",
+            "revise",
+            "generate",
+            "continue",
+            "route"
+          ]
+        },
+        "agent_id": {
+          "enum": [
+            "simple_recruitment_agent",
+            "complex_recruitment_agent"
+          ]
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 200
+        },
+        "route_config_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "grant_version": {
+          "const": "v2"
+        },
+        "grant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authorization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reservation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "iss": {
+          "type": "string",
+          "minLength": 1
+        },
+        "aud": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1
+            }
+          ]
+        },
+        "iat": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nbf": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exp": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "authorized_unit_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "pricing_snapshot": {
+          "$ref": "#/$defs/pricing"
+        },
+        "model_constraints": {
+          "$ref": "#/$defs/model"
+        },
+        "external_api_constraints": {
+          "$ref": "#/$defs/external"
+        },
+        "jti": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sub": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "tenant_id",
+        "actor_id",
+        "task_id",
+        "attempt_id",
+        "product_domain",
+        "capability",
+        "operation",
+        "agent_id",
+        "idempotency_key",
+        "route_config_version",
+        "input_hash",
+        "grant_version",
+        "grant_id",
+        "authorization_id",
+        "reservation_id",
+        "iss",
+        "aud",
+        "iat",
+        "nbf",
+        "exp",
+        "authorized_unit_count",
+        "pricing_snapshot"
+      ],
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "capability": {
+                  "const": "JD_GENERATION"
+                },
+                "operation": {
+                  "const": "create"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "RESUME_PARSING"
+                },
+                "operation": {
+                  "const": "analyze"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "CANDIDATE_SCREENING"
+                },
+                "operation": {
+                  "const": "match"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "JD_IN_PLACE_REVISION"
+                },
+                "operation": {
+                  "const": "revise"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "INTERVIEW_KIT_GENERATION"
+                },
+                "operation": {
+                  "const": "generate"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "CONVERSATION_CONTINUE"
+                },
+                "operation": {
+                  "const": "continue"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "CONVERSATION_ROUTE"
+                },
+                "operation": {
+                  "const": "route"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "agent_id": {
+                "const": "simple_recruitment_agent"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "model_constraints"
+            ],
+            "not": {
+              "required": [
+                "external_api_constraints"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "external_api_constraints"
+            ],
+            "not": {
+              "required": [
+                "model_constraints"
+              ]
+            },
+            "properties": {
+              "pricing_snapshot": {
+                "properties": {
+                  "billing_method": {
+                    "enum": [
+                      "FIXED_PER_EXECUTION",
+                      "FIXED_PER_CANDIDATE"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "authorization_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_domain": {
+          "const": "RECRUITMENT"
+        },
+        "operation": {
+          "enum": [
+            "create",
+            "analyze",
+            "match",
+            "revise",
+            "generate",
+            "continue",
+            "route"
+          ]
+        },
+        "agent_id": {
+          "enum": [
+            "simple_recruitment_agent",
+            "complex_recruitment_agent"
+          ]
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 200
+        },
+        "route_config_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "actor_user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "capability_code": {
+          "enum": [
+            "JD_GENERATION",
+            "RESUME_PARSING",
+            "CANDIDATE_SCREENING",
+            "JD_IN_PLACE_REVISION",
+            "INTERVIEW_KIT_GENERATION",
+            "CONVERSATION_CONTINUE",
+            "CONVERSATION_ROUTE"
+          ]
+        },
+        "authorized_unit_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        }
+      },
+      "required": [
+        "tenant_id",
+        "task_id",
+        "attempt_id",
+        "product_domain",
+        "operation",
+        "agent_id",
+        "idempotency_key",
+        "route_config_version",
+        "input_hash",
+        "actor_user_id",
+        "capability_code",
+        "authorized_unit_count"
+      ],
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "capability_code": {
+                  "const": "JD_GENERATION"
+                },
+                "operation": {
+                  "const": "create"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability_code": {
+                  "const": "RESUME_PARSING"
+                },
+                "operation": {
+                  "const": "analyze"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability_code": {
+                  "const": "CANDIDATE_SCREENING"
+                },
+                "operation": {
+                  "const": "match"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability_code": {
+                  "const": "JD_IN_PLACE_REVISION"
+                },
+                "operation": {
+                  "const": "revise"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability_code": {
+                  "const": "INTERVIEW_KIT_GENERATION"
+                },
+                "operation": {
+                  "const": "generate"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability_code": {
+                  "const": "CONVERSATION_CONTINUE"
+                },
+                "operation": {
+                  "const": "continue"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability_code": {
+                  "const": "CONVERSATION_ROUTE"
+                },
+                "operation": {
+                  "const": "route"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "authorization_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "grant": {
+          "type": "string",
+          "minLength": 1
+        },
+        "grant_claims": {
+          "$ref": "#/$defs/grant"
+        },
+        "authorization_expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reserved_credits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "permission_snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "permission_code": {
+              "type": "string",
+              "minLength": 1
+            },
+            "entitlement_feature_code": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "permission_code",
+            "entitlement_feature_code"
+          ]
+        }
+      },
+      "required": [
+        "grant",
+        "grant_claims",
+        "authorization_expires_at",
+        "reserved_credits",
+        "permission_snapshot"
+      ]
+    },
+    "file_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "file_asset_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mime_type": {
+          "enum": [
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          ]
+        },
+        "byte_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10485760
+        }
+      },
+      "required": [
+        "file_asset_id",
+        "version",
+        "sha256",
+        "mime_type",
+        "byte_count"
+      ]
+    },
+    "input_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "kind",
+        "ref",
+        "version",
+        "content_hash"
+      ]
+    },
+    "hash_material": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hash_contract_version": {
+          "const": "rd-input-hash-v1"
+        },
+        "agent_id": {
+          "enum": [
+            "simple_recruitment_agent",
+            "complex_recruitment_agent"
+          ]
+        },
+        "capability": {
+          "enum": [
+            "jd_generation",
+            "resume_parsing",
+            "candidate_screening",
+            "jd_in_place_revision",
+            "interview_kit_generation",
+            "conversation_continue",
+            "conversation_route"
+          ]
+        },
+        "operation": {
+          "enum": [
+            "create",
+            "analyze",
+            "match",
+            "revise",
+            "generate",
+            "continue",
+            "route"
+          ]
+        },
+        "business_task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_versions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/input_version"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file_reference"
+          }
+        },
+        "policy_snapshot": {
+          "type": "object"
+        },
+        "input": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "hash_contract_version",
+        "agent_id",
+        "capability",
+        "operation",
+        "business_task_id",
+        "input_versions",
+        "files",
+        "policy_snapshot",
+        "input"
+      ],
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "capability": {
+                  "const": "jd_generation"
+                },
+                "operation": {
+                  "const": "create"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "resume_parsing"
+                },
+                "operation": {
+                  "const": "analyze"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "candidate_screening"
+                },
+                "operation": {
+                  "const": "match"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "jd_in_place_revision"
+                },
+                "operation": {
+                  "const": "revise"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "interview_kit_generation"
+                },
+                "operation": {
+                  "const": "generate"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "conversation_continue"
+                },
+                "operation": {
+                  "const": "continue"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "conversation_route"
+                },
+                "operation": {
+                  "const": "route"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "execution_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "execution_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authorization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "grant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reservation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "capability": {
+          "enum": [
+            "jd_generation",
+            "resume_parsing",
+            "candidate_screening",
+            "jd_in_place_revision",
+            "interview_kit_generation",
+            "conversation_continue",
+            "conversation_route"
+          ]
+        },
+        "operation": {
+          "enum": [
+            "create",
+            "analyze",
+            "match",
+            "revise",
+            "generate",
+            "continue",
+            "route"
+          ]
+        },
+        "agent_id": {
+          "enum": [
+            "simple_recruitment_agent",
+            "complex_recruitment_agent"
+          ]
+        },
+        "route_config_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "selection_source": {
+          "enum": [
+            "deployment_config",
+            "fixed_capability_rule"
+          ]
+        },
+        "input_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "hash_material": {
+          "$ref": "#/$defs/hash_material"
+        },
+        "data_handling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contains_pii": {
+              "type": "boolean"
+            },
+            "log_content": {
+              "const": false
+            },
+            "retention": {
+              "enum": [
+                "ephemeral",
+                "contract_bound"
+              ]
+            }
+          },
+          "required": [
+            "contains_pii",
+            "log_content",
+            "retention"
+          ]
+        },
+        "request_context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "request_id",
+            "trace_id",
+            "tenant_id",
+            "actor_id",
+            "business_task_id",
+            "attempt_id",
+            "idempotency_key",
+            "locale",
+            "timezone",
+            "contract_version"
+          ],
+          "properties": {
+            "request_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "trace_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tenant_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "business_task_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "attempt_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "idempotency_key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "locale": {
+              "type": "string",
+              "minLength": 1
+            },
+            "timezone": {
+              "type": "string",
+              "minLength": 1
+            },
+            "contract_version": {
+              "const": "rd-execution-v2"
+            }
+          }
+        },
+        "business_operation_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_versions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/input_version"
+          }
+        },
+        "requested_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "input": {
+          "type": "object"
+        },
+        "policy_decision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "policy_decision_id",
+            "capability",
+            "decision",
+            "tenant_id",
+            "actor_id",
+            "policy_version",
+            "evaluated_at"
+          ],
+          "properties": {
+            "policy_decision_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "capability": {
+              "enum": [
+                "jd_generation",
+                "resume_parsing",
+                "candidate_screening",
+                "jd_in_place_revision",
+                "interview_kit_generation",
+                "conversation_continue",
+                "conversation_route"
+              ]
+            },
+            "decision": {
+              "const": "allow"
+            },
+            "tenant_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "policy_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "evaluated_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        }
+      },
+      "required": [
+        "execution_id",
+        "authorization_id",
+        "grant_id",
+        "reservation_id",
+        "capability",
+        "operation",
+        "agent_id",
+        "route_config_version",
+        "selection_source",
+        "input_hash",
+        "hash_material",
+        "data_handling",
+        "request_context",
+        "business_operation_ref",
+        "input_versions",
+        "requested_at",
+        "input",
+        "policy_decision"
+      ],
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "capability": {
+                  "const": "jd_generation"
+                },
+                "operation": {
+                  "const": "create"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "resume_parsing"
+                },
+                "operation": {
+                  "const": "analyze"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "candidate_screening"
+                },
+                "operation": {
+                  "const": "match"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "jd_in_place_revision"
+                },
+                "operation": {
+                  "const": "revise"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "interview_kit_generation"
+                },
+                "operation": {
+                  "const": "generate"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "conversation_continue"
+                },
+                "operation": {
+                  "const": "continue"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "conversation_route"
+                },
+                "operation": {
+                  "const": "route"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ai_task_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authorization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "tenant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "agent_id": {
+          "enum": [
+            "simple_recruitment_agent",
+            "complex_recruitment_agent"
+          ]
+        },
+        "capability": {
+          "enum": [
+            "jd_generation",
+            "resume_parsing",
+            "candidate_screening",
+            "jd_in_place_revision",
+            "interview_kit_generation",
+            "conversation_continue",
+            "conversation_route"
+          ]
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "status": {
+          "enum": [
+            "queued",
+            "running",
+            "waiting_for_input",
+            "partially_completed",
+            "cancel_requested",
+            "reconciliation_required",
+            "result_mapping_failed",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "state_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cancellation_requested": {
+          "type": "boolean"
+        },
+        "result_reference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ai_task_id",
+        "attempt_id",
+        "authorization_id",
+        "tenant_id",
+        "actor_id",
+        "agent_id",
+        "capability",
+        "operation",
+        "input_hash",
+        "status",
+        "state_version",
+        "cancellation_requested",
+        "result_reference",
+        "error_code"
+      ]
+    },
+    "lookup_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "business_task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authorization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "capability": {
+          "enum": [
+            "jd_generation",
+            "resume_parsing",
+            "candidate_screening",
+            "jd_in_place_revision",
+            "interview_kit_generation",
+            "conversation_continue",
+            "conversation_route"
+          ]
+        },
+        "agent_id": {
+          "enum": [
+            "simple_recruitment_agent",
+            "complex_recruitment_agent"
+          ]
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "route_config_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "tenant_id",
+        "actor_id",
+        "business_task_id",
+        "attempt_id",
+        "authorization_id",
+        "capability",
+        "agent_id",
+        "operation",
+        "idempotency_key",
+        "input_hash",
+        "route_config_version"
+      ]
+    },
+    "lookup_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "found": {
+              "const": false
+            }
+          },
+          "required": [
+            "found"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "found": {
+              "const": true
+            },
+            "task": {
+              "$ref": "#/$defs/task"
+            }
+          },
+          "required": [
+            "found",
+            "task"
+          ]
+        }
+      ]
+    },
+    "webhook": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "event_type": {
+          "enum": [
+            "task.cancel_requested",
+            "task.cancelled",
+            "task.completed",
+            "task.failed",
+            "task.partially_completed",
+            "task.progress",
+            "task.reconciliation_required",
+            "task.result_mapping_failed",
+            "task.started",
+            "task.waiting_for_input"
+          ]
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "task": {
+          "$ref": "#/$defs/task"
+        }
+      },
+      "required": [
+        "event_id",
+        "event_type",
+        "occurred_at",
+        "task"
+      ]
+    },
+    "usage": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "input_tokens": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "output_tokens": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "provider_usage": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "input_tokens",
+            "output_tokens"
+          ]
+        }
+      ]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "result_contract_version": {
+          "const": "recruitment-result-v2"
+        },
+        "ai_task_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "tenant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "agent_id": {
+          "enum": [
+            "simple_recruitment_agent",
+            "complex_recruitment_agent"
+          ]
+        },
+        "capability": {
+          "enum": [
+            "jd_generation",
+            "resume_parsing",
+            "candidate_screening",
+            "jd_in_place_revision",
+            "interview_kit_generation",
+            "conversation_continue",
+            "conversation_route"
+          ]
+        },
+        "operation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "route_config_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "reconciliation_required",
+            "result_mapping_failed",
+            "failed"
+          ]
+        },
+        "agent_adapter_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "external_contract_version": {
+          "enum": [
+            "1.1.0",
+            null
+          ]
+        },
+        "schema_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider_result_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "data": {
+          "type": "object"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "usage": {
+          "$ref": "#/$defs/usage"
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "model_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tokenizer_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "external_request_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "external_execution_ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "raw_response_reference": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "model_id",
+            "tokenizer_id",
+            "external_request_id",
+            "external_execution_ref",
+            "raw_response_reference"
+          ]
+        }
+      },
+      "required": [
+        "result_contract_version",
+        "ai_task_id",
+        "attempt_id",
+        "tenant_id",
+        "agent_id",
+        "capability",
+        "operation",
+        "input_hash",
+        "route_config_version",
+        "status",
+        "agent_adapter_version",
+        "external_contract_version",
+        "schema_version",
+        "provider_result_ref",
+        "data",
+        "warnings",
+        "usage",
+        "source"
+      ],
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "capability": {
+                  "const": "jd_generation"
+                },
+                "operation": {
+                  "const": "create"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "resume_parsing"
+                },
+                "operation": {
+                  "const": "analyze"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "candidate_screening"
+                },
+                "operation": {
+                  "const": "match"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent",
+                    "complex_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "jd_in_place_revision"
+                },
+                "operation": {
+                  "const": "revise"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "interview_kit_generation"
+                },
+                "operation": {
+                  "const": "generate"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "conversation_continue"
+                },
+                "operation": {
+                  "const": "continue"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            },
+            {
+              "properties": {
+                "capability": {
+                  "const": "conversation_route"
+                },
+                "operation": {
+                  "const": "route"
+                },
+                "agent_id": {
+                  "enum": [
+                    "simple_recruitment_agent"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "jd_generation"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/jd_data"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "resume_parsing"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/resume_data"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capability": {
+                "const": "candidate_screening"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "$ref": "#/$defs/screening_data"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "agent_id": {
+                "const": "complex_recruitment_agent"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "external_contract_version": {
+                "const": "1.1.0"
+              },
+              "source": {
+                "properties": {
+                  "model_id": {
+                    "type": "null"
+                  },
+                  "tokenizer_id": {
+                    "type": "null"
+                  },
+                  "raw_response_reference": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "external_request_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "external_execution_ref": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "external_contract_version": {
+                "type": "null"
+              },
+              "source": {
+                "properties": {
+                  "model_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tokenizer_id": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "jd_data": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "jd_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "structured_job": {
+          "$ref": "#/$defs/rd/$defs/DirectGeneratedStructuredJobDTO"
+        },
+        "requirements_snapshot": {
+          "items": {
+            "$ref": "#/$defs/rd/$defs/DirectGeneratedRequirementDTO"
+          },
+          "type": "array",
+          "title": "Declared Requirements"
+        }
+      },
+      "required": [
+        "jd_text",
+        "structured_job",
+        "requirements_snapshot"
+      ]
+    },
+    "resume_data": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "analysis_text": {
+          "type": "string"
+        },
+        "parsed": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "email": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "phone": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "location": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "headline": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "years_experience": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "highest_education": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "skills": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "skill_details": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeSkillDTO"
+              }
+            },
+            "work_experience": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeWorkExperienceDTO"
+              }
+            },
+            "education_experience": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeEducationDTO"
+              }
+            },
+            "project_experience": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeProjectExperienceDTO"
+              }
+            },
+            "certificates": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeCertificateDTO"
+              }
+            },
+            "languages": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeLanguageDTO"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "email",
+            "phone",
+            "location",
+            "headline",
+            "years_experience",
+            "highest_education",
+            "skills",
+            "skill_details",
+            "work_experience",
+            "education_experience",
+            "project_experience",
+            "certificates",
+            "languages",
+            "summary"
+          ]
+        },
+        "analysis_snapshot": {
+          "type": "object"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "analysis_text",
+        "parsed",
+        "analysis_snapshot",
+        "warnings"
+      ]
+    },
+    "screening_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "file_asset_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "input_order": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+        },
+        "attachment_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evaluation_status": {
+          "enum": [
+            "SUCCEEDED",
+            "HARD_FILTERED",
+            "NOT_EVALUATED",
+            "FAILED",
+            "RECONCILIATION_REQUIRED"
+          ]
+        },
+        "score": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "level": {
+          "enum": [
+            "STRONG_MATCH",
+            "MATCH",
+            "GENERAL_MATCH",
+            "WEAK_MATCH",
+            null
+          ]
+        },
+        "result_validity": {
+          "enum": [
+            "VALID_BUSINESS_RESULT",
+            "CONFIRMED_NO_RESULT",
+            "UNVERIFIED_RESULT"
+          ]
+        },
+        "billable_unit_count": {
+          "enum": [
+            0,
+            1,
+            null
+          ]
+        },
+        "billing_reason_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_reference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string"
+        },
+        "matched_points": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "unmatched_points": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "negotiable_points": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "missing_information": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "risks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "source_snapshot": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "file_asset_id",
+        "input_order",
+        "attachment_ref",
+        "evaluation_status",
+        "score",
+        "level",
+        "result_validity",
+        "billable_unit_count",
+        "billing_reason_code",
+        "evidence_reference",
+        "summary",
+        "matched_points",
+        "unmatched_points",
+        "negotiable_points",
+        "missing_information",
+        "risks",
+        "evidence",
+        "source_snapshot"
+      ]
+    },
+    "screening_data": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "policy_source": {
+          "enum": [
+            "IR_DIMENSIONS",
+            "RD_STANDARD"
+          ]
+        },
+        "policy_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "job_version_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "job_text_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "candidates": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/screening_item"
+          }
+        },
+        "batch_snapshot": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "policy_source",
+        "policy_ref",
+        "job_version_id",
+        "job_text_hash",
+        "candidates",
+        "batch_snapshot"
+      ]
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_domain": {
+          "const": "RECRUITMENT"
+        },
+        "capability": {
+          "enum": [
+            "JD_GENERATION",
+            "RESUME_PARSING",
+            "CANDIDATE_SCREENING",
+            "JD_IN_PLACE_REVISION",
+            "INTERVIEW_KIT_GENERATION",
+            "CONVERSATION_CONTINUE",
+            "CONVERSATION_ROUTE"
+          ]
+        },
+        "operation": {
+          "enum": [
+            "create",
+            "analyze",
+            "match",
+            "revise",
+            "generate",
+            "continue",
+            "route"
+          ]
+        },
+        "agent_id": {
+          "enum": [
+            "simple_recruitment_agent",
+            "complex_recruitment_agent"
+          ]
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 200
+        },
+        "route_config_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "authorization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reservation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "accepted_task_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "accepted_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "actor_id",
+        "task_id",
+        "attempt_id",
+        "product_domain",
+        "capability",
+        "operation",
+        "agent_id",
+        "idempotency_key",
+        "route_config_version",
+        "input_hash",
+        "authorization_id",
+        "reservation_id",
+        "accepted_task_id",
+        "accepted_at"
+      ]
+    },
+    "heartbeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_domain": {
+          "const": "RECRUITMENT"
+        },
+        "capability": {
+          "enum": [
+            "JD_GENERATION",
+            "RESUME_PARSING",
+            "CANDIDATE_SCREENING",
+            "JD_IN_PLACE_REVISION",
+            "INTERVIEW_KIT_GENERATION",
+            "CONVERSATION_CONTINUE",
+            "CONVERSATION_ROUTE"
+          ]
+        },
+        "operation": {
+          "enum": [
+            "create",
+            "analyze",
+            "match",
+            "revise",
+            "generate",
+            "continue",
+            "route"
+          ]
+        },
+        "agent_id": {
+          "enum": [
+            "simple_recruitment_agent",
+            "complex_recruitment_agent"
+          ]
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 200
+        },
+        "route_config_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "authorization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reservation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "accepted_task_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "state_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "execution_status": {
+          "enum": [
+            "queued",
+            "running",
+            "waiting_for_input",
+            "partially_completed",
+            "cancel_requested",
+            "reconciliation_required",
+            "result_mapping_failed"
+          ]
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "actor_id",
+        "task_id",
+        "attempt_id",
+        "product_domain",
+        "capability",
+        "operation",
+        "agent_id",
+        "idempotency_key",
+        "route_config_version",
+        "input_hash",
+        "authorization_id",
+        "reservation_id",
+        "accepted_task_id",
+        "state_version",
+        "execution_status",
+        "observed_at"
+      ]
+    },
+    "hold": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_domain": {
+          "const": "RECRUITMENT"
+        },
+        "capability": {
+          "enum": [
+            "JD_GENERATION",
+            "RESUME_PARSING",
+            "CANDIDATE_SCREENING",
+            "JD_IN_PLACE_REVISION",
+            "INTERVIEW_KIT_GENERATION",
+            "CONVERSATION_CONTINUE",
+            "CONVERSATION_ROUTE"
+          ]
+        },
+        "operation": {
+          "enum": [
+            "create",
+            "analyze",
+            "match",
+            "revise",
+            "generate",
+            "continue",
+            "route"
+          ]
+        },
+        "agent_id": {
+          "enum": [
+            "simple_recruitment_agent",
+            "complex_recruitment_agent"
+          ]
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 200
+        },
+        "route_config_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "authorization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reservation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "accepted_task_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reconciliation_deadline": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "evidence_reference": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "tenant_id",
+        "actor_id",
+        "task_id",
+        "attempt_id",
+        "product_domain",
+        "capability",
+        "operation",
+        "agent_id",
+        "idempotency_key",
+        "route_config_version",
+        "input_hash",
+        "authorization_id",
+        "reservation_id",
+        "accepted_task_id",
+        "reason_code",
+        "reconciliation_deadline",
+        "evidence_reference"
+      ]
+    },
+    "control_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "authorization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reservation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reservation_status": {
+          "enum": [
+            "RESERVED",
+            "EXECUTING",
+            "RECONCILIATION_HOLD",
+            "CAPTURED",
+            "RELEASED"
+          ]
+        },
+        "lease_expires_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "reconciliation_deadline": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "final_decision": {
+          "enum": [
+            "CAPTURE",
+            "RELEASE",
+            null
+          ]
+        },
+        "decision_version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "authorization_id",
+        "reservation_id",
+        "reservation_status",
+        "lease_expires_at",
+        "reconciliation_deadline",
+        "final_decision",
+        "decision_version"
+      ]
+    },
+    "settlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actor_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "product_domain": {
+          "const": "RECRUITMENT"
+        },
+        "capability": {
+          "enum": [
+            "JD_GENERATION",
+            "RESUME_PARSING",
+            "CANDIDATE_SCREENING",
+            "JD_IN_PLACE_REVISION",
+            "INTERVIEW_KIT_GENERATION",
+            "CONVERSATION_CONTINUE",
+            "CONVERSATION_ROUTE"
+          ]
+        },
+        "operation": {
+          "enum": [
+            "create",
+            "analyze",
+            "match",
+            "revise",
+            "generate",
+            "continue",
+            "route"
+          ]
+        },
+        "agent_id": {
+          "enum": [
+            "simple_recruitment_agent",
+            "complex_recruitment_agent"
+          ]
+        },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 200
+        },
+        "route_config_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "authorization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reservation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "accepted_task_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "decision_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "decision_fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "final_decision": {
+          "enum": [
+            "CAPTURE",
+            "RELEASE"
+          ]
+        },
+        "executed_unit_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        },
+        "billing_reason_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_reference": {
+          "type": "string",
+          "minLength": 1
+        },
+        "result_reference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "task_status": {
+          "enum": [
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "retry_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "usage": {
+          "$ref": "#/$defs/usage"
+        },
+        "unit_decisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "unit_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "result_validity": {
+                "enum": [
+                  "VALID_BUSINESS_RESULT",
+                  "CONFIRMED_NO_RESULT",
+                  "UNVERIFIED_RESULT"
+                ]
+              },
+              "billable_unit_count": {
+                "enum": [
+                  0,
+                  1
+                ]
+              },
+              "billing_reason_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidence_reference": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "unit_id",
+              "result_validity",
+              "billable_unit_count",
+              "billing_reason_code",
+              "evidence_reference"
+            ]
+          }
+        }
+      },
+      "required": [
+        "tenant_id",
+        "actor_id",
+        "task_id",
+        "attempt_id",
+        "product_domain",
+        "capability",
+        "operation",
+        "agent_id",
+        "idempotency_key",
+        "route_config_version",
+        "input_hash",
+        "authorization_id",
+        "reservation_id",
+        "accepted_task_id",
+        "decision_version",
+        "decision_fingerprint",
+        "final_decision",
+        "executed_unit_count",
+        "billing_reason_code",
+        "evidence_reference",
+        "result_reference",
+        "task_status",
+        "retry_count",
+        "usage",
+        "unit_decisions"
+      ]
+    },
+    "download_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenant_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "ai_task_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authorization_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "file_asset_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "purpose": {
+          "enum": [
+            "resume_analyze",
+            "resume_match"
+          ]
+        }
+      },
+      "required": [
+        "tenant_id",
+        "attempt_id",
+        "ai_task_id",
+        "authorization_id",
+        "file_asset_id",
+        "purpose"
+      ]
+    },
+    "download_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "file_reference": {
+          "$ref": "#/$defs/file_reference"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "file_reference",
+        "url",
+        "expires_at"
+      ]
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "request_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "retry_action": {
+              "enum": [
+                "NONE",
+                "LOCAL_REPAIR",
+                "LOOKUP",
+                "RECONCILE",
+                "RETRY_CONFIRMED_NOT_SENT"
+              ]
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "request_id",
+            "retry_action"
+          ]
+        }
+      },
+      "required": [
+        "error"
+      ]
+    },
+    "rd": {
+      "$defs": {
+        "ActionResultDTO": {
+          "properties": {
+            "output": {
+              "type": "object",
+              "title": "Output"
+            },
+            "assistant_text": {
+              "type": "string",
+              "title": "Assistant Text"
+            },
+            "state_patch": {
+              "type": "object",
+              "title": "State Patch"
+            },
+            "response_parts": {
+              "items": {
+                "type": "object"
+              },
+              "type": "array",
+              "title": "Response Parts"
+            },
+            "usage": {
+              "anyOf": [
+                {
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Usage"
+            },
+            "child_trace_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Child Trace Ids"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "output",
+            "assistant_text",
+            "state_patch",
+            "response_parts",
+            "usage",
+            "child_trace_ids"
+          ],
+          "title": "ActionResultDTO"
+        },
+        "AgentStateDTO": {
+          "properties": {
+            "conversation_ref": {
+              "type": "string",
+              "title": "Conversation Ref"
+            },
+            "agent_code": {
+              "type": "string",
+              "title": "Agent Code"
+            },
+            "task_type": {
+              "type": "string",
+              "title": "Task Type"
+            },
+            "schema_version": {
+              "type": "string",
+              "title": "Schema Version"
+            },
+            "payload": {
+              "type": "object",
+              "title": "Payload"
+            },
+            "revision": {
+              "type": "integer",
+              "title": "Revision"
+            },
+            "status": {
+              "type": "string",
+              "title": "Status"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Created At"
+            },
+            "updated_at": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Updated At"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "conversation_ref",
+            "agent_code",
+            "task_type",
+            "schema_version",
+            "payload",
+            "revision",
+            "status",
+            "created_at",
+            "updated_at"
+          ],
+          "title": "AgentStateDTO"
+        },
+        "AgentTurnDTO": {
+          "properties": {
+            "conversation": {
+              "$ref": "#/$defs/rd/$defs/ConversationDTO"
+            },
+            "state": {
+              "$ref": "#/$defs/rd/$defs/AgentStateDTO"
+            },
+            "run": {
+              "$ref": "#/$defs/rd/$defs/RunDTO"
+            },
+            "user_message": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/MessageDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "assistant_message": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/MessageDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "confirmation": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/ConfirmationDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "result_metadata": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/ResultMetadataDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "action_result": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/ActionResultDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "conversation",
+            "state",
+            "run",
+            "user_message",
+            "assistant_message",
+            "confirmation",
+            "result_metadata",
+            "action_result"
+          ],
+          "title": "AgentTurnDTO"
+        },
+        "AgentTurnResponseDTO": {
+          "properties": {
+            "result": {
+              "$ref": "#/$defs/rd/$defs/AgentTurnDTO"
+            },
+            "conversation_usage": {
+              "$ref": "#/$defs/rd/$defs/UsageDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "result",
+            "conversation_usage"
+          ],
+          "title": "AgentTurnResponseDTO"
+        },
+        "AttachmentDTO": {
+          "properties": {
+            "attachment_ref": {
+              "type": "string",
+              "title": "Attachment Ref"
+            },
+            "kind": {
+              "type": "string",
+              "title": "Kind"
+            },
+            "filename": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filename"
+            },
+            "content_type": {
+              "type": "string",
+              "title": "Content Type"
+            },
+            "size": {
+              "type": "integer",
+              "title": "Size"
+            },
+            "status": {
+              "type": "string",
+              "title": "Status"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Created At"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "attachment_ref",
+            "kind",
+            "filename",
+            "content_type",
+            "size",
+            "status",
+            "created_at"
+          ],
+          "title": "AttachmentDTO"
+        },
+        "AttachmentInputRequestDTO": {
+          "properties": {
+            "client_input_id": {
+              "type": "string",
+              "maxLength": 120,
+              "minLength": 1,
+              "title": "Client Input Id"
+            },
+            "slot_code": {
+              "type": "string",
+              "maxLength": 120,
+              "minLength": 1,
+              "title": "Slot Code"
+            },
+            "attachment_refs": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "maxItems": 5,
+              "minItems": 1,
+              "title": "Attachment Refs"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "client_input_id",
+            "slot_code",
+            "attachment_refs"
+          ],
+          "title": "AttachmentInputRequestDTO",
+          "examples": [
+            {
+              "attachment_refs": [
+                "att_synthetic_001"
+              ],
+              "client_input_id": "input_synthetic_001",
+              "slot_code": "slot_from_conversation_snapshot"
+            }
+          ]
+        },
+        "AttachmentInputResponseDTO": {
+          "properties": {
+            "result": {
+              "$ref": "#/$defs/rd/$defs/AgentTurnDTO"
+            },
+            "task_usage": {
+              "$ref": "#/$defs/rd/$defs/UsageDTO"
+            },
+            "conversation_usage": {
+              "$ref": "#/$defs/rd/$defs/UsageDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "result",
+            "task_usage",
+            "conversation_usage"
+          ],
+          "title": "AttachmentInputResponseDTO"
+        },
+        "AttachmentListResponseDTO": {
+          "properties": {
+            "attachments": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/AttachmentDTO"
+              },
+              "type": "array",
+              "title": "Attachments"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "attachments"
+          ],
+          "title": "AttachmentListResponseDTO"
+        },
+        "AttachmentUploadResponseDTO": {
+          "properties": {
+            "attachment": {
+              "$ref": "#/$defs/rd/$defs/AttachmentDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "attachment"
+          ],
+          "title": "AttachmentUploadResponseDTO"
+        },
+        "Body_direct_analyze_resume_recruitment_resume_analyze_post": {
+          "properties": {
+            "file": {
+              "type": "string",
+              "format": "binary",
+              "title": "File",
+              "description": "One PDF or DOCX resume, at most 10 MiB."
+            }
+          },
+          "type": "object",
+          "required": [
+            "file"
+          ],
+          "title": "Body_direct_analyze_resume_recruitment_resume_analyze_post"
+        },
+        "Body_direct_match_resumes_recruitment_resume_match_post": {
+          "properties": {
+            "job_text": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100000,
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Text",
+              "description": "Complete JD text. Mutually exclusive with job_file and structured_job."
+            },
+            "job_file": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "binary"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job File",
+              "description": "One complete JD PDF/DOCX, at most 10 MiB. Mutually exclusive with job_text and structured_job."
+            },
+            "structured_job": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "contentMediaType": "application/json",
+                  "contentSchema": {
+                    "$ref": "#/$defs/rd/$defs/DirectStructuredJobDTO"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Structured Job",
+              "description": "Structured JD JSON matching the published Recruitment contract. Mutually exclusive with job_text and job_file."
+            },
+            "resumes": {
+              "items": {
+                "type": "string",
+                "format": "binary"
+              },
+              "type": "array",
+              "maxItems": 5,
+              "minItems": 1,
+              "title": "Resumes",
+              "description": "One to five PDF or DOCX resumes."
+            }
+          },
+          "type": "object",
+          "required": [
+            "resumes"
+          ],
+          "title": "Body_direct_match_resumes_recruitment_resume_match_post"
+        },
+        "Body_upload_attachment_conversations__conversation_ref__attachments_post": {
+          "properties": {
+            "client_upload_id": {
+              "type": "string",
+              "maxLength": 120,
+              "minLength": 1,
+              "title": "Client Upload Id"
+            },
+            "kind": {
+              "type": "string",
+              "pattern": "^(job|resume)$",
+              "title": "Kind"
+            },
+            "file": {
+              "type": "string",
+              "format": "binary",
+              "title": "File"
+            }
+          },
+          "type": "object",
+          "required": [
+            "client_upload_id",
+            "kind",
+            "file"
+          ],
+          "title": "Body_upload_attachment_conversations__conversation_ref__attachments_post"
+        },
+        "ConfirmationDTO": {
+          "properties": {
+            "confirmation_ref": {
+              "type": "string",
+              "title": "Confirmation Ref"
+            },
+            "conversation_ref": {
+              "type": "string",
+              "title": "Conversation Ref"
+            },
+            "action_code": {
+              "type": "string",
+              "title": "Action Code"
+            },
+            "state_revision": {
+              "type": "integer",
+              "title": "State Revision"
+            },
+            "status": {
+              "type": "string",
+              "title": "Status"
+            },
+            "execution_run_ref": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Execution Run Ref"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Created At"
+            },
+            "updated_at": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Updated At"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "confirmation_ref",
+            "conversation_ref",
+            "action_code",
+            "state_revision",
+            "status",
+            "execution_run_ref",
+            "created_at",
+            "updated_at"
+          ],
+          "title": "ConfirmationDTO"
+        },
+        "ConfirmationRequestDTO": {
+          "properties": {
+            "accepted": {
+              "type": "boolean",
+              "title": "Accepted"
+            },
+            "idempotency_key": {
+              "type": "string",
+              "maxLength": 120,
+              "minLength": 1,
+              "title": "Idempotency Key"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "accepted",
+            "idempotency_key"
+          ],
+          "title": "ConfirmationRequestDTO",
+          "examples": [
+            {
+              "accepted": true,
+              "idempotency_key": "confirmation_synthetic_001"
+            }
+          ]
+        },
+        "ConfirmationResponseDTO": {
+          "properties": {
+            "result": {
+              "$ref": "#/$defs/rd/$defs/AgentTurnDTO"
+            },
+            "conversation_usage": {
+              "$ref": "#/$defs/rd/$defs/UsageDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "result",
+            "conversation_usage"
+          ],
+          "title": "ConfirmationResponseDTO"
+        },
+        "ConversationDTO": {
+          "properties": {
+            "conversation_ref": {
+              "type": "string",
+              "title": "Conversation Ref"
+            },
+            "agent_code": {
+              "type": "string",
+              "title": "Agent Code"
+            },
+            "status": {
+              "type": "string",
+              "title": "Status"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Created At"
+            },
+            "updated_at": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Updated At"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "conversation_ref",
+            "agent_code",
+            "status",
+            "created_at",
+            "updated_at"
+          ],
+          "title": "ConversationDTO"
+        },
+        "ConversationSnapshotDTO": {
+          "properties": {
+            "conversation": {
+              "$ref": "#/$defs/rd/$defs/ConversationDTO"
+            },
+            "state": {
+              "$ref": "#/$defs/rd/$defs/AgentStateDTO"
+            },
+            "messages": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/MessageDTO"
+              },
+              "type": "array",
+              "title": "Messages"
+            },
+            "attachments": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/AttachmentDTO"
+              },
+              "type": "array",
+              "title": "Attachments"
+            },
+            "conversation_usage": {
+              "$ref": "#/$defs/rd/$defs/UsageDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "conversation",
+            "state",
+            "messages",
+            "attachments",
+            "conversation_usage"
+          ],
+          "title": "ConversationSnapshotDTO"
+        },
+        "CreateConversationRequestDTO": {
+          "properties": {
+            "caller_metadata": {
+              "anyOf": [
+                {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "maxProperties": 20
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Caller Metadata",
+              "description": "Optional caller correlation metadata; it is not persisted by V1."
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "title": "CreateConversationRequestDTO",
+          "examples": [
+            {
+              "caller_metadata": {
+                "case_ref": "synthetic-001"
+              }
+            }
+          ]
+        },
+        "CreateConversationResponseDTO": {
+          "properties": {
+            "conversation": {
+              "$ref": "#/$defs/rd/$defs/ConversationDTO"
+            },
+            "state": {
+              "$ref": "#/$defs/rd/$defs/AgentStateDTO"
+            },
+            "messages": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/MessageDTO"
+              },
+              "type": "array",
+              "title": "Messages"
+            },
+            "attachments": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/AttachmentDTO"
+              },
+              "type": "array",
+              "title": "Attachments"
+            },
+            "conversation_usage": {
+              "$ref": "#/$defs/rd/$defs/UsageDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "conversation",
+            "state",
+            "messages",
+            "attachments",
+            "conversation_usage"
+          ],
+          "title": "CreateConversationResponseDTO"
+        },
+        "DirectExecutionDTO": {
+          "properties": {
+            "request_id": {
+              "type": "string",
+              "title": "Request Id"
+            },
+            "execution_ref": {
+              "type": "string",
+              "title": "Execution Ref"
+            },
+            "status": {
+              "type": "string",
+              "title": "Status"
+            },
+            "root_trace_id": {
+              "type": "string",
+              "title": "Root Trace Id"
+            },
+            "child_trace_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Child Trace Ids"
+            },
+            "usage": {
+              "anyOf": [
+                {
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Usage"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "request_id",
+            "execution_ref",
+            "status",
+            "root_trace_id",
+            "child_trace_ids",
+            "usage"
+          ],
+          "title": "DirectExecutionDTO"
+        },
+        "DirectGeneratedJobResultDTO": {
+          "properties": {
+            "schema_version": {
+              "type": "string",
+              "const": "recruitment_generated_job_v1",
+              "title": "Schema Version"
+            },
+            "result_ref": {
+              "type": "string",
+              "title": "Result Ref"
+            },
+            "jd_text": {
+              "type": "string",
+              "title": "Jd Text"
+            },
+            "structured_job": {
+              "$ref": "#/$defs/rd/$defs/DirectGeneratedStructuredJobDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "schema_version",
+            "result_ref",
+            "jd_text",
+            "structured_job"
+          ],
+          "title": "DirectGeneratedJobResultDTO"
+        },
+        "DirectGeneratedRequirementDTO": {
+          "properties": {
+            "requirement_code": {
+              "type": "string",
+              "title": "Requirement Code"
+            },
+            "category": {
+              "type": "string",
+              "title": "Category"
+            },
+            "name": {
+              "type": "string",
+              "title": "Name"
+            },
+            "description": {
+              "type": "string",
+              "title": "Description"
+            },
+            "minimum_years": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Minimum Years"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "requirement_code",
+            "category",
+            "name",
+            "description",
+            "minimum_years"
+          ],
+          "title": "DirectGeneratedRequirementDTO"
+        },
+        "DirectGeneratedStructuredJobDTO": {
+          "properties": {
+            "schema_version": {
+              "type": "string",
+              "const": "recruitment_structured_job_v1",
+              "title": "Schema Version"
+            },
+            "result_ref": {
+              "type": "string",
+              "title": "Result Ref"
+            },
+            "title": {
+              "type": "string",
+              "title": "Title"
+            },
+            "description": {
+              "type": "string",
+              "title": "Description"
+            },
+            "responsibilities": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Responsibilities"
+            },
+            "qualifications": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Qualifications"
+            },
+            "location": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Location"
+            },
+            "employment_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Employment Type"
+            },
+            "department": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department"
+            },
+            "declared_requirements": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectGeneratedRequirementDTO"
+              },
+              "type": "array",
+              "title": "Declared Requirements"
+            },
+            "custom_fields": {
+              "type": "object",
+              "title": "Custom Fields",
+              "description": "Product-defined extension fields supplied in the generation request."
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "schema_version",
+            "result_ref",
+            "title",
+            "description",
+            "responsibilities",
+            "qualifications",
+            "location",
+            "employment_type",
+            "department",
+            "declared_requirements",
+            "custom_fields"
+          ],
+          "title": "DirectGeneratedStructuredJobDTO"
+        },
+        "DirectJDCustomSlotDTO": {
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "answered",
+                "not_required",
+                "use_ai_default"
+              ],
+              "title": "Status"
+            },
+            "value": {
+              "title": "Value"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "status",
+            "value"
+          ],
+          "title": "DirectJDCustomSlotDTO"
+        },
+        "DirectJDExperienceDTO": {
+          "properties": {
+            "minimum_years": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Minimum Years"
+            },
+            "text": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Text"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "minimum_years",
+            "text"
+          ],
+          "title": "DirectJDExperienceDTO"
+        },
+        "DirectJDExperienceSlotDTO": {
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "answered",
+                "not_required"
+              ],
+              "title": "Status"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/DirectJDExperienceDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "status",
+            "value"
+          ],
+          "title": "DirectJDExperienceSlotDTO"
+        },
+        "DirectJDGenerateResponseDTO": {
+          "properties": {
+            "execution": {
+              "$ref": "#/$defs/rd/$defs/DirectExecutionDTO"
+            },
+            "business_result": {
+              "$ref": "#/$defs/rd/$defs/DirectGeneratedJobResultDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "execution",
+            "business_result"
+          ],
+          "title": "DirectJDGenerateResponseDTO",
+          "examples": [
+            {
+              "business_result": {
+                "jd_text": "# Synthetic Platform Engineer\n\nBuild reliable services.",
+                "result_ref": "job_synthetic_001",
+                "schema_version": "recruitment_generated_job_v1",
+                "structured_job": {
+                  "custom_fields": {},
+                  "declared_requirements": [
+                    {
+                      "category": "required_skill",
+                      "description": "Production Python experience.",
+                      "minimum_years": 3,
+                      "name": "Python",
+                      "requirement_code": "required_skill_python"
+                    }
+                  ],
+                  "department": "engineering",
+                  "description": "Build reliable services for a synthetic platform.",
+                  "employment_type": "full_time",
+                  "location": "Shanghai",
+                  "qualifications": [
+                    "Production Python experience."
+                  ],
+                  "responsibilities": [
+                    "Design and maintain backend services."
+                  ],
+                  "result_ref": "job_synthetic_001",
+                  "schema_version": "recruitment_structured_job_v1",
+                  "title": "Synthetic Platform Engineer"
+                }
+              },
+              "execution": {
+                "child_trace_ids": [],
+                "execution_ref": "direct_jd_synthetic_001",
+                "request_id": "req_synthetic_jd_001",
+                "root_trace_id": "trace_synthetic_jd_001",
+                "status": "completed",
+                "usage": {
+                  "total_tokens": 120
+                }
+              }
+            }
+          ]
+        },
+        "DirectJDRequestDTO": {
+          "properties": {
+            "slots": {
+              "$ref": "#/$defs/rd/$defs/DirectJDSlotsDTO"
+            },
+            "custom_fields": {
+              "additionalProperties": {
+                "$ref": "#/$defs/rd/$defs/DirectJDCustomSlotDTO"
+              },
+              "type": "object",
+              "maxProperties": 40,
+              "title": "Custom Fields"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "slots"
+          ],
+          "title": "DirectJDRequestDTO",
+          "examples": [
+            {
+              "custom_fields": {},
+              "slots": {
+                "job_title": {
+                  "status": "answered",
+                  "value": "高级 Python 后端工程师"
+                },
+                "required_skills": {
+                  "status": "answered",
+                  "value": [
+                    {
+                      "minimum_years": 3,
+                      "name": "Python",
+                      "note": "具备生产环境后端服务开发经验。"
+                    },
+                    {
+                      "minimum_years": 2,
+                      "name": "PostgreSQL",
+                      "note": "具备关系型数据库设计和调优经验。"
+                    }
+                  ]
+                },
+                "responsibilities": {
+                  "status": "answered",
+                  "value": [
+                    "负责 Python 后端服务设计、开发与稳定性建设。",
+                    "负责 PostgreSQL 数据模型设计和性能优化。"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "DirectJDRequirementListSlotDTO": {
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "answered",
+                "not_required"
+              ],
+              "title": "Status"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Value"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "status",
+            "value"
+          ],
+          "title": "DirectJDRequirementListSlotDTO"
+        },
+        "DirectJDSkillDTO": {
+          "properties": {
+            "name": {
+              "type": "string",
+              "title": "Name"
+            },
+            "minimum_years": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Minimum Years"
+            },
+            "note": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Note"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "name",
+            "minimum_years",
+            "note"
+          ],
+          "title": "DirectJDSkillDTO"
+        },
+        "DirectJDSkillSlotDTO": {
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "answered",
+                "not_required"
+              ],
+              "title": "Status"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "items": {
+                    "$ref": "#/$defs/rd/$defs/DirectJDSkillDTO"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Value"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "status",
+            "value"
+          ],
+          "title": "DirectJDSkillSlotDTO"
+        },
+        "DirectJDSlotsDTO": {
+          "properties": {
+            "job_title": {
+              "$ref": "#/$defs/rd/$defs/DirectJDTitleSlotDTO"
+            },
+            "location": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/DirectJDTextSlotDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "department": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/DirectJDTextSlotDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "employment_type": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/DirectJDTextSlotDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "responsibilities": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/DirectJDTextListSlotDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "education_requirement": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/DirectJDTextSlotDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "experience_requirement": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/DirectJDExperienceSlotDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "required_skills": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/DirectJDSkillSlotDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "bonus_skills": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/DirectJDSkillSlotDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "other_hard_requirements": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/DirectJDRequirementListSlotDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "other_bonus_requirements": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/DirectJDRequirementListSlotDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "additional_requirements": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/DirectJDRequirementListSlotDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "job_title"
+          ],
+          "title": "DirectJDSlotsDTO"
+        },
+        "DirectJDTextListSlotDTO": {
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "answered",
+                "not_required",
+                "use_ai_default"
+              ],
+              "title": "Status"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Value"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "status",
+            "value"
+          ],
+          "title": "DirectJDTextListSlotDTO"
+        },
+        "DirectJDTextSlotDTO": {
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "answered",
+                "not_required"
+              ],
+              "title": "Status"
+            },
+            "value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Value"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "status",
+            "value"
+          ],
+          "title": "DirectJDTextSlotDTO"
+        },
+        "DirectJDTitleSlotDTO": {
+          "properties": {
+            "status": {
+              "type": "string",
+              "const": "answered",
+              "title": "Status"
+            },
+            "value": {
+              "type": "string",
+              "title": "Value"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "status",
+            "value"
+          ],
+          "title": "DirectJDTitleSlotDTO"
+        },
+        "DirectMatchBatchResultDTO": {
+          "properties": {
+            "schema_version": {
+              "type": "string",
+              "const": "recruitment_match_batch_v1",
+              "title": "Schema Version"
+            },
+            "result_ref": {
+              "type": "string",
+              "title": "Result Ref"
+            },
+            "execution_ref": {
+              "type": "string",
+              "title": "Execution Ref"
+            },
+            "implementation_code": {
+              "type": "string",
+              "title": "Implementation Code"
+            },
+            "policy_ref": {
+              "type": "string",
+              "title": "Policy Ref"
+            },
+            "job_snapshot_hash": {
+              "type": "string",
+              "title": "Job Snapshot Hash"
+            },
+            "input_count": {
+              "type": "integer",
+              "title": "Input Count"
+            },
+            "succeeded_count": {
+              "type": "integer",
+              "title": "Succeeded Count"
+            },
+            "failed_count": {
+              "type": "integer",
+              "title": "Failed Count"
+            },
+            "hard_filtered_count": {
+              "type": "integer",
+              "title": "Hard Filtered Count"
+            },
+            "status": {
+              "type": "string",
+              "title": "Status"
+            },
+            "candidates": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectMatchCandidateResultDTO"
+              },
+              "type": "array",
+              "title": "Candidates"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "schema_version",
+            "result_ref",
+            "execution_ref",
+            "implementation_code",
+            "policy_ref",
+            "job_snapshot_hash",
+            "input_count",
+            "succeeded_count",
+            "failed_count",
+            "hard_filtered_count",
+            "status",
+            "candidates"
+          ],
+          "title": "DirectMatchBatchResultDTO"
+        },
+        "DirectMatchCandidateResultDTO": {
+          "properties": {
+            "attachment_ref": {
+              "type": "string",
+              "title": "Attachment Ref"
+            },
+            "input_order": {
+              "type": "integer",
+              "title": "Input Order"
+            },
+            "status": {
+              "type": "string",
+              "title": "Status"
+            },
+            "rank": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Rank"
+            },
+            "result": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/rd/$defs/DirectResumeMatchResultDTO"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "error_code": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error Code"
+            },
+            "failure_stage": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Failure Stage"
+            },
+            "capabilities": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object",
+              "title": "Capabilities"
+            },
+            "eligibility": {
+              "type": "string",
+              "enum": [
+                "eligible",
+                "ineligible",
+                "unknown"
+              ],
+              "title": "Eligibility"
+            },
+            "hard_filter_failed": {
+              "type": "boolean",
+              "title": "Hard Filter Failed"
+            },
+            "ai_match_executed": {
+              "type": "boolean",
+              "title": "Ai Match Executed"
+            },
+            "vector_retrieval_executed": {
+              "type": "boolean",
+              "title": "Vector Retrieval Executed"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "attachment_ref",
+            "input_order",
+            "status",
+            "rank",
+            "result",
+            "error_code",
+            "failure_stage",
+            "capabilities",
+            "eligibility",
+            "hard_filter_failed",
+            "ai_match_executed",
+            "vector_retrieval_executed"
+          ],
+          "title": "DirectMatchCandidateResultDTO"
+        },
+        "DirectMatchCriteriaResultDTO": {
+          "properties": {
+            "name": {
+              "type": "string",
+              "title": "Name"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "satisfied",
+                "partial",
+                "not_satisfied",
+                "unknown",
+                "scored",
+                "insufficient_evidence",
+                "unavailable"
+              ],
+              "title": "Status"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "declared",
+                "rule",
+                "analysis",
+                "provider_summary",
+                "unknown"
+              ],
+              "title": "Source"
+            },
+            "criterion_code": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Criterion Code"
+            },
+            "score": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Score"
+            },
+            "maximum_score": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Maximum Score"
+            },
+            "weighted_score": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Weighted Score"
+            },
+            "weight": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Weight"
+            },
+            "weighted_contribution": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Weighted Contribution"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reason"
+            },
+            "evidence": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectMatchEvidenceDTO"
+              },
+              "type": "array",
+              "title": "Evidence"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "name",
+            "status",
+            "source",
+            "criterion_code",
+            "score",
+            "maximum_score",
+            "weighted_score",
+            "weight",
+            "weighted_contribution",
+            "reason",
+            "evidence"
+          ],
+          "title": "DirectMatchCriteriaResultDTO"
+        },
+        "DirectMatchEvidenceDTO": {
+          "properties": {
+            "source_ref": {
+              "type": "string",
+              "title": "Source Ref"
+            },
+            "section": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Section"
+            },
+            "page": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page"
+            },
+            "json_path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Json Path"
+            },
+            "excerpt": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Excerpt"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "source_ref",
+            "section",
+            "page",
+            "json_path",
+            "excerpt"
+          ],
+          "title": "DirectMatchEvidenceDTO"
+        },
+        "DirectMatchFindingDTO": {
+          "properties": {
+            "title": {
+              "type": "string",
+              "title": "Title"
+            },
+            "message": {
+              "type": "string",
+              "title": "Message"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reason"
+            },
+            "evidence": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectMatchEvidenceDTO"
+              },
+              "type": "array",
+              "title": "Evidence"
+            },
+            "related_codes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Related Codes"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "title",
+            "message",
+            "reason",
+            "evidence",
+            "related_codes"
+          ],
+          "title": "DirectMatchFindingDTO"
+        },
+        "DirectMatchHardRequirementSummaryDTO": {
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "satisfied",
+                "violated",
+                "unknown"
+              ],
+              "title": "Status"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "declared",
+                "rule",
+                "analysis",
+                "provider_summary",
+                "unknown"
+              ],
+              "title": "Source"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reason"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "status",
+            "source",
+            "reason"
+          ],
+          "title": "DirectMatchHardRequirementSummaryDTO"
+        },
+        "DirectMatchHardRuleResultDTO": {
+          "properties": {
+            "requirement_code": {
+              "type": "string",
+              "title": "Requirement Code"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "satisfied",
+                "violated",
+                "unknown"
+              ],
+              "title": "Status"
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "declared",
+                "rule",
+                "analysis",
+                "provider_summary",
+                "unknown"
+              ],
+              "title": "Source"
+            },
+            "reason": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reason"
+            },
+            "evidence": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectMatchEvidenceDTO"
+              },
+              "type": "array",
+              "title": "Evidence"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "requirement_code",
+            "status",
+            "source",
+            "reason",
+            "evidence"
+          ],
+          "title": "DirectMatchHardRuleResultDTO"
+        },
+        "DirectMatchInterviewSuggestionDTO": {
+          "properties": {
+            "topic": {
+              "type": "string",
+              "title": "Topic"
+            },
+            "rationale": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Rationale"
+            },
+            "related_codes": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Related Codes"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "topic",
+            "rationale",
+            "related_codes"
+          ],
+          "title": "DirectMatchInterviewSuggestionDTO"
+        },
+        "DirectResumeAnalysisDimensionDTO": {
+          "properties": {
+            "dimension_code": {
+              "type": "string",
+              "title": "Dimension Code"
+            },
+            "display_name": {
+              "type": "string",
+              "title": "Display Name"
+            },
+            "score": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Score"
+            },
+            "conclusion": {
+              "type": "string",
+              "title": "Conclusion"
+            },
+            "evidence": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeAnalysisEvidenceDTO"
+              },
+              "type": "array",
+              "title": "Evidence"
+            },
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "high",
+                "medium",
+                "low",
+                "insufficient"
+              ],
+              "title": "Confidence"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "dimension_code",
+            "display_name",
+            "score",
+            "conclusion",
+            "evidence",
+            "confidence"
+          ],
+          "title": "DirectResumeAnalysisDimensionDTO"
+        },
+        "DirectResumeAnalysisEvidenceDTO": {
+          "properties": {
+            "evidence_ref": {
+              "type": "string",
+              "title": "Evidence Ref"
+            },
+            "source_type": {
+              "type": "string",
+              "title": "Source Type"
+            },
+            "summary": {
+              "type": "string",
+              "title": "Summary"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "evidence_ref",
+            "source_type",
+            "summary"
+          ],
+          "title": "DirectResumeAnalysisEvidenceDTO"
+        },
+        "DirectResumeAnalysisResultDTO": {
+          "properties": {
+            "schema_version": {
+              "type": "string",
+              "const": "recruitment_resume_analysis_v1",
+              "title": "Schema Version"
+            },
+            "assessment_definition_version": {
+              "type": "string",
+              "const": "recruitment_talent_dimensions_v1",
+              "title": "Assessment Definition Version"
+            },
+            "result_ref": {
+              "type": "string",
+              "title": "Result Ref"
+            },
+            "analysis_request_ref": {
+              "type": "string",
+              "title": "Analysis Request Ref"
+            },
+            "attachment_refs": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Attachment Refs"
+            },
+            "resume_ref": {
+              "type": "string",
+              "title": "Resume Ref"
+            },
+            "analysis_text": {
+              "type": "string",
+              "title": "Analysis Text"
+            },
+            "talent_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Talent Type"
+            },
+            "talent_type_reason": {
+              "type": "string",
+              "title": "Talent Type Reason"
+            },
+            "talent_type_evidence": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeAnalysisEvidenceDTO"
+              },
+              "type": "array",
+              "title": "Talent Type Evidence"
+            },
+            "core_experience": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeCoreExperienceDTO"
+              },
+              "type": "array",
+              "title": "Core Experience"
+            },
+            "dimensions": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeAnalysisDimensionDTO"
+              },
+              "type": "array",
+              "title": "Dimensions"
+            },
+            "radar": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeRadarAxisDTO"
+              },
+              "type": "array",
+              "title": "Radar"
+            },
+            "strengths": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeStrengthDTO"
+              },
+              "type": "array",
+              "title": "Strengths"
+            },
+            "risks_and_questions": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeRiskQuestionDTO"
+              },
+              "type": "array",
+              "title": "Risks And Questions"
+            },
+            "overall_assessment": {
+              "type": "string",
+              "title": "Overall Assessment"
+            },
+            "structured_resume": {
+              "$ref": "#/$defs/rd/$defs/DirectStructuredResumeDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "schema_version",
+            "assessment_definition_version",
+            "result_ref",
+            "analysis_request_ref",
+            "attachment_refs",
+            "resume_ref",
+            "analysis_text",
+            "talent_type",
+            "talent_type_reason",
+            "talent_type_evidence",
+            "core_experience",
+            "dimensions",
+            "radar",
+            "strengths",
+            "risks_and_questions",
+            "overall_assessment",
+            "structured_resume"
+          ],
+          "title": "DirectResumeAnalysisResultDTO"
+        },
+        "DirectResumeAnalyzeResponseDTO": {
+          "properties": {
+            "execution": {
+              "$ref": "#/$defs/rd/$defs/DirectExecutionDTO"
+            },
+            "business_result": {
+              "$ref": "#/$defs/rd/$defs/DirectResumeAnalysisResultDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "execution",
+            "business_result"
+          ],
+          "title": "DirectResumeAnalyzeResponseDTO",
+          "examples": [
+            {
+              "business_result": {
+                "analysis_request_ref": "direct_resume_synthetic_001",
+                "analysis_text": "Synthetic candidate assessment.",
+                "assessment_definition_version": "recruitment_talent_dimensions_v1",
+                "attachment_refs": [
+                  "attachment_synthetic_001"
+                ],
+                "core_experience": [],
+                "dimensions": [
+                  {
+                    "conclusion": "Strong synthetic evidence.",
+                    "confidence": "high",
+                    "dimension_code": "professional_capability",
+                    "display_name": "Professional capability",
+                    "evidence": [],
+                    "score": 80
+                  }
+                ],
+                "overall_assessment": "Suitable for further synthetic evaluation.",
+                "radar": [
+                  {
+                    "available": true,
+                    "dimension_code": "professional_capability",
+                    "display_name": "Professional capability",
+                    "score": 80
+                  }
+                ],
+                "result_ref": "resume_analysis_synthetic_001",
+                "resume_ref": "resume_synthetic_001",
+                "risks_and_questions": [],
+                "schema_version": "recruitment_resume_analysis_v1",
+                "strengths": [],
+                "structured_resume": {
+                  "data": {
+                    "basic_info": {
+                      "headline": "Backend Engineer",
+                      "location": "Shanghai",
+                      "name": "Synthetic Candidate"
+                    },
+                    "certificates": [],
+                    "education": [],
+                    "experience_summary": {
+                      "domains": [
+                        "backend"
+                      ],
+                      "highlights": [
+                        "Synthetic platform delivery"
+                      ],
+                      "total_years": 5
+                    },
+                    "languages": [],
+                    "project_experience": [],
+                    "schema_version": "1.0",
+                    "skills": [],
+                    "work_experience": []
+                  },
+                  "resume_ref": "resume_synthetic_001",
+                  "schema_version": "1.0"
+                },
+                "talent_type": "backend_engineer",
+                "talent_type_evidence": [
+                  {
+                    "evidence_ref": "evidence_synthetic_001",
+                    "source_type": "resume",
+                    "summary": "Synthetic backend experience."
+                  }
+                ],
+                "talent_type_reason": "The synthetic profile emphasizes backend delivery."
+              },
+              "execution": {
+                "child_trace_ids": [],
+                "execution_ref": "direct_resume_synthetic_001",
+                "request_id": "req_synthetic_resume_001",
+                "root_trace_id": "trace_synthetic_resume_001",
+                "status": "completed"
+              }
+            }
+          ]
+        },
+        "DirectResumeBasicInfoDTO": {
+          "properties": {
+            "name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Name"
+            },
+            "email": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Email"
+            },
+            "phone": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Phone"
+            },
+            "location": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Location"
+            },
+            "headline": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Headline"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "name",
+            "email",
+            "phone",
+            "location",
+            "headline"
+          ],
+          "title": "DirectResumeBasicInfoDTO"
+        },
+        "DirectResumeCertificateDTO": {
+          "properties": {
+            "name": {
+              "type": "string",
+              "title": "Name"
+            },
+            "issuer": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Issuer"
+            },
+            "issued_date": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Issued Date"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "name",
+            "issuer",
+            "issued_date"
+          ],
+          "title": "DirectResumeCertificateDTO"
+        },
+        "DirectResumeCoreExperienceDTO": {
+          "properties": {
+            "type": {
+              "type": "string",
+              "title": "Type"
+            },
+            "summary": {
+              "type": "string",
+              "title": "Summary"
+            },
+            "evidence": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeAnalysisEvidenceDTO"
+              },
+              "type": "array",
+              "title": "Evidence"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "type",
+            "summary",
+            "evidence"
+          ],
+          "title": "DirectResumeCoreExperienceDTO"
+        },
+        "DirectResumeEducationDTO": {
+          "properties": {
+            "institution": {
+              "type": "string",
+              "title": "Institution"
+            },
+            "degree": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Degree"
+            },
+            "field_of_study": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Field Of Study"
+            },
+            "start_date": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Date"
+            },
+            "end_date": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Date"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "institution",
+            "degree",
+            "field_of_study",
+            "start_date",
+            "end_date"
+          ],
+          "title": "DirectResumeEducationDTO"
+        },
+        "DirectResumeExperienceSummaryDTO": {
+          "properties": {
+            "total_years": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Total Years"
+            },
+            "domains": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Domains"
+            },
+            "highlights": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Highlights"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "total_years",
+            "domains",
+            "highlights"
+          ],
+          "title": "DirectResumeExperienceSummaryDTO"
+        },
+        "DirectResumeLanguageDTO": {
+          "properties": {
+            "name": {
+              "type": "string",
+              "title": "Name"
+            },
+            "proficiency": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Proficiency"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "name",
+            "proficiency"
+          ],
+          "title": "DirectResumeLanguageDTO"
+        },
+        "DirectResumeMatchResponseDTO": {
+          "properties": {
+            "execution": {
+              "$ref": "#/$defs/rd/$defs/DirectExecutionDTO"
+            },
+            "business_result": {
+              "$ref": "#/$defs/rd/$defs/DirectMatchBatchResultDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "execution",
+            "business_result"
+          ],
+          "title": "DirectResumeMatchResponseDTO",
+          "examples": [
+            {
+              "business_result": {
+                "candidates": [
+                  {
+                    "ai_match_executed": true,
+                    "attachment_ref": "attachment_synthetic_001",
+                    "capabilities": {
+                      "llm": "available"
+                    },
+                    "eligibility": "eligible",
+                    "hard_filter_failed": false,
+                    "input_order": 1,
+                    "rank": 1,
+                    "result": {
+                      "criteria_results": [],
+                      "eligibility": "eligible",
+                      "hard_requirement_summary": {
+                        "reason": "Synthetic requirements are satisfied.",
+                        "source": "rule",
+                        "status": "satisfied"
+                      },
+                      "hard_rule_results": [],
+                      "interview_suggestions": [],
+                      "missing_items": [],
+                      "overall_score": 82,
+                      "recommendation": "recommend",
+                      "result_ref": "candidate_match_synthetic_001",
+                      "result_status": "completed",
+                      "risks": [],
+                      "schema_version": "1.0",
+                      "score_coverage": 100,
+                      "strengths": [],
+                      "summary": "Synthetic candidate meets the core requirements.",
+                      "uncertainties": []
+                    },
+                    "status": "completed",
+                    "vector_retrieval_executed": false
+                  }
+                ],
+                "execution_ref": "direct_match_synthetic_001",
+                "failed_count": 0,
+                "hard_filtered_count": 0,
+                "implementation_code": "self",
+                "input_count": 1,
+                "job_snapshot_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+                "policy_ref": "recruitment_default_v1",
+                "result_ref": "match_synthetic_001",
+                "schema_version": "recruitment_match_batch_v1",
+                "status": "completed",
+                "succeeded_count": 1
+              },
+              "execution": {
+                "child_trace_ids": [
+                  "trace_synthetic_candidate_001"
+                ],
+                "execution_ref": "direct_match_synthetic_001",
+                "request_id": "req_synthetic_match_001",
+                "root_trace_id": "trace_synthetic_match_001",
+                "status": "completed"
+              }
+            }
+          ]
+        },
+        "DirectResumeMatchResultDTO": {
+          "properties": {
+            "schema_version": {
+              "type": "string",
+              "const": "1.0",
+              "title": "Schema Version"
+            },
+            "result_status": {
+              "type": "string",
+              "enum": [
+                "completed",
+                "partial",
+                "not_evaluated"
+              ],
+              "title": "Result Status"
+            },
+            "eligibility": {
+              "type": "string",
+              "enum": [
+                "eligible",
+                "ineligible",
+                "unknown"
+              ],
+              "title": "Eligibility"
+            },
+            "overall_score": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Overall Score"
+            },
+            "recommendation": {
+              "type": "string",
+              "enum": [
+                "strong_recommend",
+                "recommend",
+                "review",
+                "not_recommend",
+                "unknown"
+              ],
+              "title": "Recommendation"
+            },
+            "summary": {
+              "type": "string",
+              "title": "Summary"
+            },
+            "hard_requirement_summary": {
+              "$ref": "#/$defs/rd/$defs/DirectMatchHardRequirementSummaryDTO"
+            },
+            "result_ref": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Result Ref"
+            },
+            "hard_rule_results": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectMatchHardRuleResultDTO"
+              },
+              "type": "array",
+              "title": "Hard Rule Results"
+            },
+            "criteria_results": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectMatchCriteriaResultDTO"
+              },
+              "type": "array",
+              "title": "Criteria Results"
+            },
+            "strengths": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectMatchFindingDTO"
+              },
+              "type": "array",
+              "title": "Strengths"
+            },
+            "missing_items": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectMatchFindingDTO"
+              },
+              "type": "array",
+              "title": "Missing Items"
+            },
+            "risks": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectMatchFindingDTO"
+              },
+              "type": "array",
+              "title": "Risks"
+            },
+            "uncertainties": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectMatchFindingDTO"
+              },
+              "type": "array",
+              "title": "Uncertainties"
+            },
+            "interview_suggestions": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectMatchInterviewSuggestionDTO"
+              },
+              "type": "array",
+              "title": "Interview Suggestions"
+            },
+            "score_coverage": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Score Coverage"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "schema_version",
+            "result_status",
+            "eligibility",
+            "overall_score",
+            "recommendation",
+            "summary",
+            "hard_requirement_summary",
+            "result_ref",
+            "hard_rule_results",
+            "criteria_results",
+            "strengths",
+            "missing_items",
+            "risks",
+            "uncertainties",
+            "interview_suggestions",
+            "score_coverage"
+          ],
+          "title": "DirectResumeMatchResultDTO"
+        },
+        "DirectResumeProjectExperienceDTO": {
+          "properties": {
+            "name": {
+              "type": "string",
+              "title": "Name"
+            },
+            "role": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Description"
+            },
+            "start_date": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Date"
+            },
+            "end_date": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Date"
+            },
+            "skills": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Skills"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "name",
+            "role",
+            "description",
+            "start_date",
+            "end_date",
+            "skills"
+          ],
+          "title": "DirectResumeProjectExperienceDTO"
+        },
+        "DirectResumeRadarAxisDTO": {
+          "properties": {
+            "dimension_code": {
+              "type": "string",
+              "title": "Dimension Code"
+            },
+            "display_name": {
+              "type": "string",
+              "title": "Display Name"
+            },
+            "score": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Score"
+            },
+            "available": {
+              "type": "boolean",
+              "title": "Available"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "dimension_code",
+            "display_name",
+            "score",
+            "available"
+          ],
+          "title": "DirectResumeRadarAxisDTO"
+        },
+        "DirectResumeRiskQuestionDTO": {
+          "properties": {
+            "category": {
+              "type": "string",
+              "title": "Category"
+            },
+            "description": {
+              "type": "string",
+              "title": "Description"
+            },
+            "evidence": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeAnalysisEvidenceDTO"
+              },
+              "type": "array",
+              "title": "Evidence"
+            },
+            "verification_question": {
+              "type": "string",
+              "title": "Verification Question"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "category",
+            "description",
+            "evidence",
+            "verification_question"
+          ],
+          "title": "DirectResumeRiskQuestionDTO"
+        },
+        "DirectResumeSkillDTO": {
+          "properties": {
+            "name": {
+              "type": "string",
+              "title": "Name"
+            },
+            "proficiency": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Proficiency"
+            },
+            "used_in_project": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Used In Project"
+            },
+            "used_in_production": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Used In Production"
+            },
+            "experience_years": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Experience Years"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "name",
+            "proficiency",
+            "used_in_project",
+            "used_in_production",
+            "experience_years"
+          ],
+          "title": "DirectResumeSkillDTO"
+        },
+        "DirectResumeStrengthDTO": {
+          "properties": {
+            "title": {
+              "type": "string",
+              "title": "Title"
+            },
+            "description": {
+              "type": "string",
+              "title": "Description"
+            },
+            "evidence": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeAnalysisEvidenceDTO"
+              },
+              "type": "array",
+              "title": "Evidence"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "title",
+            "description",
+            "evidence"
+          ],
+          "title": "DirectResumeStrengthDTO"
+        },
+        "DirectResumeWorkExperienceDTO": {
+          "properties": {
+            "employer": {
+              "type": "string",
+              "title": "Employer"
+            },
+            "title": {
+              "type": "string",
+              "title": "Title"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Description"
+            },
+            "start_date": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Date"
+            },
+            "end_date": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Date"
+            },
+            "current": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Current"
+            },
+            "skills": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Skills"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "employer",
+            "title",
+            "description",
+            "start_date",
+            "end_date",
+            "current",
+            "skills"
+          ],
+          "title": "DirectResumeWorkExperienceDTO"
+        },
+        "DirectStandardResumeDTO": {
+          "properties": {
+            "schema_version": {
+              "type": "string",
+              "const": "1.0",
+              "title": "Schema Version"
+            },
+            "basic_info": {
+              "$ref": "#/$defs/rd/$defs/DirectResumeBasicInfoDTO"
+            },
+            "education": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeEducationDTO"
+              },
+              "type": "array",
+              "title": "Education"
+            },
+            "work_experience": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeWorkExperienceDTO"
+              },
+              "type": "array",
+              "title": "Work Experience"
+            },
+            "project_experience": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeProjectExperienceDTO"
+              },
+              "type": "array",
+              "title": "Project Experience"
+            },
+            "skills": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeSkillDTO"
+              },
+              "type": "array",
+              "title": "Skills"
+            },
+            "certificates": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeCertificateDTO"
+              },
+              "type": "array",
+              "title": "Certificates"
+            },
+            "languages": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/DirectResumeLanguageDTO"
+              },
+              "type": "array",
+              "title": "Languages"
+            },
+            "experience_summary": {
+              "$ref": "#/$defs/rd/$defs/DirectResumeExperienceSummaryDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "schema_version",
+            "basic_info",
+            "education",
+            "work_experience",
+            "project_experience",
+            "skills",
+            "certificates",
+            "languages",
+            "experience_summary"
+          ],
+          "title": "DirectStandardResumeDTO"
+        },
+        "DirectStructuredJobDTO": {
+          "properties": {
+            "schema_version": {
+              "type": "string",
+              "const": "1.0",
+              "title": "Schema Version"
+            },
+            "job_ref": {
+              "type": "string",
+              "title": "Job Ref"
+            },
+            "title": {
+              "type": "string",
+              "title": "Title"
+            },
+            "description": {
+              "type": "string",
+              "title": "Description"
+            },
+            "source": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_.-]{0,119}$",
+              "title": "Source"
+            },
+            "responsibilities": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Responsibilities"
+            },
+            "qualifications": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Qualifications"
+            },
+            "location": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Location"
+            },
+            "employment_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Employment Type"
+            },
+            "department": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department"
+            },
+            "declared_requirements": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Declared Requirements"
+            },
+            "raw_text": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Raw Text"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "schema_version",
+            "job_ref",
+            "title",
+            "description",
+            "source"
+          ],
+          "title": "DirectStructuredJobDTO",
+          "examples": [
+            {
+              "declared_requirements": [
+                "Product planning experience"
+              ],
+              "department": "product",
+              "description": "Own product planning and delivery for an enterprise platform.",
+              "employment_type": "full_time",
+              "job_ref": "job_partner_product_manager_001",
+              "location": "Shanghai",
+              "qualifications": [
+                "Experience with requirements analysis and cross-team delivery."
+              ],
+              "responsibilities": [
+                "Research customer needs and maintain the product roadmap."
+              ],
+              "schema_version": "1.0",
+              "source": "external_hr_system",
+              "title": "Product Manager"
+            }
+          ]
+        },
+        "DirectStructuredResumeDTO": {
+          "properties": {
+            "schema_version": {
+              "type": "string",
+              "const": "1.0",
+              "title": "Schema Version"
+            },
+            "resume_ref": {
+              "type": "string",
+              "title": "Resume Ref"
+            },
+            "data": {
+              "$ref": "#/$defs/rd/$defs/DirectStandardResumeDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "schema_version",
+            "resume_ref",
+            "data"
+          ],
+          "title": "DirectStructuredResumeDTO"
+        },
+        "ErrorDetailDTO": {
+          "properties": {
+            "code": {
+              "type": "string",
+              "title": "Code"
+            },
+            "message": {
+              "type": "string",
+              "title": "Message"
+            },
+            "request_id": {
+              "type": "string",
+              "title": "Request Id"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "code",
+            "message",
+            "request_id"
+          ],
+          "title": "ErrorDetailDTO"
+        },
+        "ErrorEnvelopeDTO": {
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/rd/$defs/ErrorDetailDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "error"
+          ],
+          "title": "ErrorEnvelopeDTO"
+        },
+        "MessageDTO": {
+          "properties": {
+            "message_ref": {
+              "type": "string",
+              "title": "Message Ref"
+            },
+            "conversation_ref": {
+              "type": "string",
+              "title": "Conversation Ref"
+            },
+            "role": {
+              "type": "string",
+              "title": "Role"
+            },
+            "content": {
+              "type": "string",
+              "title": "Content"
+            },
+            "parts": {
+              "items": {
+                "type": "object"
+              },
+              "type": "array",
+              "title": "Parts"
+            },
+            "client_message_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Message Id"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Created At"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "message_ref",
+            "conversation_ref",
+            "role",
+            "content",
+            "parts",
+            "client_message_id",
+            "created_at"
+          ],
+          "title": "MessageDTO"
+        },
+        "ProgressResponseDTO": {
+          "properties": {
+            "progress": {
+              "type": "object",
+              "title": "Progress"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "progress"
+          ],
+          "title": "ProgressResponseDTO"
+        },
+        "ReadinessCheckDTO": {
+          "properties": {
+            "component": {
+              "type": "string",
+              "title": "Component"
+            },
+            "status": {
+              "type": "string",
+              "title": "Status"
+            },
+            "safe_code": {
+              "type": "string",
+              "title": "Safe Code"
+            },
+            "safe_message": {
+              "type": "string",
+              "title": "Safe Message"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "component",
+            "status",
+            "safe_code",
+            "safe_message"
+          ],
+          "title": "ReadinessCheckDTO"
+        },
+        "ReadinessResponseDTO": {
+          "properties": {
+            "mode": {
+              "type": "string",
+              "title": "Mode"
+            },
+            "observed_at": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Observed At"
+            },
+            "overall_ready": {
+              "type": "boolean",
+              "title": "Overall Ready"
+            },
+            "checks": {
+              "items": {
+                "$ref": "#/$defs/rd/$defs/ReadinessCheckDTO"
+              },
+              "type": "array",
+              "title": "Checks"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "mode",
+            "observed_at",
+            "overall_ready",
+            "checks"
+          ],
+          "title": "ReadinessResponseDTO"
+        },
+        "ResultMetadataDTO": {
+          "properties": {
+            "result_ref": {
+              "type": "string",
+              "title": "Result Ref"
+            },
+            "result_type": {
+              "type": "string",
+              "title": "Result Type"
+            },
+            "schema_version": {
+              "type": "string",
+              "title": "Schema Version"
+            },
+            "result_hash": {
+              "type": "string",
+              "title": "Result Hash"
+            },
+            "status": {
+              "type": "string",
+              "title": "Status"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "result_ref",
+            "result_type",
+            "schema_version",
+            "result_hash",
+            "status"
+          ],
+          "title": "ResultMetadataDTO"
+        },
+        "RunDTO": {
+          "properties": {
+            "run_ref": {
+              "type": "string",
+              "title": "Run Ref"
+            },
+            "conversation_ref": {
+              "type": "string",
+              "title": "Conversation Ref"
+            },
+            "run_kind": {
+              "type": "string",
+              "title": "Run Kind"
+            },
+            "status": {
+              "type": "string",
+              "title": "Status"
+            },
+            "source_confirmation_ref": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Confirmation Ref"
+            },
+            "root_trace_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Root Trace Id"
+            },
+            "child_trace_ids": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array",
+              "title": "Child Trace Ids"
+            },
+            "state_revision_before": {
+              "type": "integer",
+              "title": "State Revision Before"
+            },
+            "state_revision_after": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State Revision After"
+            },
+            "action_kind": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action Kind"
+            },
+            "action_code": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action Code"
+            },
+            "usage": {
+              "anyOf": [
+                {
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Usage"
+            },
+            "error_code": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error Code"
+            },
+            "error_message_safe": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error Message Safe"
+            },
+            "started_at": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Started At"
+            },
+            "finished_at": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Finished At"
+            },
+            "elapsed_ms": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Elapsed Ms"
+            },
+            "intent_code": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Intent Code"
+            },
+            "execution_ref": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Execution Ref"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "run_ref",
+            "conversation_ref",
+            "run_kind",
+            "status",
+            "source_confirmation_ref",
+            "root_trace_id",
+            "child_trace_ids",
+            "state_revision_before",
+            "state_revision_after",
+            "action_kind",
+            "action_code",
+            "usage",
+            "error_code",
+            "error_message_safe",
+            "started_at",
+            "finished_at",
+            "elapsed_ms",
+            "intent_code",
+            "execution_ref"
+          ],
+          "title": "RunDTO"
+        },
+        "SendMessageRequestDTO": {
+          "properties": {
+            "client_message_id": {
+              "type": "string",
+              "maxLength": 120,
+              "minLength": 1,
+              "title": "Client Message Id"
+            },
+            "content": {
+              "type": "string",
+              "maxLength": 20000,
+              "minLength": 1,
+              "title": "Content"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "client_message_id",
+            "content"
+          ],
+          "title": "SendMessageRequestDTO",
+          "examples": [
+            {
+              "client_message_id": "message_synthetic_001",
+              "content": "Match two synthetic resumes to this synthetic job."
+            }
+          ]
+        },
+        "UsageDTO": {
+          "properties": {},
+          "additionalProperties": true,
+          "type": "object",
+          "title": "UsageDTO"
+        },
+        "UsageResponseDTO": {
+          "properties": {
+            "task_usage": {
+              "$ref": "#/$defs/rd/$defs/UsageDTO"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "task_usage"
+          ],
+          "title": "UsageResponseDTO"
+        }
+      }
+    }
+  }
+}

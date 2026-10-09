@@ -1251,7 +1251,7 @@ function JdWaitingState({ task, running, errorCode, errorMessage, onRetry }: { t
 
 function JdEditor({ draft, busy, confirmed, editing, jobId, onEdit, onSave, onConfirm }: { draft: JdDraft; busy: boolean; confirmed: boolean; editing: boolean; jobId: string | null; onEdit: () => void; onSave: (draft: JdDraft) => void; onConfirm: () => void }) {
   const editable = !confirmed || editing;
-  const text = `职位名称：${draft.title}\n企业名称：${draft.companyName}\n工作地点：${draft.location}\n薪资范围：${draft.salaryRange}\n经验要求：${draft.experienceLevel}\n学历要求：${draft.education}\n用工类型：${draft.jobType}\n\n岗位职责\n${draft.responsibilities}\n\n任职要求\n${draft.requirements}\n\n关键技能\n${draft.skills}\n\n加分项\n${draft.niceToHaves}\n\n福利待遇\n${draft.benefits}\n\n人才画像\n${draft.talentProfile}`;
+  const text = draft.jdText;
   const [rawText, setRawText] = useState(text);
   useEffect(() => setRawText(text), [draft.id, draft.revision, text]);
   return <div>
@@ -1265,7 +1265,7 @@ function JdEditor({ draft, busy, confirmed, editing, jobId, onEdit, onSave, onCo
 function parseJdText(text: string, fallback: JdDraft): JdDraft {
   const fields: Record<string, keyof JdDraft> = { "职位名称": "title", "企业名称": "companyName", "工作地点": "location", "薪资范围": "salaryRange", "经验要求": "experienceLevel", "学历要求": "education", "用工类型": "jobType" };
   const sections: Record<string, keyof JdDraft> = { "岗位职责": "responsibilities", "任职要求": "requirements", "关键技能": "skills", "加分项": "niceToHaves", "福利待遇": "benefits", "人才画像": "talentProfile" };
-  const result = { ...fallback }; let current: keyof JdDraft | null = null;
+  const result = { ...fallback, jdText: text }; let current: keyof JdDraft | null = null;
   for (const line of text.split("\n")) { const pair = line.match(/^([^：]+)：(.*)$/); if (pair && fields[pair[1]]) { result[fields[pair[1]]] = pair[2].trim() as never; current = null; } else if (sections[line.trim()]) { current = sections[line.trim()]; result[current] = "" as never; } else if (current) result[current] = `${String(result[current] ?? "")}${String(result[current] ?? "").trim() ? "\n" : ""}${line}` as never; }
   result.warnings = publicationWarnings(result);
   return result;

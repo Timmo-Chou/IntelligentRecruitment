@@ -316,7 +316,7 @@ public class JobService {
         if (input == null) throw new ApiException("VALIDATION_FAILED", "职位内容不能为空", HttpStatus.BAD_REQUEST);
         return new JobInput(required(input.title(), "职位名称不能为空", 200),
                 required(input.companyName(), "企业名称不能为空", 200), optional(input.location(), 200), optional(input.salaryRange(), 200),
-                optional(input.description(), 20_000), optional(input.requirements(), 20_000),
+                optional(input.description(), 100_000), optional(input.requirements(), 20_000),
                 optional(input.skills(), 4_000), optional(input.experienceLevel(), 80),
                 optional(input.education(), 80), defaulted(input.jobType(), "全职", 50),
                 optional(input.niceToHaves(), 10_000), optional(input.benefits(), 10_000));

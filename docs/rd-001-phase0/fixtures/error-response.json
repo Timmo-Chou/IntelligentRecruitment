@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "SYNTHETIC_INVALID_INPUT",
+    "message": "Synthetic request rejected",
+    "request_id": "fake-rd-001"
+  }
+}

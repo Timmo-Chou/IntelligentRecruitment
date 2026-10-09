@@ -35,7 +35,11 @@ public class SecurityConfiguration {
                                 "/api/v1/auth/challenges", "/api/v1/auth/verify", "/api/v1/auth/refresh",
                                 "/api/v1/auth/password-login", "/api/v1/auth/password-reset",
                                 "/internal/v1/platform/tickets/**",
+                                "/internal/v1/platform/screening-rules/**",
                                 "/internal/v1/platform/notifications/**",
+                                "/internal/recruitment/file-download-grants",
+                                "/internal/recruitment/maintenance/**",
+                                "/internal/v1/ai/execution-decisions/**",
                                 "/internal/v1/ai/webhooks/**") // 内部服务使用 Webhook HMAC，不要求用户 Bearer
                         .permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()

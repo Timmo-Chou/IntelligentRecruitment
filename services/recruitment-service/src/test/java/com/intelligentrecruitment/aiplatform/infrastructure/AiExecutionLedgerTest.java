@@ -24,6 +24,7 @@ class AiExecutionLedgerTest {
     private final UUID tenantId = UUID.randomUUID();
     private final UUID executionRecordId = UUID.randomUUID();
     private final AtomicReference<String> existingEffect = new AtomicReference<>();
+    private final AtomicReference<String> existingPayload = new AtomicReference<>();
     private final AtomicInteger outboxInserts = new AtomicInteger();
     private JdbcTemplate jdbc;
     private BossControlPlaneClient.AiAuthorization authorization;
@@ -43,16 +44,22 @@ class AiExecutionLedgerTest {
                 when(resultSet.getObject(1, UUID.class)).thenReturn(executionRecordId);
                 return List.of(mapper.mapRow(resultSet, 0));
             }
-            if (sql.startsWith("SELECT effect_type,status FROM ai_settlement_outbox")) {
+            if (sql.startsWith("SELECT effect_type,status,payload_json")) {
                 if (existingEffect.get() == null) return List.of();
                 when(resultSet.getString(1)).thenReturn(existingEffect.get());
                 when(resultSet.getString(2)).thenReturn("COMPLETED");
+                when(resultSet.getString(3)).thenReturn(existingPayload.get());
                 return List.of(mapper.mapRow(resultSet, 0));
             }
             return List.of();
         });
         when(jdbc.update(anyString(), any(Object[].class))).thenAnswer(invocation -> {
-            if (invocation.<String>getArgument(0).startsWith("INSERT INTO ai_settlement_outbox")) outboxInserts.incrementAndGet();
+            String sql=invocation.getArgument(0);
+            if (sql.startsWith("INSERT INTO ai_settlement_outbox")) {
+                outboxInserts.incrementAndGet();
+                existingEffect.set(String.valueOf(invocation.getArguments()[3]));
+                existingPayload.set(String.valueOf(invocation.getArguments()[5]));
+            }
             return 1;
         });
     }
@@ -69,12 +76,21 @@ class AiExecutionLedgerTest {
     }
 
     @Test
-    void completedCancellationRejectsLateUsage() {
-        existingEffect.set("CANCELLATION");
+    void completedReleaseRejectsLateCapture() {
+        existingEffect.set("RELEASE");
         AiExecutionLedger ledger = new AiExecutionLedger(jdbc, new ObjectMapper());
 
         assertThrows(IllegalStateException.class, () -> ledger.enqueueUsage(
-                authorization.idempotencyKey(), authorization, "SUCCEEDED", "configured-model", 11, 7, 0, "task-1"));
+                authorization.idempotencyKey(), authorization, "SUCCEEDED", "configured-model", 11L, 7L, 0, "task-1"));
         org.junit.jupiter.api.Assertions.assertEquals(0, outboxInserts.get());
+    }
+
+    @Test
+    void exactFinalDecisionReplayIsIdempotentButConflictingPayloadIsRejected() {
+        AiExecutionLedger ledger=new AiExecutionLedger(jdbc,new ObjectMapper());
+        ledger.enqueueUsage(authorization.idempotencyKey(),authorization,"SUCCEEDED","configured-model",11L,7L,0,"task-1");
+        assertDoesNotThrow(()->ledger.enqueueUsage(authorization.idempotencyKey(),authorization,"SUCCEEDED","configured-model",11L,7L,0,"task-1"));
+        assertThrows(IllegalStateException.class,()->ledger.enqueueUsage(authorization.idempotencyKey(),authorization,"SUCCEEDED","configured-model",11L,7L,0,"task-2"));
+        org.junit.jupiter.api.Assertions.assertEquals(1,outboxInserts.get());
     }
 }

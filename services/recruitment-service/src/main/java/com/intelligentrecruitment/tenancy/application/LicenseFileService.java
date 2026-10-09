@@ -1,6 +1,6 @@
 package com.intelligentrecruitment.tenancy.application;
 
-import com.intelligentrecruitment.recruitment.infrastructure.JdSourceObjectStorage;
+import com.intelligentrecruitment.shared.storage.PrivateObjectStorage;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,10 +23,10 @@ import java.util.UUID;
 @Service
 public class LicenseFileService {
 
-    private final JdSourceObjectStorage storage;
+    private final @org.springframework.beans.factory.annotation.Qualifier("jdSourceObjectStorage") PrivateObjectStorage storage;
     private final long maxFileSize;
 
-    public LicenseFileService(JdSourceObjectStorage storage,
+    public LicenseFileService(@org.springframework.beans.factory.annotation.Qualifier("jdSourceObjectStorage") PrivateObjectStorage storage,
                               @Value("${app.storage.max-file-size-bytes:10485760}") long maxFileSize) {
         this.storage = storage;
         this.maxFileSize = maxFileSize;

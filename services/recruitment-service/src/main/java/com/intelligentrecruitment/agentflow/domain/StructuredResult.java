@@ -20,8 +20,16 @@ public record StructuredResult(
         @JsonProperty("missing_information") List<String> missingInformation,
         Provenance provenance,
         Usage usage,
-        @JsonProperty("generated_at") Instant generatedAt
+        @JsonProperty("generated_at") Instant generatedAt,
+        @JsonProperty("result_contract_version")String resultContractVersion,@JsonProperty("attempt_id")UUID attemptId,
+        @JsonProperty("tenant_id")UUID tenantId,@JsonProperty("agent_id")String agentId,String operation,
+        @JsonProperty("input_hash")String inputHash,@JsonProperty("route_config_version")String routeConfigVersion,
+        @JsonProperty("agent_adapter_version")String agentAdapterVersion,@JsonProperty("external_contract_version")String externalContractVersion,
+        @JsonProperty("schema_version")String schemaVersion,@JsonProperty("provider_result_ref")String providerResultRef
 ) {
+    public StructuredResult(UUID executionId,String aiTaskId,FlowCapability capability,Status status,String outputSchemaVersion,Map<String,Object> data,List<String>warnings,List<String>missingInformation,Provenance provenance,Usage usage,Instant generatedAt){
+        this(executionId,aiTaskId,capability,status,outputSchemaVersion,data,warnings,missingInformation,provenance,usage,generatedAt,null,null,null,null,null,null,null,null,null,null,null);
+    }
     public enum Status {
         DRAFT_READY("draft_ready"), COMPLETED("completed"), PARTIALLY_COMPLETED("partially_completed"),
         WAITING_FOR_INPUT("waiting_for_input"), FAILED("failed");

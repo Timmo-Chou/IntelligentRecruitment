@@ -19,10 +19,26 @@ public record ExecutionContext(
         @JsonProperty("input_versions") List<InputVersion> inputVersions,
         @JsonProperty("policy_decision") PolicyDecision policyDecision,
         @JsonProperty("data_handling") DataHandling dataHandling,
-        @JsonProperty("requested_at") Instant requestedAt
+        @JsonProperty("requested_at") Instant requestedAt,
+        @JsonProperty("agent_route") AgentRoute agentRoute
 ) {
+    public ExecutionContext(UUID executionId, UUID routeDecisionId, String requestId, String traceId,
+                            UUID tenantId, UUID actorId, UUID businessTaskId, String idempotencyKey,
+                            FlowCapability capability, String businessOperationRef,
+                            List<InputVersion> inputVersions, PolicyDecision policyDecision,
+                            DataHandling dataHandling, Instant requestedAt) {
+        this(executionId, routeDecisionId, requestId, traceId, tenantId, actorId, businessTaskId,
+                idempotencyKey, capability, businessOperationRef, inputVersions, policyDecision,
+                dataHandling, requestedAt, null);
+    }
+
     public record InputVersion(String kind, String ref, String version, @JsonProperty("content_hash") String contentHash) {
     }
+
+    public record AgentRoute(@JsonProperty("agent_id") String agentId,
+                             String operation,
+                             @JsonProperty("route_config_version") String routeConfigVersion,
+                             @JsonProperty("selection_source") String selectionSource) { }
 
     public record DataHandling(@JsonProperty("contains_pii") boolean containsPii,
                                String retention,

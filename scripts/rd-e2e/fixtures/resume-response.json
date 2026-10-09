@@ -1,0 +1,90 @@
+{
+  "business_result": {
+    "analysis_request_ref": "direct_resume_synthetic_001",
+    "analysis_text": "Synthetic candidate assessment.",
+    "assessment_definition_version": "recruitment_talent_dimensions_v1",
+    "attachment_refs": [
+      "attachment_synthetic_001"
+    ],
+    "core_experience": [],
+    "dimensions": [
+      {
+        "conclusion": "Strong synthetic evidence.",
+        "confidence": "high",
+        "dimension_code": "professional_capability",
+        "display_name": "Professional capability",
+        "evidence": [],
+        "score": 80
+      }
+    ],
+    "overall_assessment": "Suitable for further synthetic evaluation.",
+    "radar": [
+      {
+        "available": true,
+        "dimension_code": "professional_capability",
+        "display_name": "Professional capability",
+        "score": 80
+      }
+    ],
+    "result_ref": "resume_analysis_synthetic_001",
+    "resume_ref": "resume_synthetic_001",
+    "risks_and_questions": [],
+    "schema_version": "recruitment_resume_analysis_v1",
+    "strengths": [],
+    "structured_resume": {
+      "data": {
+        "basic_info": {
+          "email": null,
+          "headline": "Backend Engineer",
+          "location": "Shanghai",
+          "name": "Synthetic Candidate",
+          "phone": null
+        },
+        "certificates": [],
+        "education": [],
+        "experience_summary": {
+          "domains": [
+            "backend"
+          ],
+          "highlights": [
+            "Synthetic platform delivery"
+          ],
+          "total_years": 5
+        },
+        "languages": [],
+        "project_experience": [],
+        "schema_version": "1.0",
+        "skills": [],
+        "work_experience": [
+          {
+            "company": "Synthetic Systems",
+            "title": "Backend Engineer",
+            "start_date": "2021-01",
+            "end_date": "2025-06",
+            "description": "Built a synthetic Python service platform.",
+            "achievements": ["Improved synthetic processing throughput"]
+          }
+        ]
+      },
+      "resume_ref": "resume_synthetic_001",
+      "schema_version": "1.0"
+    },
+    "talent_type": "backend_engineer",
+    "talent_type_evidence": [
+      {
+        "evidence_ref": "evidence_synthetic_001",
+        "source_type": "resume",
+        "summary": "Synthetic backend experience."
+      }
+    ],
+    "talent_type_reason": "The synthetic profile emphasizes backend delivery."
+  },
+  "execution": {
+    "child_trace_ids": [],
+    "execution_ref": "direct_resume_synthetic_001",
+    "request_id": "req_synthetic_resume_001",
+    "root_trace_id": "trace_synthetic_resume_001",
+    "status": "completed",
+    "usage": null
+  }
+}

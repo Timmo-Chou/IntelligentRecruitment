@@ -41,6 +41,7 @@ const navItems: NavItem[] = [
   { label: "收款账户", icon: Landmark, href: "/recharge-settings", permission: "ADMIN_RECHARGE_VIEW" },
   { label: "产品运营", icon: Package, href: "/products", permission: "ADMIN_PRODUCT_VIEW" },
   { label: "订单管理", icon: ShoppingCart, href: "/orders", permission: "ADMIN_ORDER_VIEW" },
+  { label: "筛选规则", icon: KeyRound, href: "/screening-rules", permission: "ADMIN_SCREENING_RULE_VIEW" },
   { label: "权益与权限", icon: KeyRound, href: "/entitlements", permission: "ADMIN_ENTITLEMENT_VIEW" },
   { label: "菜单设置", icon: Menu, href: "/settings/menus", permission: "ADMIN_MENU_VIEW" },
   { label: "系统设置", icon: Settings, href: "/settings/admins", permission: "ADMIN_ADMIN_VIEW" },

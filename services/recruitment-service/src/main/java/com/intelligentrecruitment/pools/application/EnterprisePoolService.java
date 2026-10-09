@@ -2,7 +2,7 @@ package com.intelligentrecruitment.pools.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intelligentrecruitment.candidates.application.PiiCipher;
-import com.intelligentrecruitment.candidates.infrastructure.ResumeObjectStorage;
+import com.intelligentrecruitment.shared.storage.PrivateObjectStorage;
 import com.intelligentrecruitment.boss.application.BossControlPlaneClient;
 import com.intelligentrecruitment.boss.application.BossRequestContext;
 import com.intelligentrecruitment.shared.error.ApiException;
@@ -20,8 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** Immutable enterprise-pool copies. Source users can only change their own records, then re-sync the copy. */
 @Service public class EnterprisePoolService {
-  private final JdbcTemplate jdbc; private final TenantAccessService access; private final PiiCipher pii; private final ResumeObjectStorage storage; private final BossControlPlaneClient boss; private final ObjectMapper objectMapper;
-  public EnterprisePoolService(JdbcTemplate jdbc,TenantAccessService access,PiiCipher pii,ResumeObjectStorage storage,BossControlPlaneClient boss,ObjectMapper objectMapper){this.jdbc=jdbc;this.access=access;this.pii=pii;this.storage=storage;this.boss=boss;this.objectMapper=objectMapper;}
+  private final JdbcTemplate jdbc; private final TenantAccessService access; private final PiiCipher pii; private final @org.springframework.beans.factory.annotation.Qualifier("resumeObjectStorage") PrivateObjectStorage storage; private final BossControlPlaneClient boss; private final ObjectMapper objectMapper;
+  public EnterprisePoolService(JdbcTemplate jdbc,TenantAccessService access,PiiCipher pii,@org.springframework.beans.factory.annotation.Qualifier("resumeObjectStorage") PrivateObjectStorage storage,BossControlPlaneClient boss,ObjectMapper objectMapper){this.jdbc=jdbc;this.access=access;this.pii=pii;this.storage=storage;this.boss=boss;this.objectMapper=objectMapper;}
   @Transactional public void syncCandidate(TenantScope scope,UUID ownerId,UUID candidateId){
     if(!scope.enterprise())return;
     if(!scope.talentPoolSharingEnabled()){jdbc.update("UPDATE enterprise_talent_pool_copies SET sync_status='PENDING_UPDATE' WHERE tenant_id=? AND source_candidate_id=? AND lifecycle_status='ACTIVE'",scope.tenantId(),candidateId);return;}

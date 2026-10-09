@@ -1,0 +1,117 @@
+{
+  "result_contract_version": "recruitment-result-v2",
+  "ai_task_id": "00000000-0000-4000-8000-000000000001",
+  "attempt_id": "00000000-0000-4000-8000-000000000001",
+  "tenant_id": "00000000-0000-4000-8000-000000000001",
+  "agent_id": "complex_recruitment_agent",
+  "capability": "resume_parsing",
+  "operation": "analyze",
+  "input_hash": "6bd239db916d4c073abe25dcef93c284582a7e2ba754e1bf99c1315de94e7a7c",
+  "route_config_version": "routing-phase0-synthetic",
+  "status": "completed",
+  "agent_adapter_version": "phase0-synthetic",
+  "external_contract_version": "1.1.0",
+  "schema_version": "recruitment_resume_analysis_v1",
+  "provider_result_ref": "resume_analysis_synthetic_001",
+  "data": {
+    "analysis_text": "Synthetic candidate assessment.",
+    "parsed": {
+      "name": "Synthetic Candidate",
+      "email": null,
+      "phone": null,
+      "location": "Shanghai",
+      "headline": "Backend Engineer",
+      "years_experience": 5,
+      "highest_education": null,
+      "skills": [],
+      "skill_details": [],
+      "work_experience": [],
+      "education_experience": [],
+      "project_experience": [],
+      "certificates": [],
+      "languages": [],
+      "summary": "Suitable for further synthetic evaluation."
+    },
+    "analysis_snapshot": {
+      "analysis_request_ref": "direct_resume_synthetic_001",
+      "analysis_text": "Synthetic candidate assessment.",
+      "assessment_definition_version": "recruitment_talent_dimensions_v1",
+      "attachment_refs": [
+        "attachment_synthetic_001"
+      ],
+      "core_experience": [],
+      "dimensions": [
+        {
+          "conclusion": "Strong synthetic evidence.",
+          "confidence": "high",
+          "dimension_code": "professional_capability",
+          "display_name": "Professional capability",
+          "evidence": [],
+          "score": 80
+        }
+      ],
+      "overall_assessment": "Suitable for further synthetic evaluation.",
+      "radar": [
+        {
+          "available": true,
+          "dimension_code": "professional_capability",
+          "display_name": "Professional capability",
+          "score": 80
+        }
+      ],
+      "result_ref": "resume_analysis_synthetic_001",
+      "resume_ref": "resume_synthetic_001",
+      "risks_and_questions": [],
+      "schema_version": "recruitment_resume_analysis_v1",
+      "strengths": [],
+      "structured_resume": {
+        "data": {
+          "basic_info": {
+            "email": null,
+            "headline": "Backend Engineer",
+            "location": "Shanghai",
+            "name": "Synthetic Candidate",
+            "phone": null
+          },
+          "certificates": [],
+          "education": [],
+          "experience_summary": {
+            "domains": [
+              "backend"
+            ],
+            "highlights": [
+              "Synthetic platform delivery"
+            ],
+            "total_years": 5
+          },
+          "languages": [],
+          "project_experience": [],
+          "schema_version": "1.0",
+          "skills": [],
+          "work_experience": []
+        },
+        "resume_ref": "resume_synthetic_001",
+        "schema_version": "1.0"
+      },
+      "talent_type": "backend_engineer",
+      "talent_type_evidence": [
+        {
+          "evidence_ref": "evidence_synthetic_001",
+          "source_type": "resume",
+          "summary": "Synthetic backend experience."
+        }
+      ],
+      "talent_type_reason": "The synthetic profile emphasizes backend delivery."
+    },
+    "warnings": []
+  },
+  "warnings": [],
+  "usage": null,
+  "source": {
+    "model_id": null,
+    "tokenizer_id": null,
+    "external_request_id": "req_synthetic_jd_001",
+    "external_execution_ref": "direct_jd_synthetic_001",
+    "raw_response_reference": "encrypted://synthetic/result-001"
+  }
+}

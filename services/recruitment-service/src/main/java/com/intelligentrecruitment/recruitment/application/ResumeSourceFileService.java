@@ -2,7 +2,7 @@ package com.intelligentrecruitment.recruitment.application;
 
 import com.intelligentrecruitment.candidates.application.ResumeTextExtractor;
 import com.intelligentrecruitment.candidates.application.PiiCipher;
-import com.intelligentrecruitment.recruitment.infrastructure.JdSourceObjectStorage;
+import com.intelligentrecruitment.shared.storage.PrivateObjectStorage;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
 import com.intelligentrecruitment.tenancy.application.TenantAccessService;
@@ -30,13 +30,13 @@ public class ResumeSourceFileService {
 
     private final JdbcTemplate jdbc;
     private final TenantAccessService tenantAccess;
-    private final JdSourceObjectStorage storage;
+    private final @org.springframework.beans.factory.annotation.Qualifier("jdSourceObjectStorage") PrivateObjectStorage storage;
     private final ResumeTextExtractor extractor;
     private final PiiCipher pii;
     private final long maxFileSize;
 
     public ResumeSourceFileService(JdbcTemplate jdbc, TenantAccessService tenantAccess,
-                                   JdSourceObjectStorage storage, ResumeTextExtractor extractor, PiiCipher pii,
+                                   @org.springframework.beans.factory.annotation.Qualifier("jdSourceObjectStorage") PrivateObjectStorage storage, ResumeTextExtractor extractor, PiiCipher pii,
                                    @Value("${app.storage.max-file-size-bytes:10485760}") long maxFileSize) {
         this.jdbc = jdbc;
         this.tenantAccess = tenantAccess;
@@ -63,7 +63,7 @@ public class ResumeSourceFileService {
                     INSERT INTO file_assets
                     (id,tenant_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
-                    VALUES (?,?,?,?,?,?,?,?,'PENDING','ACTIVE',?,?)
+                    VALUES (?,?,?,?,?,?,?,'PENDING','ACTIVE',?,?)
                     """, assetId, tenantId, objectKey, pii.encrypt(filename), mediaType, bytes.length, hash,
                     userId, timestamp(Instant.now()));
         }
@@ -75,7 +75,7 @@ public class ResumeSourceFileService {
         jdbc.update("""
                 INSERT INTO resume_source_files
                 (id,tenant_id,recruitment_task_id,file_asset_id,filename,media_type,size_bytes,extracted_text,created_by,created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT (recruitment_task_id,file_asset_id) DO NOTHING
                 """, sourceId, tenantId, taskId, resolvedAssetId, pii.encrypt(filename), mediaType, size, pii.encrypt(extracted),
                 userId, timestamp(now));

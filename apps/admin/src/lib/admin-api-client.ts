@@ -40,6 +40,12 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
+function bossWire(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(bossWire);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key,item])=>[key.replace(/[A-Z]/g,letter=>`_${letter.toLowerCase()}`),bossWire(item)]));
+  return value;
+}
+
 /**
  * 管理后台专用 fetch 封装
  * 自动从 localStorage 读取 access_token 并添加到 Authorization 请求头
@@ -48,8 +54,11 @@ export async function adminApiFetch<T>(path: string, init?: RequestInit): Promis
   const token = getAccessToken();
   const multipart = typeof FormData !== "undefined" && init?.body instanceof FormData;
 
+  const proxyToIr = path.startsWith("/platform/tickets") || path.startsWith("/platform/screening-rules");
+  const requestBody = typeof init?.body === "string" && !proxyToIr ? JSON.stringify(bossWire(JSON.parse(init.body))) : init?.body;
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
+    body: requestBody,
     headers: {
       Accept: "application/json",
       ...(multipart ? {} : { "Content-Type": "application/json" }),

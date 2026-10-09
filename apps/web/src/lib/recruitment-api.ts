@@ -36,6 +36,7 @@ export type JdDraft = {
   education: string;
   jobType: string;
   salaryRange: string;
+  jdText: string;
   responsibilities: string;
   requirements: string;
   skills: string;

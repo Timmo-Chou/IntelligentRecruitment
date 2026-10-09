@@ -29,9 +29,26 @@ public class JdDraftGenerator {
         List<String> warnings = input.location() == null || input.location().isBlank()
                 ? List.of("工作地点未明确，请确认后再发布", "薪资范围尚未提供")
                 : List.of("薪资范围尚未提供");
-        return new JdDraftContent(title, fallback(input.companyName(), "企业名称待确认"), location,
-                experience, education, fallback(input.jobType(), "全职"), "薪资待确认", responsibilities, requirements,
-                skills, "加分项待确认", "福利待遇待确认", profile, warnings);
+        String companyName = fallback(input.companyName(), "企业名称待确认");
+        String jobType = fallback(input.jobType(), "全职");
+        String salaryRange = "薪资待确认";
+        String niceToHaves = "加分项待确认";
+        String benefits = "福利待遇待确认";
+        String jdText = renderJdText(title, companyName, location, salaryRange, experience, education, jobType,
+                responsibilities, requirements, skills, niceToHaves, benefits, profile);
+        return new JdDraftContent(title, companyName, location, experience, education, jobType, salaryRange,
+                jdText, responsibilities, requirements, skills, niceToHaves, benefits, profile, warnings);
+    }
+
+    public static String renderJdText(String title, String companyName, String location, String salaryRange,
+                                      String experienceLevel, String education, String jobType,
+                                      String responsibilities, String requirements, String skills,
+                                      String niceToHaves, String benefits, String talentProfile) {
+        return "职位名称：" + title + "\n企业名称：" + companyName + "\n工作地点：" + location
+                + "\n薪资范围：" + salaryRange + "\n经验要求：" + experienceLevel + "\n学历要求：" + education
+                + "\n用工类型：" + jobType + "\n\n岗位职责\n" + responsibilities + "\n\n任职要求\n" + requirements
+                + "\n\n关键技能\n" + skills + "\n\n加分项\n" + niceToHaves + "\n\n福利待遇\n" + benefits
+                + "\n\n人才画像\n" + talentProfile;
     }
 
     private static String inferTitle(String requirement) {
@@ -59,7 +76,7 @@ public class JdDraftGenerator {
     }
 
     public record JdDraftContent(String title, String companyName, String location, String experienceLevel,
-                                 String education, String jobType, String salaryRange, String responsibilities, String requirements,
+                                 String education, String jobType, String salaryRange, String jdText, String responsibilities, String requirements,
                                  String skills, String niceToHaves, String benefits,
                                  String talentProfile, List<String> warnings) {
     }

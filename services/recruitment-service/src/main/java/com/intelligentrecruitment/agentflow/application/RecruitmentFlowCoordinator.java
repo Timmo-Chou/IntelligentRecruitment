@@ -21,24 +21,44 @@ import org.springframework.stereotype.Service;
 public class RecruitmentFlowCoordinator {
 
     public static final String POLICY_VERSION = "recruitment-flow-v1";
+    private final RecruitmentRouteResolver routeResolver;
+    private final RecruitmentExecutionMaintenance maintenance;
+
+    public RecruitmentFlowCoordinator(RecruitmentRouteResolver routeResolver,RecruitmentExecutionMaintenance maintenance) {
+        this.routeResolver = routeResolver;this.maintenance=maintenance;
+    }
     /**
      * Recruitment only freezes business context.  Capability entitlement and
      * credit reservation are evaluated atomically by BOSS when AIAgentPlatform
      * accepts the execution request; this service must not keep a second local
      * monetary or quota decision.
      */
+    public ExecutionContext.AgentRoute resolveRoute(FlowCapability capability){return routeResolver.resolve(capability);}
+
     public PolicyDecision evaluateAuthoritative(FlowCapability capability, TenantScope scope, UUID actorId) {
         return decision(capability, scope, actorId, PolicyDecision.Decision.ALLOW,
                 List.of(PolicyDecision.ReasonCode.AUTHORIZED));
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public ExecutionContext createExecutionContext(PolicyDecision policyDecision, UUID businessTaskId,
                                                    String idempotencyKey, String businessOperationRef,
                                                    List<ExecutionContext.InputVersion> inputVersions,
                                                    boolean containsPii) {
+        return createExecutionContext(policyDecision, businessTaskId, idempotencyKey, businessOperationRef,
+                inputVersions, containsPii, null);
+    }
+
+    @org.springframework.transaction.annotation.Transactional
+    public ExecutionContext createExecutionContext(PolicyDecision policyDecision, UUID businessTaskId,
+                                                   String idempotencyKey, String businessOperationRef,
+                                                   List<ExecutionContext.InputVersion> inputVersions,
+                                                   boolean containsPii, ExecutionContext.AgentRoute frozenRoute) {
         if (!policyDecision.allowsExecution()) {
             throw denied(policyDecision);
         }
+        ExecutionContext.AgentRoute route=frozenRoute==null?routeResolver.resolve(policyDecision.capability()):frozenRoute;
+        maintenance.requireRootAllowed(policyDecision.capability(),route.routeConfigVersion());
         Instant now = Instant.now();
         String requestId = MDC.get("request_id");
         if (requestId == null || requestId.isBlank()) requestId = UUID.randomUUID().toString();
@@ -46,7 +66,8 @@ public class RecruitmentFlowCoordinator {
                 policyDecision.tenantId(), policyDecision.actorId(), businessTaskId,
                 idempotencyKey, policyDecision.capability(), businessOperationRef,
                 List.copyOf(inputVersions), policyDecision,
-                new ExecutionContext.DataHandling(containsPii, "ephemeral", false), now);
+                new ExecutionContext.DataHandling(containsPii, "ephemeral", false), now,
+                route);
     }
 
     private PolicyDecision decision(FlowCapability capability, TenantScope scope, UUID actorId,

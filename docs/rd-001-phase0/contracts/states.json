@@ -1,0 +1,93 @@
+[
+  {
+    "platform": "QUEUED",
+    "http": "queued",
+    "event_types": [
+      "task.progress"
+    ],
+    "ir": "QUEUED",
+    "terminal": false
+  },
+  {
+    "platform": "RUNNING",
+    "http": "running",
+    "event_types": [
+      "task.started",
+      "task.progress"
+    ],
+    "ir": "RUNNING",
+    "terminal": false
+  },
+  {
+    "platform": "WAITING_FOR_INPUT",
+    "http": "waiting_for_input",
+    "event_types": [
+      "task.waiting_for_input"
+    ],
+    "ir": "WAITING_FOR_INPUT",
+    "terminal": false
+  },
+  {
+    "platform": "PARTIALLY_COMPLETED",
+    "http": "partially_completed",
+    "event_types": [
+      "task.partially_completed"
+    ],
+    "ir": "PARTIALLY_COMPLETED",
+    "terminal": false
+  },
+  {
+    "platform": "CANCEL_REQUESTED",
+    "http": "cancel_requested",
+    "event_types": [
+      "task.cancel_requested"
+    ],
+    "ir": "CANCEL_REQUESTED",
+    "terminal": false
+  },
+  {
+    "platform": "RECONCILIATION_REQUIRED",
+    "http": "reconciliation_required",
+    "event_types": [
+      "task.reconciliation_required"
+    ],
+    "ir": "RECONCILIATION_REQUIRED",
+    "terminal": false
+  },
+  {
+    "platform": "RESULT_MAPPING_FAILED",
+    "http": "result_mapping_failed",
+    "event_types": [
+      "task.result_mapping_failed"
+    ],
+    "ir": "RESULT_MAPPING_FAILED",
+    "terminal": false
+  },
+  {
+    "platform": "SUCCEEDED",
+    "http": "completed",
+    "event_types": [
+      "task.completed"
+    ],
+    "ir": "COMPLETED",
+    "terminal": true
+  },
+  {
+    "platform": "FAILED",
+    "http": "failed",
+    "event_types": [
+      "task.failed"
+    ],
+    "ir": "FAILED",
+    "terminal": true
+  },
+  {
+    "platform": "CANCELLED",
+    "http": "cancelled",
+    "event_types": [
+      "task.cancelled"
+    ],
+    "ir": "CANCELLED",
+    "terminal": true
+  }
+]

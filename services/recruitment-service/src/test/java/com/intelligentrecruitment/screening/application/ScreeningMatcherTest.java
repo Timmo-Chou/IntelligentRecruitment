@@ -10,7 +10,7 @@ class ScreeningMatcherTest {
 
     private final ScreeningMatcher matcher = new ScreeningMatcher();
     private final ScreeningMatcher.FrozenJob job = new ScreeningMatcher.FrozenJob(
-            "Java工程师", "Java,Spring Boot", "3年以上", "本科", "负责服务端开发");
+            "Java工程师", "Java,Spring Boot", "3年以上", "本科", "负责服务端开发", "负责服务端开发");
 
     @Test
     void appliesWeightsAndFourLevelThresholds() {
@@ -19,7 +19,7 @@ class ScreeningMatcherTest {
                 dimension("专业技能", 70, false, "", "REVIEW"),
                 dimension("职业履历", 30, false, "", "REVIEW")));
 
-        assertThat(result.score()).isGreaterThanOrEqualTo(85);
+        assertThat(result.score()).isGreaterThanOrEqualTo(java.math.BigDecimal.valueOf(85));
         assertThat(result.level()).isEqualTo("STRONG_MATCH");
         assertThat(result.evidence()).anyMatch(value -> value.contains("权重 70%"));
     }
@@ -31,7 +31,7 @@ class ScreeningMatcherTest {
                 dimension("基本信息", 90, false, "", "REVIEW"),
                 dimension("专业技能", 10, true, "", "REVIEW")));
 
-        assertThat(result.score()).isLessThanOrEqualTo(59);
+        assertThat(result.score()).isLessThanOrEqualTo(java.math.BigDecimal.valueOf(59));
         assertThat(result.level()).isEqualTo("WEAK_MATCH");
         assertThat(result.risks()).anyMatch(value -> value.contains("必须项未满足"));
     }

@@ -1,0 +1,91 @@
+{
+  "result_contract_version": "recruitment-result-v2",
+  "ai_task_id": "00000000-0000-4000-8000-000000000001",
+  "attempt_id": "00000000-0000-4000-8000-000000000001",
+  "tenant_id": "00000000-0000-4000-8000-000000000001",
+  "agent_id": "complex_recruitment_agent",
+  "capability": "candidate_screening",
+  "operation": "match",
+  "input_hash": "6bd239db916d4c073abe25dcef93c284582a7e2ba754e1bf99c1315de94e7a7c",
+  "route_config_version": "routing-phase0-synthetic",
+  "status": "completed",
+  "agent_adapter_version": "phase0-synthetic",
+  "external_contract_version": "1.1.0",
+  "schema_version": "recruitment_match_batch_v1",
+  "provider_result_ref": "job_synthetic_001",
+  "data": {
+    "policy_source": "RD_STANDARD",
+    "policy_ref": "synthetic-policy",
+    "job_version_id": "00000000-0000-4000-8000-000000000001",
+    "job_text_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+    "candidates": [
+      {
+        "candidate_id": "00000000-0000-4000-8000-000000000001",
+        "file_asset_id": "00000000-0000-4000-8000-000000000001",
+        "input_order": 1,
+        "attachment_ref": "attachment_synthetic_001",
+        "evaluation_status": "SUCCEEDED",
+        "score": 82,
+        "level": "MATCH",
+        "result_validity": "VALID_BUSINESS_RESULT",
+        "billable_unit_count": 1,
+        "billing_reason_code": "VALID_MATCH_RESULT",
+        "evidence_reference": "encrypted://synthetic/evidence",
+        "summary": "Synthetic candidate match",
+        "matched_points": [],
+        "unmatched_points": [],
+        "negotiable_points": [],
+        "missing_information": [],
+        "risks": [],
+        "evidence": [],
+        "source_snapshot": {
+          "ai_match_executed": true,
+          "attachment_ref": "attachment_synthetic_001",
+          "capabilities": {
+            "llm": "available"
+          },
+          "eligibility": "eligible",
+          "error_code": null,
+          "failure_stage": null,
+          "hard_filter_failed": false,
+          "input_order": 1,
+          "rank": 1,
+          "result": {
+            "criteria_results": [],
+            "eligibility": "eligible",
+            "hard_requirement_summary": {
+              "reason": "Synthetic requirements are satisfied.",
+              "source": "rule",
+              "status": "satisfied"
+            },
+            "hard_rule_results": [],
+            "interview_suggestions": [],
+            "missing_items": [],
+            "overall_score": 82,
+            "recommendation": "recommend",
+            "result_ref": "candidate_match_synthetic_001",
+            "result_status": "completed",
+            "risks": [],
+            "schema_version": "1.0",
+            "score_coverage": 100,
+            "strengths": [],
+            "summary": "Synthetic candidate meets the core requirements.",
+            "uncertainties": []
+          },
+          "status": "completed",
+          "vector_retrieval_executed": false
+        }
+      }
+    ],
+    "batch_snapshot": {}
+  },
+  "warnings": [],
+  "usage": null,
+  "source": {
+    "model_id": null,
+    "tokenizer_id": null,
+    "external_request_id": "req_synthetic_jd_001",
+    "external_execution_ref": "direct_jd_synthetic_001",
+    "raw_response_reference": "encrypted://synthetic/result-001"
+  }
+}

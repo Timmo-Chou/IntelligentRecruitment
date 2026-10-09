@@ -13,7 +13,7 @@ import com.intelligentrecruitment.agentflow.domain.ExecutionContext;
 import com.intelligentrecruitment.agentflow.domain.FlowCapability;
 import com.intelligentrecruitment.agentflow.domain.PolicyDecision;
 import com.intelligentrecruitment.agentflow.domain.StructuredResult;
-import com.intelligentrecruitment.candidates.infrastructure.ResumeObjectStorage;
+import com.intelligentrecruitment.shared.storage.PrivateObjectStorage;
 import com.intelligentrecruitment.pools.application.EnterprisePoolService;
 import com.intelligentrecruitment.shared.error.ApiException;
 import com.intelligentrecruitment.shared.security.SecurityHashes;
@@ -44,21 +44,21 @@ import static com.intelligentrecruitment.shared.database.SqlTimes.timestamp;
 @Service
 public class CandidateService {
 
-    private static final Pattern AI_NAME = Pattern.compile("(?m)^- 姓名：(.+)$");
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final TenantAccessService tenantAccess;
-    private final ResumeObjectStorage storage;
+    private final @org.springframework.beans.factory.annotation.Qualifier("resumeObjectStorage") PrivateObjectStorage storage;
     private final ResumeTextExtractor extractor;
     private final PiiCipher pii;
     private final AiPlatformClient aiPlatform;
     private final EnterprisePoolService enterprisePools;
     private final RecruitmentFlowCoordinator flowCoordinator;
     private final long maxFileSize;
+    private org.springframework.transaction.support.TransactionTemplate resultTransaction;
 
     public CandidateService(JdbcTemplate jdbc, ObjectMapper objectMapper, TenantAccessService tenantAccess,
-                            ResumeObjectStorage storage, ResumeTextExtractor extractor, PiiCipher pii, AiPlatformClient aiPlatform,
+                            @org.springframework.beans.factory.annotation.Qualifier("resumeObjectStorage") PrivateObjectStorage storage, ResumeTextExtractor extractor, PiiCipher pii, AiPlatformClient aiPlatform,
                             EnterprisePoolService enterprisePools, RecruitmentFlowCoordinator flowCoordinator,
                             @Value("${app.storage.max-file-size-bytes:10485760}") long maxFileSize) {
         this.jdbc = jdbc;
@@ -71,6 +71,11 @@ public class CandidateService {
         this.enterprisePools = enterprisePools;
         this.flowCoordinator = flowCoordinator;
         this.maxFileSize = maxFileSize;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void configureResultTransaction(org.springframework.transaction.PlatformTransactionManager manager){
+        this.resultTransaction=new org.springframework.transaction.support.TransactionTemplate(manager);
     }
 
     @Transactional
@@ -127,7 +132,7 @@ public class CandidateService {
                     INSERT INTO file_assets
                     (id,tenant_id,object_key,original_filename,media_type,size_bytes,sha256,
                      scan_status,lifecycle_status,created_by,created_at)
-                    VALUES (?,?,?,?,?,?,?,?, 'CLEAN','ACTIVE',?,?)
+                    VALUES (?,?,?,?,?,?,?, 'CLEAN','ACTIVE',?,?)
                     """, assetId, scope.tenantId(), objectKey, pii.encrypt(filename), mediaType, bytes.length,
                     hash, userId, timestamp(now));
         }
@@ -135,14 +140,14 @@ public class CandidateService {
                 INSERT INTO candidates
                 (id,tenant_id,display_name_masked,full_name_ciphertext,email_ciphertext,
                  phone_ciphertext,full_name_search_hash,phone_search_hash,status,created_by,created_at,updated_at,profile,search_text)
-                VALUES (?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
+                VALUES (?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
                 """, candidateId, scope.tenantId(), mask(provisionalName), pii.encrypt(provisionalName),
                 pii.encrypt(""), pii.encrypt(""), pii.searchToken(provisionalName), pii.searchToken(""),
                 userId, timestamp(now), timestamp(now), json(Map.of("source", "简历上传", "tags", List.of())), provisionalName);
         jdbc.update("""
                 INSERT INTO resume_files
                 (id,tenant_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?, ?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?)
                 """, resumeFileId, scope.tenantId(), candidateId, assetId, "QUEUED",
                 null, userId, timestamp(now), timestamp(now));
         enqueueResumeParse(scope, userId, candidateId, resumeFileId);
@@ -272,11 +277,11 @@ public class CandidateService {
             params.add(query.talentStatus().trim());
         }
         if (query.yearsMin() != null) {
-            where.append(" AND COALESCE(NULLIF(c.profile->>'yearsExperience','')::int, pv.years_experience, 0) >= ?");
+            where.append(" AND COALESCE(NULLIF(c.profile->>'yearsExperience','')::numeric, pv.years_experience) >= ?");
             params.add(query.yearsMin());
         }
         if (query.yearsMax() != null) {
-            where.append(" AND COALESCE(NULLIF(c.profile->>'yearsExperience','')::int, pv.years_experience, 0) <= ?");
+            where.append(" AND COALESCE(NULLIF(c.profile->>'yearsExperience','')::numeric, pv.years_experience) <= ?");
             params.add(query.yearsMax());
         }
         if (query.createdFrom() != null && !query.createdFrom().isBlank()) {
@@ -311,7 +316,7 @@ public class CandidateService {
                 SELECT c.id,c.tenant_id,c.tenant_id,c.full_name_ciphertext,c.phone_ciphertext,c.email_ciphertext,c.status,
                        COALESCE(rf.status, 'PARSED') AS parse_status,COALESCE(f.original_filename, '手动录入') AS original_filename,
                        COALESCE(pv.headline, CONCAT_WS(' | ', c.profile->>'currentTitle', c.profile->>'currentCompany')) AS headline,
-                       COALESCE(NULLIF(c.profile->>'yearsExperience','')::int, pv.years_experience, 0) AS years_experience,
+                       COALESCE(NULLIF(c.profile->>'yearsExperience','')::numeric, pv.years_experience) AS years_experience,
                        COALESCE(c.profile->>'highestEducation', pv.highest_education, '') AS highest_education,
                        COALESCE(c.profile->'skills', pv.skills, '[]'::jsonb)::text AS skills,
                        c.created_at,c.updated_at,ms.match_score,ms.matched_job_title,c.profile::text AS profile_json
@@ -345,8 +350,9 @@ public class CandidateService {
         List<String> skills = mergeSkills(input);
         String headline = joinNonBlank(" | ", nullable(input.currentTitle()), nullable(input.currentCompany()));
         if (headline.isBlank()) headline = skills.isEmpty() ? "手动录入人才" : String.join("、", skills);
-        int years = parseYears(input.yearsExperience());
+        java.math.BigDecimal years = parseYears(input.yearsExperience());
         Map<String, Object> profile = profileMap(input, skills, years);
+        profile.put("manualConfirmed",true);
         String searchText = buildSearchText(candidateId, profile, skills, headline);
         String filename = "manual-" + candidateId + ".txt";
         String objectKey = tenantId + "/" + assetId;
@@ -379,7 +385,7 @@ public class CandidateService {
                     skills,
                     List.of(joinNonBlank(" / ", nullable(input.currentCompany()), nullable(input.currentTitle()))),
                     List.of(joinNonBlank(" · ", nullable(input.school()), nullable(input.major()), nullable(input.highestEducation()))),
-                    "手动录入人才档案", List.of(), "手动录入人才档案");
+                    "手动录入人才档案", List.of(), "手动录入人才档案", Map.of());
             saveParseVersion(scope, candidateId, resumeFileId, 1, parsed, now);
             audit(userId, scope, "CANDIDATE_CREATED_MANUAL", candidateId);
             CandidateDetail detail=detailScoped(scope.tenantId(), candidateId); enterprisePools.syncCandidate(scope,userId,candidateId); return detail;
@@ -397,6 +403,11 @@ public class CandidateService {
     @Transactional
     public CandidateDetail createFromResumeSource(UUID userId, UUID tenantId, UUID assetId,
                                                   String filename, String extractedText) {
+        return createFromResumeSource(userId,tenantId,assetId,filename,extractedText,null);
+    }
+
+    @Transactional
+    public CandidateDetail createFromResumeSource(UUID userId,UUID tenantId,UUID assetId,String filename,String extractedText,StructuredResult savedResult){
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
         tenantAccess.requirePermission(userId, tenantId, "TALENT_LIBRARY_EDIT");
         // 幂等：该简历资产已入库为候选人则直接返回已有候选人
@@ -425,7 +436,7 @@ public class CandidateService {
                 INSERT INTO candidates
                 (id,tenant_id,display_name_masked,full_name_ciphertext,email_ciphertext,
                  phone_ciphertext,full_name_search_hash,phone_search_hash,status,created_by,created_at,updated_at,profile,search_text)
-                VALUES (?,?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
+                VALUES (?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?::jsonb,?)
                 """, candidateId, scope.tenantId(), mask(safeName), pii.encrypt(safeName),
                 pii.encrypt(""), pii.encrypt(""), pii.searchToken(safeName), pii.searchToken(""),
                 userId, timestamp(now), timestamp(now),
@@ -433,11 +444,16 @@ public class CandidateService {
         jdbc.update("""
                 INSERT INTO resume_files
                 (id,tenant_id,candidate_id,file_asset_id,status,error_code,created_by,created_at,updated_at)
-                VALUES (?,?,?,?,?,'QUEUED',NULL,?,?,?)
+                VALUES (?,?,?,?,'QUEUED',NULL,?,?,?)
                 """, resumeFileId, scope.tenantId(), candidateId, assetId, userId,
                 timestamp(now), timestamp(now));
         // 复用源附件后仍由统一的 BOSS 授权 AI 异步任务解析；不得在招聘服务内直接解析。
-        enqueueResumeParse(scope, userId, candidateId, resumeFileId);
+        if(savedResult!=null){
+            Map<String,Object> data=savedResult.data();
+            if(!(data.get("parsed") instanceof Map<?,?> direct))throw new ApiException("AI_CONTRACT_INVALID","结构化简历结果缺失，不能从分析正文猜测候选人字段",HttpStatus.BAD_GATEWAY);
+            ParsedResume parsed=parsedFromDirect(filename,extractedText,direct,data.getOrDefault("overall_assessment",data.get("analysis_text")),data.get("warnings"));
+            saveParsedResume(scope,candidateId,resumeFileId,parsed,1);
+        }else enqueueResumeParse(scope, userId, candidateId, resumeFileId);
         audit(userId, scope, "CANDIDATE_CREATED_FROM_RESUME_PARSE", candidateId);
         CandidateDetail detail=detailScoped(tenantId, candidateId); enterprisePools.syncCandidate(scope,userId,candidateId); return detail;
     }
@@ -637,7 +653,11 @@ public class CandidateService {
         TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
         tenantAccess.requirePermission(userId, tenantId, "TALENT_LIBRARY_EDIT");
         requireSourceOwner(scope,userId,candidateId);
+        jdbc.queryForList("SELECT id FROM candidates WHERE id=? AND tenant_id=? FOR UPDATE",candidateId,tenantId);
         CandidateDetail existing = detailScoped(tenantId, candidateId);
+        if(!java.util.Set.of("PARSED","FAILED").contains(existing.parseStatus()))throw new ApiException("EXECUTION_NOT_TERMINAL","前次解析尚未结束",HttpStatus.CONFLICT);
+        Integer pending=jdbc.queryForObject("SELECT count(*) FROM ai_execution_records WHERE tenant_id=? AND business_task_id=? AND capability='RESUME_PARSING' AND (final_decision IS NULL OR status NOT IN ('SETTLED','RELEASED'))",Integer.class,tenantId,candidateId.toString());
+        if(pending!=null&&pending>0)throw new ApiException("SETTLEMENT_PENDING","前次解析尚未完成结算，暂不能重跑",HttpStatus.CONFLICT);
         jdbc.update("UPDATE resume_files SET status='QUEUED',error_code=NULL,provider_task_id=NULL,updated_at=? WHERE id=? AND tenant_id=?",
                 timestamp(Instant.now()), existing.resumeFileId(), tenantId);
         enqueueResumeParse(scope, userId, candidateId, existing.resumeFileId());
@@ -682,14 +702,14 @@ public class CandidateService {
         jdbc.update("""
                 INSERT INTO resume_parse_versions
                 (id,tenant_id,candidate_id,resume_file_id,version_number,schema_version,status,
-                 headline,years_experience,highest_education,skills,work_experience,education_experience,
+                headline,years_experience,highest_education,skills,work_experience,education_experience,structured_data,
                  summary,warnings,raw_text,created_at)
-                VALUES (?,?,?,?,?,'RESUME_V1','CONFIRMED',?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?::jsonb,?,?)
+                VALUES (?,?,?,?,?,'RESUME_V1','CONFIRMED',?,?,?,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?,?::jsonb,?,?)
                 """, parseId, scope.tenantId(), candidateId, resumeFileId, version,
                 parsed.headline(), parsed.yearsExperience(), parsed.education(), json(parsed.skills()),
-                json(parsed.workExperience()), json(parsed.educationExperience()), parsed.summary(),
+                json(parsed.workExperience()), json(parsed.educationExperience()), json(Map.of("ciphertext",pii.encrypt(json(parsed.structuredData())))), parsed.summary(),
                 json(parsed.warnings()), pii.encrypt(parsed.rawText()), timestamp(now));
-        jdbc.update("UPDATE candidates SET current_parse_version_id=?,updated_at=? WHERE id=? AND tenant_id=?",
+        jdbc.update("UPDATE candidates SET current_parse_version_id=?,updated_at=? WHERE id=? AND tenant_id=? AND (current_parse_version_id IS NULL OR COALESCE(profile->>'manualConfirmed','false')<>'true')",
                 parseId, timestamp(now), candidateId, scope.tenantId());
     }
 
@@ -698,11 +718,11 @@ public class CandidateService {
                 SELECT c.id,c.tenant_id,c.full_name_ciphertext,c.phone_ciphertext,c.email_ciphertext,c.status,c.current_parse_version_id,
                        rf.id AS resume_file_id,rf.status AS parse_status,rf.error_code,
                        f.original_filename,f.media_type,f.size_bytes,
-                       COALESCE(NULLIF(c.profile->>'yearsExperience','')::int, pv.years_experience, 0) AS years_experience,
+                       COALESCE(NULLIF(c.profile->>'yearsExperience','')::numeric, pv.years_experience) AS years_experience,
                        COALESCE(c.profile->>'highestEducation', pv.highest_education, '') AS highest_education,
                        COALESCE(c.profile->'skills', pv.skills, '[]'::jsonb)::text AS skills,
                        COALESCE(pv.headline, CONCAT_WS(' | ', c.profile->>'currentTitle', c.profile->>'currentCompany')) AS headline,
-                       pv.version_number,pv.work_experience::text,pv.education_experience::text,pv.summary,pv.warnings::text,
+                       pv.version_number,pv.work_experience::text,pv.education_experience::text,pv.summary,pv.warnings::text,pv.structured_data::text AS structured_data_json,
                        c.created_at,c.updated_at,c.profile::text AS profile_json,
                        ms.match_score,ms.matched_job_title
                 FROM candidates c JOIN resume_files rf ON rf.candidate_id=c.id
@@ -720,23 +740,42 @@ public class CandidateService {
                 ) ms ON TRUE
                 WHERE c.id=? AND c.tenant_id=? AND c.status<>'DELETED'
                 """, (rs, n) -> {
-            Integer score = rs.getObject("match_score") == null ? null : rs.getInt("match_score");
+            java.math.BigDecimal score = rs.getBigDecimal("match_score");
             return new CandidateDetail(rs.getObject("id", UUID.class),
                 rs.getObject("tenant_id", UUID.class),
                 pii.decrypt(rs.getString("full_name_ciphertext")), pii.decrypt(rs.getString("phone_ciphertext")), pii.decrypt(rs.getString("email_ciphertext")), rs.getString("status"),
                 rs.getObject("current_parse_version_id", UUID.class), rs.getObject("resume_file_id", UUID.class),
                 rs.getString("parse_status"), rs.getString("error_code"), pii.decryptIfEncrypted(rs.getString("original_filename")),
                 rs.getString("media_type"), rs.getLong("size_bytes"), rs.getInt("version_number"),
-                rs.getString("headline"), rs.getInt("years_experience"), rs.getString("highest_education"),
-                strings(rs.getString("skills")), strings(rs.getString("work_experience")),
-                strings(rs.getString("education_experience")), rs.getString("summary"),
+                rs.getString("headline"), rs.getBigDecimal("years_experience"), rs.getString("highest_education"),
+                strings(rs.getString("skills")), experienceDescriptions(rs.getString("work_experience")),
+                experienceDescriptions(rs.getString("education_experience")), rs.getString("summary"),
                 strings(rs.getString("warnings")), rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("updated_at").toInstant(), score, rs.getString("matched_job_title"),
-                rs.getString("profile_json"));
+                rs.getString("profile_json"),sanitizedStructuredResume(rs.getString("structured_data_json")));
         }, candidateId, tenantId);
         if (rows.isEmpty()) throw notFound();
         return rows.getFirst();
     }
+
+    @Transactional
+    public CandidateDetail confirmProfile(UUID userId,UUID tenantId,UUID candidateId,ProfileConfirmation input){
+        TenantScope scope=tenantAccess.requireBusinessAccess(userId,tenantId);
+        tenantAccess.requirePermission(userId,tenantId,"TALENT_LIBRARY_EDIT");requireSourceOwner(scope,userId,candidateId);
+        jdbc.queryForList("SELECT id FROM candidates WHERE id=? AND tenant_id=? FOR UPDATE",candidateId,tenantId);
+        CandidateDetail existing=detailScoped(tenantId,candidateId);
+        Map<String,Object> profile=parseProfileMap(existing.profileJson());
+        if(input.profile()!=null)for(var entry:input.profile().entrySet()){
+            if(!java.util.Set.of("yearsExperience","highestEducation","skills","currentCompany","currentTitle","school","major","tags").contains(entry.getKey()))throw validation("不支持确认该资料字段");
+            if("yearsExperience".equals(entry.getKey())&&entry.getValue()!=null){var years=decimalValue(entry.getValue());if(years==null||years.signum()<0||years.compareTo(java.math.BigDecimal.valueOf(100))>0)throw validation("工作年限无效");profile.put(entry.getKey(),years);}
+            else profile.put(entry.getKey(),entry.getValue());
+        }
+        profile.put("manualConfirmed",true);profile.put("manualConfirmedAt",Instant.now().toString());profile.put("manualConfirmedBy",userId.toString());
+        String name=input.fullName()==null?existing.displayNameMasked():input.fullName();String phone=input.phone()==null?existing.phone():input.phone();String email=input.email()==null?existing.email():input.email();
+        jdbc.update("UPDATE candidates SET profile=?::jsonb,display_name_masked=?,full_name_ciphertext=?,phone_ciphertext=?,email_ciphertext=?,full_name_search_hash=?,phone_search_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND tenant_id=?",json(profile),mask(name),pii.encrypt(name),pii.encrypt(phone),pii.encrypt(email),pii.searchToken(name),pii.searchToken(phone),candidateId,tenantId);
+        audit(userId,scope,"CANDIDATE_PROFILE_CONFIRMED",candidateId);return detailScoped(tenantId,candidateId);
+    }
+    public record ProfileConfirmation(String fullName,String phone,String email,Map<String,Object> profile){}
 
     @Transactional
     public CandidateDetail updateTags(UUID userId, UUID tenantId, UUID candidateId, List<String> tags) {
@@ -785,8 +824,11 @@ public class CandidateService {
                                   ParsedResume parsed, int version) {
         Instant now = Instant.now();
         saveParseVersion(scope, candidateId, resumeFileId, version, parsed, now);
-        Map<String, Object> profile = uploadProfile(parsed);
-        jdbc.update("""
+        Map<String,Object> existing=jdbc.query("SELECT profile::text FROM candidates WHERE id=? AND tenant_id=? FOR UPDATE",(rs,n)->parseProfileMap(rs.getString(1)),candidateId,scope.tenantId()).getFirst();
+        Map<String, Object> profile = mergeParsedProfile(uploadProfile(parsed),existing);
+        if(Boolean.TRUE.equals(existing.get("manualConfirmed"))) {
+            jdbc.update("UPDATE candidates SET profile=?::jsonb,updated_at=? WHERE id=? AND tenant_id=?",json(profile),timestamp(now),candidateId,scope.tenantId());
+        } else jdbc.update("""
                 UPDATE candidates SET display_name_masked=?,full_name_ciphertext=?,email_ciphertext=?,phone_ciphertext=?,
                 full_name_search_hash=?,phone_search_hash=?,profile=?::jsonb,search_text=?,updated_at=?
                 WHERE id=? AND tenant_id=?
@@ -802,6 +844,10 @@ public class CandidateService {
     private void enqueueResumeParse(TenantScope scope, UUID userId, UUID candidateId, UUID resumeFileId) {
         String idempotencyKey = "candidate-resume:" + resumeFileId + ":" + UUID.randomUUID();
         Instant now = Instant.now();
+        String hash=jdbc.queryForObject("SELECT f.sha256 FROM resume_files rf JOIN file_assets f ON f.id=rf.file_asset_id WHERE rf.id=? AND rf.tenant_id=?",String.class,resumeFileId,scope.tenantId());
+        ExecutionContext frozen=flowCoordinator.createExecutionContext(flowCoordinator.evaluateAuthoritative(FlowCapability.RESUME_PARSING,scope,userId),candidateId,idempotencyKey,"candidate-resume-parse:"+resumeFileId,
+                List.of(new ExecutionContext.InputVersion("resume_file",resumeFileId.toString(),"uploaded",hash)),true);
+        jdbc.update("UPDATE resume_files SET execution_context=?::jsonb WHERE id=? AND tenant_id=?",json(frozen),resumeFileId,scope.tenantId());
         jdbc.update("UPDATE resume_files SET parse_idempotency_key=?,parse_attempts=0,enterprise_pool_sync_enabled=? WHERE id=? AND tenant_id=?",
                 idempotencyKey, scope.enterprise() && scope.talentPoolSharingEnabled(), resumeFileId, scope.tenantId());
         jdbc.update("""
@@ -830,20 +876,24 @@ public class CandidateService {
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
-    @Transactional
     public void startResumeParse(UUID resumeFileId) {
-        CandidateParseJob job = candidateParseJob(resumeFileId, true);
+        CandidateParseJob job = candidateParseJob(resumeFileId, false);
         if (!"QUEUED".equals(job.status())) return;
-        String rawText = extractor.extract(storage.get(job.objectKey()), job.filename());
+        byte[] resumeBytes = storage.get(job.objectKey());
+        String rawText = extractor.extract(resumeBytes, job.filename());
         TenantScope scope = new TenantScope(job.tenantId(), null, null, null);
-        PolicyDecision policy = flowCoordinator.evaluateAuthoritative(FlowCapability.RESUME_PARSING, scope, job.actorUserId());
-        ExecutionContext context = flowCoordinator.createExecutionContext(policy, job.candidateId(), job.idempotencyKey(),
-                "candidate-resume-parse:" + resumeFileId,
-                List.of(new ExecutionContext.InputVersion("resume_file", resumeFileId.toString(), "uploaded",
-                        SecurityHashes.sha256(rawText))), true);
+        ExecutionContext context;
+        try { context=objectMapper.readValue(job.executionContext(),ExecutionContext.class); }
+        catch(Exception ex){throw new ApiException("FROZEN_ATTEMPT_REQUIRED","简历执行缺少创建时冻结的快照",HttpStatus.CONFLICT);}
+        Map<String, Object> resumeInput = new LinkedHashMap<>();
+        resumeInput.put("filename", job.filename()); resumeInput.put("text", rawText); resumeInput.put("source", "upload");
+        if ("complex_recruitment_agent".equals(context.agentRoute().agentId())) {
+            resumeInput.put("file_asset_id",job.fileAssetId().toString());resumeInput.put("sha256",job.sha256());
+            resumeInput.put("mime_type",job.mediaType());resumeInput.put("byte_count",job.sizeBytes());
+        }
         AiTask task = aiPlatform.startTask(new StartAiTaskCommand(job.tenantId().toString(), job.actorUserId().toString(),
                 job.candidateId().toString(), job.idempotencyKey(), AiCapability.RESUME_PARSING,
-                Map.of("resumes", List.of(Map.of("filename", job.filename(), "text", rawText, "source", "upload")),
+                Map.of("resumes", List.of(resumeInput),
                         "job", Map.of()), context));
         jdbc.update("UPDATE resume_files SET status='PROCESSING',provider_task_id=?,parse_attempts=parse_attempts+1,updated_at=? WHERE id=? AND tenant_id=?",
                 UUID.fromString(task.aiTaskId()), timestamp(Instant.now()), resumeFileId, job.tenantId());
@@ -854,35 +904,45 @@ public class CandidateService {
                 (rs, n) -> rs.getObject(1, UUID.class));
     }
 
-    @Transactional
     public void finalizeResumeParseIfReady(UUID resumeFileId) {
-        CandidateParseJob job = candidateParseJob(resumeFileId, true);
+        CandidateParseJob job = candidateParseJob(resumeFileId, false);
         if (!"PROCESSING".equals(job.status()) || job.providerTaskId() == null) return;
         AiTask task = aiPlatform.getTask(job.providerTaskId().toString(), job.actorUserId().toString());
         if (task.status() == AiTaskStatus.FAILED || task.status() == AiTaskStatus.CANCELLED) {
-            failResumeParse(job, task.errorCode() == null ? "AI_PROVIDER_UNAVAILABLE" : task.errorCode(),
-                    task.errorMessage() == null ? "AI 简历解析失败，请重试" : task.errorMessage());
+            resultTransaction.executeWithoutResult(tx->{
+                CandidateParseJob current=candidateParseJob(resumeFileId,true);
+                if("PROCESSING".equals(current.status())&&java.util.Objects.equals(current.providerTaskId(),job.providerTaskId()))
+                    failResumeParse(current,task.errorCode()==null?"AI_PROVIDER_UNAVAILABLE":task.errorCode(),
+                            task.errorMessage()==null?"AI 简历解析失败，请重试":task.errorMessage());
+            });
             return;
         }
         if (task.status() != AiTaskStatus.COMPLETED) return;
         StructuredResult result = aiPlatform.getStructuredResult(job.providerTaskId().toString(), job.actorUserId().toString());
         Map<String, Object> resultData = result.data() == null ? Map.of() : result.data();
-        String markdown = String.valueOf(resultData.getOrDefault("markdown", "")).trim();
-        if (markdown.isBlank()) {
-            failResumeParse(job, "AI_SCHEMA_INVALID", "AI 简历解析未返回有效内容，请重试");
+        if (resultData.get("parsed") instanceof Map<?, ?> directParsed) {
+            String rawText = extractor.extract(storage.get(job.objectKey()), job.filename());
+            ParsedResume parsed = parsedFromDirect(job.filename(), rawText, directParsed,
+                    resultData.get("overall_assessment"), resultData.get("warnings"));
+            resultTransaction.executeWithoutResult(tx->{
+                CandidateParseJob currentJob=candidateParseJob(resumeFileId,true);
+                if(!"PROCESSING".equals(currentJob.status())||!java.util.Objects.equals(currentJob.providerTaskId(),job.providerTaskId()))return;
+                Integer current=jdbc.queryForObject("SELECT COALESCE(MAX(version_number),0)+1 FROM resume_parse_versions WHERE candidate_id=?",Integer.class,job.candidateId());
+                TenantScope completionScope=new TenantScope(job.tenantId(),job.enterprisePoolSyncEnabled()?"ENTERPRISE":"PERSONAL",null,null,false,job.enterprisePoolSyncEnabled(),false,false);
+                saveParsedResume(completionScope,job.candidateId(),job.resumeFileId(),parsed,current==null?1:current);
+                if(job.enterprisePoolSyncEnabled())enterprisePools.syncCandidate(completionScope,job.actorUserId(),job.candidateId());
+                audit(job.actorUserId(),completionScope,"RESUME_PARSE_COMPLETED",job.candidateId());
+                aiPlatform.confirmResultPersisted(job.providerTaskId().toString(), result);
+            });
             return;
         }
-        List<String> warnings = resultData.get("warnings") instanceof List<?> values
-                ? values.stream().filter(String.class::isInstance).map(String.class::cast).toList() : List.of();
-        String rawText = extractor.extract(storage.get(job.objectKey()), job.filename());
-        Integer current = jdbc.queryForObject("SELECT COALESCE(MAX(version_number),0)+1 FROM resume_parse_versions WHERE candidate_id=?",
-                Integer.class, job.candidateId());
-        TenantScope completionScope = new TenantScope(job.tenantId(), job.enterprisePoolSyncEnabled() ? "ENTERPRISE" : "PERSONAL", null, null,
-                false, job.enterprisePoolSyncEnabled(), false, false);
-        saveParsedResume(completionScope, job.candidateId(), job.resumeFileId(),
-                parsedFromAi(job.filename(), rawText, markdown, warnings), current == null ? 1 : current);
-        if (job.enterprisePoolSyncEnabled()) enterprisePools.syncCandidate(completionScope, job.actorUserId(), job.candidateId());
-        audit(job.actorUserId(), completionScope, "RESUME_PARSE_COMPLETED", job.candidateId());
+        if (job.providerTaskId() != null) aiPlatform.holdForReconciliation(job.providerTaskId().toString(),"AI_RESUME_STRUCTURED_RESULT_MISSING");
+        resultTransaction.executeWithoutResult(tx->jdbc.update("UPDATE resume_files SET error_code='AI_SCHEMA_INVALID',updated_at=? WHERE id=? AND tenant_id=? AND status='PROCESSING' AND provider_task_id=?",
+                timestamp(Instant.now()),job.resumeFileId(),job.tenantId(),job.providerTaskId()));
+    }
+
+    public void recordResultMappingFailure(UUID resumeFileId){
+        jdbc.query("SELECT provider_task_id FROM resume_files WHERE id=? AND status='PROCESSING'",rs->{String task=rs.getString(1);if(task!=null)aiPlatform.holdForReconciliation(task,"IR_RESULT_MAPPING_FAILED");},resumeFileId);
     }
 
     @Transactional
@@ -906,12 +966,12 @@ public class CandidateService {
         String lock = forUpdate ? " FOR UPDATE" : "";
         List<CandidateParseJob> jobs = jdbc.query("""
                 SELECT rf.id,rf.tenant_id,rf.candidate_id,rf.provider_task_id,rf.status,rf.parse_idempotency_key,rf.enterprise_pool_sync_enabled,
-                       rf.created_by,f.object_key,f.original_filename
+                       rf.created_by,f.object_key,f.original_filename,f.id,f.sha256,f.media_type,f.size_bytes,rf.execution_context::text
                 FROM resume_files rf JOIN file_assets f ON f.id=rf.file_asset_id
                 WHERE rf.id=?""" + lock, (rs, n) -> new CandidateParseJob(rs.getObject(1, UUID.class),
                 rs.getObject(2, UUID.class), rs.getObject(3, UUID.class), rs.getObject(4, UUID.class),
                 rs.getString(5), rs.getString(6), rs.getBoolean(7), rs.getObject(8, UUID.class),
-                rs.getString(9), pii.decryptIfEncrypted(rs.getString(10))), resumeFileId);
+                rs.getString(9), pii.decryptIfEncrypted(rs.getString(10)),rs.getObject(11,UUID.class),rs.getString(12),rs.getString(13),rs.getLong(14),rs.getString(15)), resumeFileId);
         if (jobs.isEmpty()) throw notFound();
         return jobs.getFirst();
     }
@@ -923,34 +983,55 @@ public class CandidateService {
                 false, job.enterprisePoolSyncEnabled(), false, false), "RESUME_PARSE_FAILED", job.candidateId());
     }
 
-    private ParsedResume parsedFromAi(String filename, String rawText, String markdown, List<String> warnings) {
-        String name = firstMatch(AI_NAME, markdown, filenameDisplayName(filename));
-        List<String> skills = aiSkills(markdown);
-        String headline = skills.isEmpty() ? "AI 已完成简历解析" : String.join("、", skills);
-        return new ParsedResume(name, "", "", headline, 0, "待确认", skills, List.of(), List.of(), markdown,
-                warnings == null ? List.of() : warnings, rawText);
+    @SuppressWarnings("unchecked")
+    private ParsedResume parsedFromDirect(String filename, String rawText, Map<?, ?> parsed, Object analysis, Object warningsValue) {
+        Map<?, ?> basic = parsed.get("basic_info") instanceof Map<?, ?> value ? value : Map.of();
+        Map<?, ?> experience = parsed.get("experience_summary") instanceof Map<?, ?> value ? value : Map.of();
+        String name = nullableString(basic.get("name"));
+        String email = nullableString(basic.get("email")); String phone = nullableString(basic.get("phone"));
+        String headline = nullableString(basic.get("headline"));
+        List<String> skills = jsonObjectList(parsed.get("skills"), true);
+        List<?> work = objectRows(parsed.get("work_experience"));
+        List<?> education = objectRows(parsed.get("education"));
+        List<String> warnings = warningsValue instanceof List<?> values ? values.stream().map(value -> {
+            if (value instanceof Map<?, ?> map) return String.valueOf(map.containsKey("description") ? map.get("description") : "") + " " + String.valueOf(map.containsKey("verification_question") ? map.get("verification_question") : "");
+            return String.valueOf(value);
+        }).filter(value -> !value.isBlank()).toList() : List.of();
+        java.math.BigDecimal years = decimalValue(experience.get("total_years"));
+        String degree = highestDegree(parsed.get("education"));
+        return new ParsedResume(name, email == null ? "" : email, phone == null ? "" : phone,
+                headline == null ? "" : headline, years, degree, skills, work, education,
+                analysis == null ? "" : String.valueOf(analysis), warnings, rawText,
+                copyNullableObject(parsed));
     }
+
+    static Map<String,Object> copyNullableObject(Map<?,?> value) {
+        Map<String,Object> out=new LinkedHashMap<>();value.forEach((key,item)->{if(key instanceof String name)out.put(name,item);});return out;
+    }
+    private static List<?> objectRows(Object value){return value instanceof List<?> rows?rows:List.of();}
+
+    private List<String> jsonObjectList(Object value, boolean skillNames) {
+        if (!(value instanceof List<?> values)) return List.of();
+        LinkedHashMap<String,String> names=new LinkedHashMap<>();
+        for(Object item:values){if(item instanceof Map<?,?> map&&map.get("name") instanceof String name&&!name.isBlank())names.putIfAbsent(java.text.Normalizer.normalize(name.trim(),java.text.Normalizer.Form.NFKC).toLowerCase(Locale.ROOT),name.trim());}
+        return new ArrayList<>(names.values());
+    }
+
+    private String highestDegree(Object educationRows) {
+        if (!(educationRows instanceof List<?> rows)) return null;
+        List<String> degrees = rows.stream().filter(Map.class::isInstance).map(Map.class::cast)
+                .map(row -> nullableString(row.get("degree"))).filter(java.util.Objects::nonNull).toList();
+        Map<String,List<String>> levels=new LinkedHashMap<>();levels.put("博士",List.of("博士","doctor","phd","ph.d"));levels.put("硕士",List.of("硕士","master"));levels.put("本科",List.of("本科","bachelor"));levels.put("专科",List.of("专科","associate"));levels.put("高中",List.of("高中","high school"));levels.put("中专",List.of("中专"));
+        for(var level:levels.entrySet())if(degrees.stream().map(value->value.toLowerCase(Locale.ROOT)).anyMatch(value->level.getValue().stream().anyMatch(value::contains)))return level.getKey();
+        return null;
+    }
+    private static String nullableString(Object value) { return value == null ? null : String.valueOf(value); }
+    private static java.math.BigDecimal decimalValue(Object value) { try { return value == null ? null : new java.math.BigDecimal(String.valueOf(value)); } catch (RuntimeException ex) { return null; } }
 
     private static String filenameDisplayName(String filename) {
         String value = filename.replaceFirst("(?i)\\.(pdf|docx|txt)$", "")
                 .replaceAll("(?i)(resume|cv|简历|候选人)", "").replaceAll("[_-]+", " ").trim();
         return value.isBlank() ? "待 AI 识别" : value.substring(0, Math.min(value.length(), 50));
-    }
-
-    private static String firstMatch(Pattern pattern, String value, String fallback) {
-        Matcher matcher = pattern.matcher(value);
-        String result = matcher.find() ? matcher.group(1).trim() : fallback;
-        return result.isBlank() || result.contains("待确认") ? fallback : result.substring(0, Math.min(result.length(), 50));
-    }
-
-    private static List<String> aiSkills(String markdown) {
-        int section = markdown.indexOf("### 4. 核心技能标签");
-        if (section < 0) return List.of();
-        String body = markdown.substring(section + "### 4. 核心技能标签".length());
-        int next = body.indexOf("###");
-        if (next >= 0) body = body.substring(0, next);
-        return java.util.Arrays.stream(body.replace("-", "").trim().split("[、,，/]+"))
-                .map(String::trim).filter(value -> !value.isBlank()).limit(15).toList();
     }
 
     @SuppressWarnings("unchecked")
@@ -998,13 +1079,12 @@ public class CandidateService {
     }
 
     private CandidateSummary summary(java.sql.ResultSet rs) throws java.sql.SQLException {
-        int matchScore = rs.getInt("match_score");
-        Integer matchScoreValue = rs.wasNull() ? null : matchScore;
+        java.math.BigDecimal matchScoreValue = rs.getBigDecimal("match_score");
         return new CandidateSummary(rs.getObject("id", UUID.class), rs.getObject("tenant_id", UUID.class),
                 pii.decrypt(rs.getString("full_name_ciphertext")),
                 pii.decrypt(rs.getString("phone_ciphertext")), pii.decrypt(rs.getString("email_ciphertext")), rs.getString("status"),
                 rs.getString("parse_status"), pii.decryptIfEncrypted(rs.getString("original_filename")), rs.getString("headline"),
-                rs.getInt("years_experience"), rs.getString("highest_education"), stringsStatic(rs.getString("skills")),
+                rs.getBigDecimal("years_experience"), rs.getString("highest_education"), stringsStatic(rs.getString("skills")),
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant(),
                 matchScoreValue, rs.getString("matched_job_title"), rs.getString("profile_json"));
     }
@@ -1062,6 +1142,7 @@ public class CandidateService {
     }
 
     private static String mask(String name) {
+        if(name==null||name.isBlank())return "待确认";
         if (name.length() == 1) return name + "**";
         return name.substring(0, 1) + "**";
     }
@@ -1086,6 +1167,26 @@ public class CandidateService {
         return new ApiException("CANDIDATE_NOT_FOUND", "候选人不存在", HttpStatus.NOT_FOUND);
     }
 
+    private List<String> experienceDescriptions(String value){
+        try {List<?> rows=objectMapper.readValue(value==null?"[]":value,List.class);return rows.stream().map(row->{if(row instanceof Map<?,?> m)return java.util.List.of("company","position","school","degree","major","description").stream().map(m::get).filter(java.util.Objects::nonNull).map(String::valueOf).collect(java.util.stream.Collectors.joining(" · "));return String.valueOf(row);}).toList();}
+        catch(Exception ex){throw new IllegalStateException("结构化经历无法读取",ex);}
+    }
+    private Map<String,Object> sanitizedStructuredResume(String value){
+        if(value==null)return Map.of();
+        Map<String,Object> data=parseProfileMap(value);
+        if(data.get("ciphertext") instanceof String ciphertext)data=parseProfileMap(pii.decrypt(ciphertext));
+        if(data.get("basic_info") instanceof Map<?,?> basic){Map<String,Object> safe=copyNullableObject(basic);safe.put("name",null);safe.put("email",null);safe.put("phone",null);data.put("basic_info",safe);}
+        return data;
+    }
+
+    static Map<String,Object> mergeParsedProfile(Map<String,Object> parsed,Map<String,Object> existing){
+        Map<String,Object> merged=new LinkedHashMap<>(existing);
+        if(!Boolean.TRUE.equals(existing.get("manualConfirmed"))) {
+            for(var entry:parsed.entrySet())if(!java.util.Set.of("tags","talentStatus","activityLevel").contains(entry.getKey())||!existing.containsKey(entry.getKey()))merged.put(entry.getKey(),entry.getValue());
+        }
+        return merged;
+    }
+
     private static Map<String, Object> uploadProfile(ParsedResume parsed) {
         Map<String, Object> profile = new LinkedHashMap<>();
         profile.put("source", "简历上传");
@@ -1093,7 +1194,7 @@ public class CandidateService {
         profile.put("tags", List.of());
         profile.put("talentStatus", "在库");
         profile.put("activityLevel", "中等活跃");
-        profile.put("yearsExperience", String.valueOf(parsed.yearsExperience()));
+        profile.put("yearsExperience", parsed.yearsExperience());
         profile.put("highestEducation", parsed.education());
         return profile;
     }
@@ -1123,13 +1224,12 @@ public class CandidateService {
         return String.join(sep, parts);
     }
 
-    private static int parseYears(String value) {
-        if (value == null || value.isBlank()) return 0;
+    private static java.math.BigDecimal parseYears(String value) {
+        if (value == null || value.isBlank()) return null;
         String text = value.trim();
-        if (text.contains("应届")) return 0;
-        if (text.contains("10")) return 10;
-        Matcher matcher = Pattern.compile("(\\d+)").matcher(text);
-        return matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
+        if (text.contains("应届")) return java.math.BigDecimal.ZERO;
+        Matcher matcher = Pattern.compile("(\\d+(?:\\.\\d+)?)").matcher(text);
+        return matcher.find() ? new java.math.BigDecimal(matcher.group(1)) : null;
     }
 
     private static List<String> mergeSkills(ManualTalentInput input) {
@@ -1149,7 +1249,7 @@ public class CandidateService {
         return new ArrayList<>(skills);
     }
 
-    private static Map<String, Object> profileMap(ManualTalentInput input, List<String> skills, int years) {
+    private static Map<String, Object> profileMap(ManualTalentInput input, List<String> skills, java.math.BigDecimal years) {
         Map<String, Object> profile = new LinkedHashMap<>();
         profile.put("gender", nullable(input.gender()));
         profile.put("province", nullable(input.province()));
@@ -1158,7 +1258,7 @@ public class CandidateService {
         profile.put("currentCompany", nullable(input.currentCompany()));
         profile.put("currentTitle", nullable(input.currentTitle()));
         profile.put("currentLevel", nullable(input.currentLevel()));
-        profile.put("yearsExperience", String.valueOf(years));
+        profile.put("yearsExperience", years);
         profile.put("yearsExperienceLabel", nullable(input.yearsExperience()));
         profile.put("industry", nullable(input.industry()));
         profile.put("highestEducation", nullable(input.highestEducation()));
@@ -1194,30 +1294,30 @@ public class CandidateService {
         return sb.toString().toLowerCase(Locale.ROOT);
     }
 
-    private record ParsedResume(String name, String email, String phone, String headline, int yearsExperience,
-                                String education, List<String> skills, List<String> workExperience,
-                                List<String> educationExperience, String summary, List<String> warnings,
-                                String rawText) { }
+    private record ParsedResume(String name, String email, String phone, String headline, java.math.BigDecimal yearsExperience,
+                                String education, List<String> skills, List<?> workExperience,
+                                List<?> educationExperience, String summary, List<String> warnings,
+                                String rawText, Map<String,Object> structuredData) { }
     private record AssetReference(UUID id, String objectKey) { }
     private record FileRow(String objectKey, String filename, String mediaType) { }
     private record AssetHashRow(UUID id, String sha256) { }
     private record CandidateParseJob(UUID resumeFileId, UUID tenantId, UUID candidateId,
                                      UUID providerTaskId, String status, String idempotencyKey, boolean enterprisePoolSyncEnabled,
-                                     UUID actorUserId, String objectKey, String filename) { }
+                                     UUID actorUserId, String objectKey, String filename,UUID fileAssetId,String sha256,String mediaType,long sizeBytes,String executionContext) { }
     public record ResumeParseOutboxClaim(UUID eventId, UUID resumeFileId, int attempts) { }
 
     public record CandidateSummary(UUID id, UUID tenantId, String displayNameMasked, String phone, String email,
                                    String status, String parseStatus, String originalFilename, String headline,
-                                   int yearsExperience, String highestEducation, List<String> skills,
-                                   Instant createdAt, Instant updatedAt, Integer matchScore, String matchedJobTitle,
+                                   java.math.BigDecimal yearsExperience, String highestEducation, List<String> skills,
+                                   Instant createdAt, Instant updatedAt, java.math.BigDecimal matchScore, String matchedJobTitle,
                                    String profileJson) { }
     public record CandidateDetail(UUID id, UUID tenantId, String displayNameMasked, String phone, String email,
                                   String status, UUID currentParseVersionId, UUID resumeFileId, String parseStatus,
                                   String errorCode, String originalFilename, String mediaType, long sizeBytes,
-                                  int parseVersion, String headline, int yearsExperience, String highestEducation,
+                                  int parseVersion, String headline, java.math.BigDecimal yearsExperience, String highestEducation,
                                   List<String> skills, List<String> workExperience, List<String> educationExperience,
                                   String summary, List<String> warnings, Instant createdAt, Instant updatedAt,
-                                  Integer matchScore, String matchedJobTitle, String profileJson) { }
+                                  java.math.BigDecimal matchScore, String matchedJobTitle, String profileJson,Map<String,Object> structuredResume) { }
     public record CandidateListResult(List<CandidateSummary> items, int total, int page, int pageSize) { }
     public record StatPoint(int count, int previousCount, double changePercent) { }
     public record CandidateStats(StatPoint total, StatPoint active, StatPoint highMatch, StatPoint dormant,

@@ -69,7 +69,7 @@ public class ScreeningMatcher {
         else risks.add("AI 结果仅供招聘人员辅助判断，不得自动淘汰候选人");
         String level = total >= 85 ? "STRONG_MATCH" : total >= 70 ? "MATCH"
                 : total >= 60 ? "GENERAL_MATCH" : "WEAK_MATCH";
-        return new MatchResult(total, level, matched, unmatched, negotiable, missing, risks, evidence);
+        return new MatchResult(java.math.BigDecimal.valueOf(total), level, matched, unmatched, negotiable, missing, risks, evidence);
     }
 
     private DimensionScore dimensionScore(ScreeningService.DimensionInput dimension, FrozenJob job,
@@ -154,7 +154,7 @@ public class ScreeningMatcher {
     private static DimensionScore missing(String reason) { return new DimensionScore(0, true, reason); }
     private static boolean blank(String value) { return value == null || value.isBlank(); }
 
-    record FrozenJob(String title, String skills, String experienceLevel, String education, String requirements) { }
+    record FrozenJob(String title, String skills, String experienceLevel, String education, String requirements, String description) { }
     record FrozenCandidate(String headline, int yearsExperience, String education, List<String> skills,
                            String summary, String workExperience, String rawText) {
         String searchableText() {
@@ -163,7 +163,7 @@ public class ScreeningMatcher {
         }
         private static String safe(String value) { return value == null ? "" : value; }
     }
-    record MatchResult(int score, String level, List<String> matched, List<String> unmatched,
+    record MatchResult(java.math.BigDecimal score, String level, List<String> matched, List<String> unmatched,
                        List<String> negotiable, List<String> missing, List<String> risks,
                        List<String> evidence) { }
     private record DimensionScore(int value, boolean missing, String reason) { }

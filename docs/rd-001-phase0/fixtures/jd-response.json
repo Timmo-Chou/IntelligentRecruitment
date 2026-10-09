@@ -1,0 +1,42 @@
+{
+  "business_result": {
+    "jd_text": "# Synthetic Platform Engineer\n\nBuild reliable services.",
+    "result_ref": "job_synthetic_001",
+    "schema_version": "recruitment_generated_job_v1",
+    "structured_job": {
+      "custom_fields": {},
+      "declared_requirements": [
+        {
+          "category": "required_skill",
+          "description": "Production Python experience.",
+          "minimum_years": 3,
+          "name": "Python",
+          "requirement_code": "required_skill_python"
+        }
+      ],
+      "department": "engineering",
+      "description": "Build reliable services for a synthetic platform.",
+      "employment_type": "full_time",
+      "location": "Shanghai",
+      "qualifications": [
+        "Production Python experience."
+      ],
+      "responsibilities": [
+        "Design and maintain backend services."
+      ],
+      "result_ref": "job_synthetic_001",
+      "schema_version": "recruitment_structured_job_v1",
+      "title": "Synthetic Platform Engineer"
+    }
+  },
+  "execution": {
+    "child_trace_ids": [],
+    "execution_ref": "direct_jd_synthetic_001",
+    "request_id": "req_synthetic_jd_001",
+    "root_trace_id": "trace_synthetic_jd_001",
+    "status": "completed",
+    "usage": {
+      "total_tokens": 120
+    }
+  }
+}

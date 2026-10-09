@@ -74,6 +74,9 @@ public class CandidateController {
         return candidates.get(CurrentUser.id(authentication), tenantId, candidateId);
     }
 
+    @PostMapping("/{candidateId}/confirm-profile")
+    CandidateService.CandidateDetail confirm(@PathVariable UUID tenantId,@PathVariable UUID candidateId,@RequestBody CandidateService.ProfileConfirmation input,Authentication authentication){return candidates.confirmProfile(CurrentUser.id(authentication),tenantId,candidateId,input);}
+
     @PostMapping("/{candidateId}/reveal")
     CandidateService.RevealedPii reveal(@PathVariable UUID tenantId, @PathVariable UUID candidateId,
                                         Authentication authentication) {

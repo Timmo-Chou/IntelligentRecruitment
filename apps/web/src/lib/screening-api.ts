@@ -12,7 +12,10 @@ export type ScreeningItem = {
   id: string; candidateId: string; candidateName: string; status: string; errorCode: string | null;
   attemptNumber: number; score: number | null; level: string | null; matchedPoints: string[];
   unmatchedPoints: string[]; negotiablePoints: string[]; missingInformation: string[];
-  risks: string[]; evidence: string[];
+  risks: string[]; evidence: ScreeningEvidence[];
+};
+export type ScreeningEvidence = {
+  sourceRef: string; section: string | null; page: number | null; jsonPath: string | null; excerpt: string | null;
 };
 export type ScreeningRun = {
   id: string; jobId: string; jobTitle: string; planId: string; planName: string; status: string;

@@ -1,0 +1,127 @@
+{
+  "execution_id": "00000000-0000-4000-8000-000000000001",
+  "authorization_id": "00000000-0000-4000-8000-000000000001",
+  "grant_id": "00000000-0000-4000-8000-000000000001",
+  "reservation_id": "00000000-0000-4000-8000-000000000001",
+  "capability": "jd_generation",
+  "operation": "create",
+  "agent_id": "complex_recruitment_agent",
+  "route_config_version": "routing-phase0-synthetic",
+  "selection_source": "deployment_config",
+  "input_hash": "6bd239db916d4c073abe25dcef93c284582a7e2ba754e1bf99c1315de94e7a7c",
+  "hash_material": {
+    "hash_contract_version": "rd-input-hash-v1",
+    "agent_id": "complex_recruitment_agent",
+    "capability": "jd_generation",
+    "operation": "create",
+    "business_task_id": "synthetic-task",
+    "input_versions": [
+      {
+        "kind": "job_input",
+        "ref": "00000000-0000-4000-8000-000000000001",
+        "version": "1",
+        "content_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    ],
+    "files": [],
+    "policy_snapshot": {},
+    "input": {
+      "custom_fields": {},
+      "slots": {
+        "job_title": {
+          "status": "answered",
+          "value": "高级 Python 后端工程师"
+        },
+        "required_skills": {
+          "status": "answered",
+          "value": [
+            {
+              "minimum_years": 3,
+              "name": "Python",
+              "note": "具备生产环境后端服务开发经验。"
+            },
+            {
+              "minimum_years": 2,
+              "name": "PostgreSQL",
+              "note": "具备关系型数据库设计和调优经验。"
+            }
+          ]
+        },
+        "responsibilities": {
+          "status": "answered",
+          "value": [
+            "负责 Python 后端服务设计、开发与稳定性建设。",
+            "负责 PostgreSQL 数据模型设计和性能优化。"
+          ]
+        }
+      }
+    }
+  },
+  "data_handling": {
+    "contains_pii": false,
+    "log_content": false,
+    "retention": "contract_bound"
+  },
+  "request_context": {
+    "request_id": "rd-request-001",
+    "trace_id": "rd-trace-001",
+    "tenant_id": "00000000-0000-4000-8000-000000000001",
+    "actor_id": "00000000-0000-4000-8000-000000000001",
+    "business_task_id": "synthetic-task",
+    "attempt_id": "00000000-0000-4000-8000-000000000001",
+    "idempotency_key": "rd-001-synthetic-0001",
+    "locale": "zh-CN",
+    "timezone": "Asia/Shanghai",
+    "contract_version": "rd-execution-v2"
+  },
+  "business_operation_ref": "jd:synthetic-task:create",
+  "input_versions": [
+    {
+      "kind": "job_input",
+      "ref": "00000000-0000-4000-8000-000000000001",
+      "version": "1",
+      "content_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  ],
+  "requested_at": "2026-10-07T14:00:00Z",
+  "input": {
+    "custom_fields": {},
+    "slots": {
+      "job_title": {
+        "status": "answered",
+        "value": "高级 Python 后端工程师"
+      },
+      "required_skills": {
+        "status": "answered",
+        "value": [
+          {
+            "minimum_years": 3,
+            "name": "Python",
+            "note": "具备生产环境后端服务开发经验。"
+          },
+          {
+            "minimum_years": 2,
+            "name": "PostgreSQL",
+            "note": "具备关系型数据库设计和调优经验。"
+          }
+        ]
+      },
+      "responsibilities": {
+        "status": "answered",
+        "value": [
+          "负责 Python 后端服务设计、开发与稳定性建设。",
+          "负责 PostgreSQL 数据模型设计和性能优化。"
+        ]
+      }
+    }
+  },
+  "policy_decision": {
+    "policy_decision_id": "00000000-0000-4000-8000-000000000001",
+    "capability": "jd_generation",
+    "decision": "allow",
+    "tenant_id": "00000000-0000-4000-8000-000000000001",
+    "actor_id": "00000000-0000-4000-8000-000000000001",
+    "policy_version": "synthetic-v1",
+    "evaluated_at": "2026-10-07T14:00:00Z"
+  }
+}

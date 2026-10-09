@@ -65,6 +65,7 @@ public class RecruitmentService {
     private final CandidateService candidates;
     private final PiiCipher pii;
     private final long outboxLeaseSeconds;
+    private org.springframework.transaction.support.TransactionTemplate resultTransaction;
 
     public RecruitmentService(JdbcTemplate jdbc, ObjectMapper objectMapper, TenantAccessService tenantAccess,
                               RecruitmentFlowCoordinator flowCoordinator,
@@ -90,6 +91,11 @@ public class RecruitmentService {
         this.candidates = candidates;
         this.pii = pii;
         this.outboxLeaseSeconds = outboxLeaseSeconds;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void configureResultTransaction(org.springframework.transaction.PlatformTransactionManager manager) {
+        this.resultTransaction = new org.springframework.transaction.support.TransactionTemplate(manager);
     }
 
     @Transactional
@@ -310,6 +316,7 @@ public class RecruitmentService {
             if (!existing.getFirst().requestHash().equals(payloadHash)) throw idempotencyConflict();
             return detailScoped(tenantId, taskId);
         }
+        requirePriorExecutionClosed(tenantId,taskId,"JD_GENERATION");
         String requirement = optional(input == null ? null : input.requirement(), 20_000);
         if (requirement.isBlank()) requirement = task.initialRequirement();
         UUID runId = UUID.randomUUID();
@@ -369,11 +376,9 @@ public class RecruitmentService {
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
-    @Transactional
     public boolean prepareJdRun(UUID runId) {
-        RunExecution run = runExecution(runId, true);
+        RunExecution run = runExecution(runId, false);
         if (!List.of("QUEUED", "RUNNING").contains(run.status())) return false;
-        Map<String, String> input = stringMap(run.inputPayload());
         if ("QUEUED".equals(run.status())) {
             Map<String, Object> aiInput = payloadMap(run.inputPayload());
             aiInput.put("source_documents", sourceFiles.listForGeneration(run.tenantId(), run.taskId()).stream()
@@ -382,9 +387,13 @@ public class RecruitmentService {
                     run.createdBy().toString(),
                     run.taskId().toString(), run.idempotencyKey(), AiCapability.JD_GENERATION, aiInput,
                     executionContext(run.executionContext())), delta -> emitJdDelta(run.id(), delta));
-            jdbc.update("UPDATE ai_runs SET status='RUNNING',progress=15,provider_task_id=? WHERE id=?",
-                    aiTask.aiTaskId(), run.id());
-            appendRunEvent(run, "status", Map.of("status", "RUNNING", "progress", 15));
+            resultTransaction.executeWithoutResult(tx -> {
+                RunExecution current = runExecution(runId, true);
+                if (!"QUEUED".equals(current.status())) return;
+                jdbc.update("UPDATE ai_runs SET status='RUNNING',progress=15,provider_task_id=? WHERE id=? AND status='QUEUED'",
+                        aiTask.aiTaskId(), current.id());
+                appendRunEvent(current, "status", Map.of("status", "RUNNING", "progress", 15));
+            });
         }
         return true;
     }
@@ -398,16 +407,19 @@ public class RecruitmentService {
         appendRunEvent(run, "delta", Map.of("delta", delta, "progress", progress));
     }
 
-    @Transactional
     public void finalizeJdRunIfReady(UUID runId) {
-        RunExecution run = runExecution(runId, true);
+        RunExecution run = runExecution(runId, false);
         if (!"RUNNING".equals(run.status()) || run.providerTaskId() == null) return;
         AiTask task = aiPlatform.getTask(run.providerTaskId(), run.createdBy().toString());
         if (task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.FAILED
                 || task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.CANCELLED) {
             String errorCode = task.errorCode() == null ? "AI_PROVIDER_UNAVAILABLE" : task.errorCode();
             String errorMessage = task.errorMessage() == null ? "AI 生成失败，请重试" : task.errorMessage();
-            failJdRun(run, errorCode, errorMessage);
+            resultTransaction.executeWithoutResult(tx -> {
+                RunExecution current = runExecution(runId, true);
+                if ("RUNNING".equals(current.status()) && java.util.Objects.equals(current.providerTaskId(), run.providerTaskId()))
+                    failJdRun(current, errorCode, errorMessage);
+            });
             return;
         }
         if (task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.COMPLETED) finalizeJdRun(runId);
@@ -418,13 +430,25 @@ public class RecruitmentService {
                 (rs, n) -> rs.getObject(1, UUID.class));
     }
 
-    @Transactional
     public void finalizeJdRun(UUID runId) {
-        RunExecution run = runExecution(runId, true);
+        RunExecution run = runExecution(runId, false);
         if (!"RUNNING".equals(run.status())) return;
-        JdDraftContent draft = structuredResultMapper.toDraft(aiPlatform.getStructuredResult(run.providerTaskId(), run.createdBy().toString()));
+        var structured = aiPlatform.getStructuredResult(run.providerTaskId(), run.createdBy().toString());
+        JdDraftContent draft = structuredResultMapper.toDraft(structured);
+        resultTransaction.executeWithoutResult(tx -> persistJdResult(runId, run.providerTaskId(), structured, draft));
+    }
+
+    private void persistJdResult(UUID runId, String expectedTaskId, StructuredResult structured, JdDraftContent draft) {
+        RunExecution run = runExecution(runId, true);
+        if (!"RUNNING".equals(run.status()) || !java.util.Objects.equals(run.providerTaskId(), expectedTaskId)) return;
         TenantScope scope = new TenantScope(run.tenantId(), null, null, null);
-        upsertDraft(scope, run.taskId(), run.id(), run.createdBy(), draft);
+        Map<String,Object> generationSource=new LinkedHashMap<>();
+        try { var frozen=objectMapper.readValue(run.executionContext(),ExecutionContext.class);generationSource.put("agent_id",frozen.agentRoute().agentId());generationSource.put("provider","complex_recruitment_agent".equals(frozen.agentRoute().agentId())?"RD_DIRECT":"DEEPSEEK"); }
+        catch(Exception ex){throw new IllegalStateException("JD来源快照无法读取",ex);}
+        if(structured.provenance()!=null){generationSource.put("skill_id",structured.provenance().skillId());generationSource.put("skill_version",structured.provenance().skillVersion());generationSource.put("model_id",structured.provenance().modelId());}
+        generationSource.put("result_ref",structured.data().get("result_ref"));
+        generationSource.put("business_schema_version",structured.data().get("business_schema_version"));
+        upsertDraft(scope, run.taskId(), run.id(), run.createdBy(), draft,structured.data(),generationSource);
         Instant completed = Instant.now();
         jdbc.update("UPDATE ai_runs SET status='COMPLETED',progress=100,completed_at=? WHERE id=?",
                 timestamp(completed), run.id());
@@ -435,6 +459,7 @@ public class RecruitmentService {
                 timestamp(completed), run.taskId());
         appendRunEvent(run, "completed", Map.of("status", "COMPLETED", "progress", 100));
         audit(run.createdBy(), scope, "JD_DRAFT_GENERATED", "AI_RUN", run.id());
+        aiPlatform.confirmResultPersisted(run.providerTaskId(), structured);
     }
 
     @Transactional
@@ -474,13 +499,14 @@ public class RecruitmentService {
         String warnings = json(input.warnings() == null ? List.of() : input.warnings());
         int updated = jdbc.update("""
                 UPDATE jd_drafts SET revision=revision+1,status=CASE WHEN status='CONFIRMED' THEN 'DRAFT' ELSE status END,title=?,company_name=?,location=?,experience_level=?,
-                    education=?,job_type=?,salary_range=?,responsibilities=?,requirements=?,skills=?,nice_to_haves=?,benefits=?,talent_profile=?,warnings=?::jsonb,
+                    education=?,job_type=?,salary_range=?,jd_text=?,responsibilities=?,requirements=?,skills=?,nice_to_haves=?,benefits=?,talent_profile=?,warnings=?::jsonb,
                     updated_by=?,updated_at=?
                 WHERE id=? AND recruitment_task_id=? AND tenant_id=? AND revision=? AND status IN ('DRAFT','CONFIRMED')
                 """, required(input.title(), "职位名称不能为空", 200),
                 required(input.companyName(), "企业名称不能为空", 200), optional(input.location(), 200),
                 optional(input.experienceLevel(), 80), optional(input.education(), 80),
-                defaulted(input.jobType(), "全职", 50), optional(input.salaryRange(), 200), optional(input.responsibilities(), 20_000),
+                defaulted(input.jobType(), "全职", 50), optional(input.salaryRange(), 200), required(input.jdText(), "JD 正文不能为空", 100_000),
+                optional(input.responsibilities(), 20_000),
                 optional(input.requirements(), 20_000), optional(input.skills(), 4_000), optional(input.niceToHaves(), 10_000),
                 optional(input.benefits(), 10_000), optional(input.talentProfile(), 10_000), warnings, userId, timestamp(Instant.now()), input.id(), taskId,
                 tenantId, input.revision());
@@ -509,7 +535,7 @@ public class RecruitmentService {
         UUID sourceAiRunId = jdbc.queryForObject("SELECT source_ai_run_id FROM jd_drafts WHERE id=?",
                 UUID.class, draft.id());
         JobService.JobInput jobInput = new JobService.JobInput(draft.title(), draft.companyName(), draft.location(),
-                draft.salaryRange(), draft.responsibilities(), draft.requirements(), draft.skills(), draft.experienceLevel(),
+                draft.salaryRange(), draft.jdText(), draft.requirements(), draft.skills(), draft.experienceLevel(),
                 draft.education(), draft.jobType(), draft.niceToHaves(), draft.benefits());
         JobService.JobView job = jobs.createFromConfirmedJd(userId, tenantId, taskId, draft.id(), sourceAiRunId, jobInput,
                 draft.talentProfile(), json(draft.warnings()));
@@ -605,13 +631,13 @@ public class RecruitmentService {
 
     private List<JdDraftView> draftRows(UUID tenantId, UUID taskId) {
         return jdbc.query("""
-                SELECT id,revision,title,company_name,location,experience_level,education,job_type,salary_range,
+                SELECT id,revision,title,company_name,location,experience_level,education,job_type,salary_range,jd_text,
                        responsibilities,requirements,skills,nice_to_haves,benefits,talent_profile,warnings::text,status,updated_at
                 FROM jd_drafts WHERE recruitment_task_id=? AND tenant_id=? ORDER BY created_at
                 """, (rs, n) -> new JdDraftView(rs.getObject("id", UUID.class), rs.getInt("revision"),
                 rs.getString("title"), rs.getString("company_name"), rs.getString("location"),
                 rs.getString("experience_level"), rs.getString("education"), rs.getString("job_type"), rs.getString("salary_range"),
-                rs.getString("responsibilities"), rs.getString("requirements"), rs.getString("skills"), rs.getString("nice_to_haves"),
+                rs.getString("jd_text"), rs.getString("responsibilities"), rs.getString("requirements"), rs.getString("skills"), rs.getString("nice_to_haves"),
                 rs.getString("benefits"), rs.getString("talent_profile"), parseWarnings(rs.getString("warnings")), rs.getString("status"),
                 rs.getTimestamp("updated_at").toInstant()), taskId, tenantId);
     }
@@ -664,7 +690,7 @@ public class RecruitmentService {
             updated = jdbc.update("""
                     INSERT INTO resume_parse_drafts
                     (id,tenant_id,recruitment_task_id,revision,content,status,created_by,created_at,updated_at)
-                    VALUES (?,?,?,?,?,?, 'DRAFT',?,?,?)
+                    VALUES (?,?,?,?,?, 'DRAFT',?,?,?)
                     """, UUID.randomUUID(), tenantId, taskId, nextRevision, pii.encrypt(content),
                     userId, timestamp(now), timestamp(now));
         }
@@ -699,7 +725,7 @@ public class RecruitmentService {
             ResumeSourceFileService.SourceFileView source = files.stream().findFirst()
                     .orElseThrow(() -> new ApiException("RESUME_SOURCE_REQUIRED", "请先上传简历文件再发布到人才库", HttpStatus.CONFLICT));
             CandidateService.CandidateDetail candidate = candidates.createFromResumeSource(
-                    userId, tenantId, source.fileAssetId(), source.filename(), source.extractedText());
+                    userId, tenantId, source.fileAssetId(), source.filename(), source.extractedText(),readSavedResumeResult(draft.id()));
             linkedCandidateId = candidate.id();
             jdbc.update("UPDATE recruitment_tasks SET linked_candidate_id=?,updated_at=? WHERE id=? AND tenant_id=?",
                     linkedCandidateId, timestamp(now), taskId, tenantId);
@@ -746,7 +772,7 @@ public class RecruitmentService {
                         SELECT c.id,c.full_name_ciphertext,c.current_parse_version_id,
                                pv.raw_text,
                                COALESCE(pv.headline, '') AS headline,
-                               COALESCE(NULLIF(c.profile->>'yearsExperience','')::int, pv.years_experience, 0) AS years_experience,
+                               COALESCE(NULLIF(c.profile->>'yearsExperience','')::numeric, pv.years_experience) AS years_experience,
                                COALESCE(c.profile->>'highestEducation', pv.highest_education, '') AS highest_education,
                                COALESCE(c.profile->'skills', pv.skills, '[]'::jsonb)::text AS skills,
                                f.original_filename
@@ -761,7 +787,7 @@ public class RecruitmentService {
                                 pii.decrypt(rs.getString("full_name_ciphertext")),
                                 pii.decryptIfEncrypted(rs.getString("raw_text")),
                                 rs.getString("headline"),
-                                rs.getInt("years_experience"),
+                                rs.getBigDecimal("years_experience"),
                                 rs.getString("highest_education"),
                                 rs.getString("skills"),
                                 pii.decryptIfEncrypted(rs.getString("original_filename"))),
@@ -804,6 +830,12 @@ public class RecruitmentService {
                 log.warn("Resume parsing linked job {} not found for task {}: {}", linkedJobId, taskId, notFound.getMessage());
             }
         }
+        ExecutionContext.AgentRoute resumeRoute=flowCoordinator.resolveRoute(FlowCapability.RESUME_PARSING);
+        if("complex_recruitment_agent".equals(resumeRoute.agentId())){
+            List<Map<String,Object>> original=jdbc.query("SELECT f.id,f.sha256,f.media_type,f.size_bytes,f.original_filename FROM file_assets f WHERE f.tenant_id=? AND (EXISTS(SELECT 1 FROM resume_source_files sf WHERE sf.recruitment_task_id=? AND sf.tenant_id=f.tenant_id AND sf.file_asset_id=f.id) OR EXISTS(SELECT 1 FROM recruitment_tasks rt JOIN resume_files rf ON rf.candidate_id=rt.linked_candidate_id WHERE rt.id=? AND rt.tenant_id=f.tenant_id AND rf.file_asset_id=f.id)) AND f.lifecycle_status='ACTIVE'",(rs,n)->{Map<String,Object> ref=new LinkedHashMap<>();ref.put("file_asset_id",rs.getObject(1,UUID.class).toString());ref.put("sha256",rs.getString(2));ref.put("media_type",rs.getString(3));ref.put("size_bytes",rs.getLong(4));ref.put("filename",pii.decryptIfEncrypted(rs.getString(5)));return ref;},tenantId,taskId,taskId);
+            if(original.size()!=1)throw new ApiException("P0_SINGLE_RESUME_REQUIRED","本阶段每次解析须选择一份原始 PDF 或 DOCX",HttpStatus.CONFLICT);
+            resumeList=original;
+        }
         String userPrompt = input == null ? "" : optional(input.requirement(), 4_000);
         Map<String, Object> payload = new LinkedHashMap<>(Map.of(
                 "resumes", resumeList,
@@ -819,19 +851,20 @@ public class RecruitmentService {
             if (!existing.getFirst().requestHash().equals(payloadHash)) throw idempotencyConflict();
             return detailScoped(tenantId, taskId);
         }
+        requirePriorExecutionClosed(tenantId,taskId,"RESUME_PARSING");
         UUID runId = UUID.randomUUID();
         int attempt = nextAttempt(taskId);
         Instant now = Instant.now();
         PolicyDecision policyDecision = flowCoordinator.evaluateAuthoritative(FlowCapability.RESUME_PARSING, scope, userId);
         ExecutionContext executionContext = flowCoordinator.createExecutionContext(policyDecision, taskId, key,
                 "resume-parse:" + runId, List.of(new ExecutionContext.InputVersion("resume_payload",
-                        taskId.toString(), "frozen", payloadHash)), false);
+                        taskId.toString(), "frozen", payloadHash)), true,resumeRoute);
         jdbc.update("""
                 INSERT INTO ai_runs
                 (id,tenant_id,recruitment_task_id,capability,status,progress,attempt_number,
                  idempotency_key,input_hash,created_by,created_at,
                  input_payload,policy_decision,execution_context)
-                VALUES (?,?,?,?, 'RESUME_PARSING','QUEUED',0,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
+                VALUES (?,?,?, 'RESUME_PARSING','QUEUED',0,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
                 """, runId, tenantId, taskId, attempt, key, payloadHash,
                 userId, timestamp(now), protectedPayload(payload),
                 json(policyDecision), json(executionContext));
@@ -900,7 +933,7 @@ public class RecruitmentService {
                 (id,tenant_id,recruitment_task_id,capability,status,progress,attempt_number,
                  idempotency_key,input_hash,created_by,created_at,
                  input_payload,policy_decision,execution_context)
-                VALUES (?,?,?,?, 'INTERVIEW_KIT_GENERATION','QUEUED',0,1,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
+                VALUES (?,?,?, 'INTERVIEW_KIT_GENERATION','QUEUED',0,1,?,?,?,?,?::jsonb,?::jsonb,?::jsonb)
                 """, runId, tenantId, taskId, key, payloadHash, userId, timestamp(now),
                 protectedPayload(payload), json(policyDecision), json(executionContext));
         jdbc.update("""
@@ -923,9 +956,8 @@ public class RecruitmentService {
         return claimOutboxEvent("INTERVIEW_KIT_RUN_REQUESTED");
     }
 
-    @Transactional
     public boolean prepareInterviewKitRun(UUID runId) {
-        RunExecution run = runExecution(runId, true);
+        RunExecution run = runExecution(runId, false);
         if (!List.of("QUEUED", "RUNNING").contains(run.status())) return false;
         if (!"QUEUED".equals(run.status())) return true;
         Map<String, Object> payload = payloadMap(run.inputPayload());
@@ -938,9 +970,13 @@ public class RecruitmentService {
                 run.createdBy().toString(), run.taskId().toString(),
                 run.idempotencyKey(), AiCapability.INTERVIEW_KIT_GENERATION, aiInput,
                 executionContext(run.executionContext())));
-        jdbc.update("UPDATE ai_runs SET status='RUNNING',progress=15,provider_task_id=? WHERE id=?",
-                aiTask.aiTaskId(), run.id());
-        appendRunEvent(run, "status", Map.of("status", "RUNNING", "progress", 15));
+        resultTransaction.executeWithoutResult(tx -> {
+            RunExecution current = runExecution(runId, true);
+            if (!"QUEUED".equals(current.status())) return;
+            jdbc.update("UPDATE ai_runs SET status='RUNNING',progress=15,provider_task_id=? WHERE id=? AND status='QUEUED'",
+                    aiTask.aiTaskId(), current.id());
+            appendRunEvent(current, "status", Map.of("status", "RUNNING", "progress", 15));
+        });
         return true;
     }
 
@@ -949,14 +985,17 @@ public class RecruitmentService {
                 (rs, n) -> rs.getObject(1, UUID.class));
     }
 
-    @Transactional
     public void finalizeInterviewKitRunIfReady(UUID runId) {
-        RunExecution run = runExecution(runId, true);
+        RunExecution run = runExecution(runId, false);
         if (!"RUNNING".equals(run.status()) || run.providerTaskId() == null) return;
         AiTask task = aiPlatform.getTask(run.providerTaskId(), run.createdBy().toString());
         if (task.status() == AiTaskStatus.FAILED || task.status() == AiTaskStatus.CANCELLED) {
-            failInterviewKitRun(run, task.errorCode() == null ? "AI_PROVIDER_UNAVAILABLE" : task.errorCode(),
-                    task.errorMessage() == null ? "AI 面试题生成失败，请重试" : task.errorMessage());
+            resultTransaction.executeWithoutResult(tx -> {
+                RunExecution current = runExecution(runId, true);
+                if ("RUNNING".equals(current.status()) && java.util.Objects.equals(current.providerTaskId(), run.providerTaskId()))
+                    failInterviewKitRun(current, task.errorCode() == null ? "AI_PROVIDER_UNAVAILABLE" : task.errorCode(),
+                            task.errorMessage() == null ? "AI 面试题生成失败，请重试" : task.errorMessage());
+            });
             return;
         }
         if (task.status() != AiTaskStatus.COMPLETED) return;
@@ -965,18 +1004,27 @@ public class RecruitmentService {
                 UUID.fromString(String.valueOf(payload.get("candidateId"))),
                 UUID.fromString(String.valueOf(payload.get("jobVersionId"))), null,
                 integer(payload.get("questionCount"), 8));
-        InterviewService.KitDetail kit = interviewService.persistAuthorizedAiResult(run.createdBy(), run.tenantId(), input,
-                aiPlatform.getStructuredResult(run.providerTaskId(), run.createdBy().toString()));
+        StructuredResult structured = aiPlatform.getStructuredResult(run.providerTaskId(), run.createdBy().toString());
+        resultTransaction.executeWithoutResult(tx -> persistInterviewKitResult(runId, run.providerTaskId(), structured, input));
+    }
+
+    private void persistInterviewKitResult(UUID runId, String expectedTaskId, StructuredResult structured,
+                                           InterviewService.CreateInput input) {
+        RunExecution run = runExecution(runId, true);
+        if (!"RUNNING".equals(run.status()) || !java.util.Objects.equals(run.providerTaskId(), expectedTaskId)) return;
+        InterviewService.KitDetail persistedKit = interviewService.persistAuthorizedAiResult(run.createdBy(), run.tenantId(),
+                input, structured);
         Instant completed = Instant.now();
         TenantScope scope = new TenantScope(run.tenantId(), null, null, null);
         jdbc.update("UPDATE ai_runs SET status='COMPLETED',progress=100,completed_at=? WHERE id=?",
                 timestamp(completed), run.id());
-        insertMessage(scope, run.conversationId(), "ASSISTANT", interviewKitSummary(kit),
+        insertMessage(scope, run.conversationId(), "ASSISTANT", interviewKitSummary(persistedKit),
                 "INTERVIEW_KIT_GENERATION", null, completed);
         jdbc.update("UPDATE recruitment_tasks SET current_stage='AWAITING_INTERVIEW_KIT_CONFIRMATION',updated_at=? WHERE id=?",
                 timestamp(completed), run.taskId());
-        appendRunEvent(run, "completed", Map.of("status", "COMPLETED", "progress", 100, "kitId", kit.id().toString()));
+        appendRunEvent(run, "completed", Map.of("status", "COMPLETED", "progress", 100, "kitId", persistedKit.id().toString()));
         audit(run.createdBy(), scope, "INTERVIEW_KIT_GENERATED", "AI_RUN", run.id());
+        aiPlatform.confirmResultPersisted(run.providerTaskId(), structured);
     }
 
     @Transactional
@@ -1031,9 +1079,8 @@ public class RecruitmentService {
         return rows.isEmpty() ? null : rows.getFirst();
     }
 
-    @Transactional
     public boolean prepareResumeParseRun(UUID runId) {
-        RunExecution run = runExecution(runId, true);
+        RunExecution run = runExecution(runId, false);
         if (!List.of("QUEUED", "RUNNING").contains(run.status())) return false;
         if ("QUEUED".equals(run.status())) {
             Map<String, Object> aiInput = payloadMap(run.inputPayload());
@@ -1041,9 +1088,13 @@ public class RecruitmentService {
                     run.createdBy().toString(),
                     run.taskId().toString(), run.idempotencyKey(), AiCapability.RESUME_PARSING, aiInput,
                     executionContext(run.executionContext())), delta -> emitResumeParseDelta(run.id(), delta));
-            jdbc.update("UPDATE ai_runs SET status='RUNNING',progress=15,provider_task_id=? WHERE id=?",
-                    aiTask.aiTaskId(), run.id());
-            appendRunEvent(run, "status", Map.of("status", "RUNNING", "progress", 15));
+            resultTransaction.executeWithoutResult(tx -> {
+                RunExecution current = runExecution(runId, true);
+                if (!"QUEUED".equals(current.status())) return;
+                jdbc.update("UPDATE ai_runs SET status='RUNNING',progress=15,provider_task_id=? WHERE id=? AND status='QUEUED'",
+                        aiTask.aiTaskId(), current.id());
+                appendRunEvent(current, "status", Map.of("status", "RUNNING", "progress", 15));
+            });
         }
         return true;
     }
@@ -1062,30 +1113,46 @@ public class RecruitmentService {
                 (rs, n) -> rs.getObject(1, UUID.class));
     }
 
-    @Transactional
     public void finalizeResumeParseRunIfReady(UUID runId) {
-        RunExecution run = runExecution(runId, true);
+        RunExecution run = runExecution(runId, false);
         if (!"RUNNING".equals(run.status()) || run.providerTaskId() == null) return;
         AiTask task = aiPlatform.getTask(run.providerTaskId(), run.createdBy().toString());
         if (task.status() == AiTaskStatus.FAILED || task.status() == AiTaskStatus.CANCELLED) {
-            failResumeParseRun(run, "AI_PROVIDER_UNAVAILABLE", "AI 简历解析失败，请重试");
+            resultTransaction.executeWithoutResult(tx -> {
+                RunExecution current = runExecution(runId, true);
+                if ("RUNNING".equals(current.status()) && java.util.Objects.equals(current.providerTaskId(), run.providerTaskId()))
+                    failResumeParseRun(current, "AI_PROVIDER_UNAVAILABLE", "AI 简历解析失败，请重试");
+            });
             return;
         }
         if (task.status() == AiTaskStatus.COMPLETED) finalizeResumeParseRun(runId);
     }
 
-    @Transactional
     public void finalizeResumeParseRun(UUID runId) {
-        RunExecution run = runExecution(runId, true);
+        RunExecution run = runExecution(runId, false);
         if (!"RUNNING".equals(run.status())) return;
         StructuredResult result = aiPlatform.getStructuredResult(run.providerTaskId(), run.createdBy().toString());
         Map<String, Object> data = result.data();
         Object markdownObj = data.get("markdown");
         String markdown = markdownObj == null ? "" : String.valueOf(markdownObj).trim();
+        if(data.get("parsed") instanceof Map<?,?> structured){
+            markdown="## 简历结构化解析\n\n"+optionalAssistantText(data.get("overall_assessment"))+"\n\n"+objectJsonForDisplay(structured);
+        }
         if (markdown.isBlank()) {
-            failResumeParseRun(run, "AI_SCHEMA_INVALID", "AI 简历解析未返回有效内容，请重试");
+            resultTransaction.executeWithoutResult(tx -> {
+                RunExecution current = runExecution(runId, true);
+                if ("RUNNING".equals(current.status()) && java.util.Objects.equals(current.providerTaskId(), run.providerTaskId()))
+                    failResumeParseRun(current, "AI_SCHEMA_INVALID", "AI 简历解析未返回有效内容，请重试");
+            });
             return;
         }
+        String finalMarkdown = markdown;
+        resultTransaction.executeWithoutResult(tx -> persistResumeParseResult(runId, run.providerTaskId(), finalMarkdown, result));
+    }
+
+    private void persistResumeParseResult(UUID runId, String expectedTaskId, String markdown, StructuredResult result) {
+        RunExecution run = runExecution(runId, true);
+        if (!"RUNNING".equals(run.status()) || !java.util.Objects.equals(run.providerTaskId(), expectedTaskId)) return;
         TenantScope scope = new TenantScope(run.tenantId(), null, null, null);
         Instant completed = Instant.now();
         // version 插入：有草稿则生成下一版，否则 V1
@@ -1095,10 +1162,10 @@ public class RecruitmentService {
         int nextRevision = (currentMax == null ? 0 : currentMax) + 1;
         jdbc.update("""
                 INSERT INTO resume_parse_drafts
-                (id,tenant_id,recruitment_task_id,source_ai_run_id,revision,content,status,created_by,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?,'DRAFT',?,?,?)
+                (id,tenant_id,recruitment_task_id,source_ai_run_id,revision,content,status,created_by,created_at,updated_at,structured_result_ciphertext)
+                VALUES (?,?,?,?,?,?,'DRAFT',?,?,?,?)
                 """, UUID.randomUUID(), scope.tenantId(), run.taskId(), run.id(),
-                nextRevision, pii.encrypt(markdown), run.createdBy(), timestamp(completed), timestamp(completed));
+                nextRevision, pii.encrypt(markdown), run.createdBy(), timestamp(completed), timestamp(completed),pii.encrypt(json(result)));
         jdbc.update("UPDATE ai_runs SET status='COMPLETED',progress=100,completed_at=? WHERE id=?",
                 timestamp(completed), run.id());
         insertMessage(scope, run.conversationId(), "ASSISTANT",
@@ -1109,6 +1176,7 @@ public class RecruitmentService {
                 timestamp(completed), run.taskId());
         appendRunEvent(run, "completed", Map.of("status", "COMPLETED", "progress", 100));
         audit(run.createdBy(), scope, "RESUME_PARSE_DRAFT_GENERATED", "AI_RUN", run.id());
+        aiPlatform.confirmResultPersisted(run.providerTaskId(), result);
     }
 
     @Transactional
@@ -1173,40 +1241,59 @@ public class RecruitmentService {
         return message.isBlank() ? "已根据你的最新要求更新当前 JD 草稿，请查看左侧内容。" : message;
     }
 
-    private void upsertDraft(TenantScope scope, UUID taskId, UUID runId, UUID userId, JdDraftContent draft) {
+    private void upsertDraft(TenantScope scope, UUID taskId, UUID runId, UUID userId, JdDraftContent draft,
+                             Map<String,Object> generationSnapshot,Map<String,Object> generationSource) {
         Instant now = Instant.now();
         jdbc.update("""
                 INSERT INTO jd_drafts
                 (id,tenant_id,recruitment_task_id,source_ai_run_id,revision,title,company_name,
-                 location,experience_level,education,job_type,salary_range,responsibilities,requirements,skills,nice_to_haves,benefits,talent_profile,
-                 warnings,status,updated_by,created_at,updated_at)
-                VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, 'DRAFT', ?, ?, ?)
+                 location,experience_level,education,job_type,salary_range,jd_text,responsibilities,requirements,skills,nice_to_haves,benefits,talent_profile,
+                 warnings,status,updated_by,created_at,updated_at,generation_snapshot,generation_source)
+                VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, 'DRAFT', ?, ?, ?,?::jsonb,?::jsonb)
                 """, UUID.randomUUID(), scope.tenantId(), taskId, runId, draft.title(),
                 draft.companyName(), draft.location(), draft.experienceLevel(), draft.education(), draft.jobType(), draft.salaryRange(),
-                draft.responsibilities(), draft.requirements(), draft.skills(), draft.niceToHaves(), draft.benefits(), draft.talentProfile(),
-                json(draft.warnings()), userId, timestamp(now), timestamp(now));
+                draft.jdText(), draft.responsibilities(), draft.requirements(), draft.skills(), draft.niceToHaves(), draft.benefits(), draft.talentProfile(),
+                json(draft.warnings()), userId, timestamp(now), timestamp(now),json(generationSnapshot),json(generationSource));
     }
 
     private void updateDraftInPlace(TenantScope scope, UUID taskId, UUID draftId, UUID userId, JdDraftContent draft) {
         int updated = jdbc.update("""
-                UPDATE jd_drafts SET status=CASE WHEN status='CONFIRMED' THEN 'DRAFT' ELSE status END,title=?,company_name=?,location=?,experience_level=?,education=?,job_type=?,salary_range=?,
+                UPDATE jd_drafts SET status=CASE WHEN status='CONFIRMED' THEN 'DRAFT' ELSE status END,title=?,company_name=?,location=?,experience_level=?,education=?,job_type=?,salary_range=?,jd_text=?,
                  responsibilities=?,requirements=?,skills=?,nice_to_haves=?,benefits=?,talent_profile=?,warnings=?::jsonb,updated_by=?,updated_at=?
                 WHERE id=? AND recruitment_task_id=? AND tenant_id=? AND status IN ('DRAFT','CONFIRMED')
                 """, draft.title(), draft.companyName(), draft.location(), draft.experienceLevel(), draft.education(),
-                draft.jobType(), draft.salaryRange(), draft.responsibilities(), draft.requirements(), draft.skills(), draft.niceToHaves(), draft.benefits(), draft.talentProfile(),
+                draft.jobType(), draft.salaryRange(), draft.jdText(), draft.responsibilities(), draft.requirements(), draft.skills(), draft.niceToHaves(), draft.benefits(), draft.talentProfile(),
                 json(draft.warnings()), userId, timestamp(Instant.now()), draftId, taskId, scope.tenantId());
         if (updated == 0) throw new ApiException("JD_DRAFT_NOT_FOUND", "当前 JD 不存在，无法更新", HttpStatus.CONFLICT);
+    }
+
+    private StructuredResult readSavedResumeResult(UUID draftId){
+        String ciphertext=jdbc.queryForObject("SELECT structured_result_ciphertext FROM resume_parse_drafts WHERE id=?",String.class,draftId);
+        if(ciphertext==null)return null;
+        try{return objectMapper.readValue(pii.decrypt(ciphertext),StructuredResult.class);}catch(Exception ex){throw new IllegalStateException("解析来源快照无法读取",ex);}
+    }
+    private String objectJsonForDisplay(Object value){try{return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(value);}catch(Exception ex){throw new IllegalStateException(ex);}}
+    private static String optionalAssistantText(Object value){return value==null?"":String.valueOf(value);}
+
+    public void recordResultMappingFailure(UUID runId){
+        jdbc.query("SELECT provider_task_id FROM ai_runs WHERE id=? AND status='RUNNING'",rs->{String task=rs.getString(1);if(task!=null)aiPlatform.holdForReconciliation(task,"IR_RESULT_MAPPING_FAILED");},runId);
+    }
+
+    private void requirePriorExecutionClosed(UUID tenantId,UUID taskId,String capability){
+        Integer active=jdbc.queryForObject("SELECT count(*) FROM ai_runs WHERE tenant_id=? AND recruitment_task_id=? AND capability=? AND status IN ('QUEUED','RUNNING')",Integer.class,tenantId,taskId,capability);
+        Integer unsettled=jdbc.queryForObject("SELECT count(*) FROM ai_execution_records WHERE tenant_id=? AND business_task_id=? AND capability=? AND (final_decision IS NULL OR status NOT IN ('SETTLED','RELEASED'))",Integer.class,tenantId,taskId.toString(),capability);
+        if((active!=null&&active>0)||(unsettled!=null&&unsettled>0))throw new ApiException("PRIOR_EXECUTION_UNRESOLVED","前次执行或结算尚未结束，暂不能重跑",HttpStatus.CONFLICT);
     }
 
     private void insertAdditionalDraft(TenantScope scope, UUID taskId, UUID userId, JdDraftContent draft) {
         Instant now = Instant.now();
         jdbc.update("""
                 INSERT INTO jd_drafts (id,tenant_id,recruitment_task_id,revision,title,company_name,
-                  location,experience_level,education,job_type,salary_range,responsibilities,requirements,skills,nice_to_haves,benefits,talent_profile,
+                  location,experience_level,education,job_type,salary_range,jd_text,responsibilities,requirements,skills,nice_to_haves,benefits,talent_profile,
                   warnings,status,updated_by,created_at,updated_at)
-                VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, 'DRAFT', ?, ?, ?)
+                VALUES (?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,'DRAFT',?,?,?)
                 """, UUID.randomUUID(), scope.tenantId(), taskId, draft.title(), draft.companyName(),
-                draft.location(), draft.experienceLevel(), draft.education(), draft.jobType(), draft.salaryRange(), draft.responsibilities(),
+                draft.location(), draft.experienceLevel(), draft.education(), draft.jobType(), draft.salaryRange(), draft.jdText(), draft.responsibilities(),
                 draft.requirements(), draft.skills(), draft.niceToHaves(), draft.benefits(), draft.talentProfile(), json(draft.warnings()), userId,
                 timestamp(now), timestamp(now));
     }
@@ -1440,7 +1527,7 @@ public class RecruitmentService {
 
     public record UpdateDraftInput(UUID id, int revision, String title, String companyName, String location,
                                    String experienceLevel, String education, String jobType,
-                                   String salaryRange, String responsibilities, String requirements, String skills, String niceToHaves, String benefits,
+                                   String salaryRange, String jdText, String responsibilities, String requirements, String skills, String niceToHaves, String benefits,
                                    String talentProfile, List<String> warnings) { }
 
     public record UpdateResumeParseDraftInput(int revision, String content) { }
@@ -1458,7 +1545,7 @@ public class RecruitmentService {
                               UUID createdBy, Instant createdAt) { }
 
     public record JdDraftView(UUID id, int revision, String title, String companyName, String location,
-                              String experienceLevel, String education, String jobType, String salaryRange, String responsibilities,
+                              String experienceLevel, String education, String jobType, String salaryRange, String jdText, String responsibilities,
                               String requirements, String skills, String niceToHaves, String benefits, String talentProfile, List<String> warnings,
                               String status, Instant updatedAt) { }
 
@@ -1499,7 +1586,7 @@ public class RecruitmentService {
     private record ExistingReference(UUID id, String requestHash) { }
 
     private record CandidateVirtualText(UUID id, String displayNameMasked, String rawText, String headline,
-                                        int yearsExperience, String highestEducation, String skillsJson,
+                                        java.math.BigDecimal yearsExperience, String highestEducation, String skillsJson,
                                         String originalFilename) { }
 
     /** 候选人 raw_text 为空时，拼一段结构化摘要作为虚拟简历文本，避免 LLM 只提示"请先上传简历" */
@@ -1510,7 +1597,7 @@ public class RecruitmentService {
         sb.append("【候选人摘要】\n");
         sb.append("姓名：").append(c.displayNameMasked() == null ? "候选人" : c.displayNameMasked()).append("\n");
         if (c.headline() != null && !c.headline().isBlank()) sb.append("简介：").append(c.headline()).append("\n");
-        sb.append("工作年限：").append(c.yearsExperience() <= 0 ? "待确认" : c.yearsExperience() + "年").append("\n");
+        sb.append("工作年限：").append(c.yearsExperience() == null || c.yearsExperience().signum() <= 0 ? "待确认" : c.yearsExperience().stripTrailingZeros().toPlainString() + "年").append("\n");
         sb.append("最高学历：").append(c.highestEducation() == null || c.highestEducation().isBlank() ? "待确认" : c.highestEducation()).append("\n");
         sb.append("核心技能：").append(skills.isEmpty() ? "待确认" : String.join("、", skills)).append("\n");
         if (c.originalFilename() != null && !c.originalFilename().isBlank()) sb.append("简历文件名：").append(c.originalFilename()).append("\n");

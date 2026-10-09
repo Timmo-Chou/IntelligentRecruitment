@@ -19,11 +19,24 @@ public class JdStructuredResultMapper {
             throw invalid("JD 生成未返回可用的结构化结果");
         }
         Map<String, Object> data = result.data();
-        return new JdDraftContent(required(data, "title"), required(data, "company_name"), text(data, "location"),
-                text(data, "experience_level"), text(data, "education"), defaulted(data, "job_type", "全职"),
-                text(data, "salary_range"), required(data, "responsibilities"), required(data, "requirements"),
-                required(data, "skills"), text(data, "nice_to_haves"), text(data, "benefits"),
-                required(data, "talent_profile"), strings(data.get("warnings")));
+        String title = required(data, "title");
+        String company = required(data, "company_name");
+        String location = text(data, "location");
+        String experience = text(data, "experience_level");
+        String education = text(data, "education");
+        String jobType = defaulted(data, "job_type", "全职");
+        String salary = text(data, "salary_range");
+        String responsibilities = required(data, "responsibilities");
+        String requirements = required(data, "requirements");
+        String skills = required(data, "skills");
+        String niceToHaves = text(data, "nice_to_haves");
+        String benefits = text(data, "benefits");
+        String profile = text(data, "talent_profile");
+        String body = data.get("jd_text") instanceof String value && !value.isBlank() ? value.trim()
+                : JdDraftGenerator.renderJdText(title, company, location, salary, experience, education, jobType,
+                responsibilities, requirements, skills, niceToHaves, benefits, profile);
+        return new JdDraftContent(title, company, location, experience, education, jobType, salary, body,
+                responsibilities, requirements, skills, niceToHaves, benefits, profile, strings(data.get("warnings")));
     }
 
     private static String required(Map<String, Object> data, String field) {
