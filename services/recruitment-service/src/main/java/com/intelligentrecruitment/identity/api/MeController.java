@@ -3,6 +3,8 @@ package com.intelligentrecruitment.identity.api;
 import com.intelligentrecruitment.boss.application.BossControlPlaneClient;
 import com.intelligentrecruitment.shared.security.CurrentUser;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import java.util.UUID;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,7 +36,7 @@ public class MeController {
         return new MeResponse(user.userId(), user.maskedPhone(), user.displayName());
     }
 
-    public record DisplayNameRequest(String displayName) { }
+    public record DisplayNameRequest(@NotBlank @Size(max = 80) String displayName) { }
 
     public record MeResponse(UUID id, String maskedPhone, String displayName) { }
 }

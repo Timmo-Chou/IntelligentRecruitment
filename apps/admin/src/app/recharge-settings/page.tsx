@@ -4,9 +4,11 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminApiFetch } from "@/lib/admin-api-client";
+import { getDisplayLabel } from "@/lib/display-label";
 import { usePermission } from "@/lib/use-permission";
 import { Badge } from "@/components/ui/badge";
 import { Landmark, Plus, Trash2, Edit2 } from "lucide-react";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 type RechargeAccount = {
   id: string;
@@ -25,6 +27,7 @@ export default function RechargeSettingsPage() {
   const canEdit = hasPermission("ADMIN_RECHARGE_EDIT");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<unknown>(null);
   const [form, setForm] = useState({
     accountType: "BANK",
     accountName: "",
@@ -34,7 +37,7 @@ export default function RechargeSettingsPage() {
     isDefault: false,
   });
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: loadError } = useQuery({
     queryKey: ["recharge-settings"],
     queryFn: () => adminApiFetch<RechargeAccount[]>("/platform/recharge-settings"),
   });
@@ -42,18 +45,21 @@ export default function RechargeSettingsPage() {
   const createMutation = useMutation({
     mutationFn: () =>
       adminApiFetch("/platform/recharge-settings", { method: "POST", body: JSON.stringify(form) }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["recharge-settings"] }); resetForm(); },
+    onSuccess: () => { setActionError(null); queryClient.invalidateQueries({ queryKey: ["recharge-settings"] }); resetForm(); },
+    onError: setActionError,
   });
 
   const updateMutation = useMutation({
     mutationFn: (id: string) =>
       adminApiFetch(`/platform/recharge-settings/${id}`, { method: "PUT", body: JSON.stringify(form) }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["recharge-settings"] }); resetForm(); },
+    onSuccess: () => { setActionError(null); queryClient.invalidateQueries({ queryKey: ["recharge-settings"] }); resetForm(); },
+    onError: setActionError,
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => adminApiFetch(`/platform/recharge-settings/${id}`, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["recharge-settings"] }),
+    onSuccess: () => { setActionError(null); queryClient.invalidateQueries({ queryKey: ["recharge-settings"] }); },
+    onError: setActionError,
   });
 
   function resetForm() {
@@ -81,8 +87,7 @@ export default function RechargeSettingsPage() {
   }
 
   function getTypeLabel(t: string) {
-    const map: Record<string, string> = { BANK: "银行", ALIPAY: "支付宝", WECHAT: "微信" };
-    return map[t] ?? t;
+    return getDisplayLabel("recharge.accountType", t, "收款账户类型暂未识别");
   }
 
   const items = data ?? [];
@@ -103,6 +108,9 @@ export default function RechargeSettingsPage() {
           </button>
         )}
       </div>
+
+      {loadError && <div className="mb-4"><AdminErrorNotice error={loadError} fallback="收款账户配置加载失败，请稍后重试。" /></div>}
+      {actionError != null && <div className="mb-4"><AdminErrorNotice error={actionError} fallback="收款账户操作暂未成功，请稍后重试。" /></div>}
 
       {showForm && (
         <div className="mb-6 max-w-2xl rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -144,7 +152,7 @@ export default function RechargeSettingsPage() {
             )}
             {(form.accountType === "ALIPAY" || form.accountType === "WECHAT") && (
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-700">收款码 URL</label>
+                <label className="mb-1 block text-sm font-medium text-slate-700">收款码链接</label>
                 <input value={form.qrCodeUrl} onChange={(e) => setForm({ ...form, qrCodeUrl: e.target.value })}
                   placeholder="收款码图片地址" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
               </div>
@@ -166,6 +174,8 @@ export default function RechargeSettingsPage() {
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-slate-400">加载中…</div>
+        ) : loadError ? (
+          <div className="p-8 text-center text-sm text-slate-400">无法显示收款账户</div>
         ) : items.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-400">暂无收款账户</div>
         ) : (
@@ -189,7 +199,7 @@ export default function RechargeSettingsPage() {
                   <td className="px-4 py-3">{item.is_default && <Badge variant="success">默认</Badge>}</td>
                   <td className="px-4 py-3">
                     <Badge variant={item.status === "ACTIVE" ? "success" : "neutral"}>
-                      {item.status === "ACTIVE" ? "启用" : "停用"}
+                      {getDisplayLabel("catalog.status", item.status, "状态暂未识别")}
                     </Badge>
                   </td>
                   <td className="px-4 py-3">

@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { type AdminInfo, useAdminAuth } from "@/lib/admin-auth";
 import { adminApiFetch, ApiError } from "@/lib/admin-api-client";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 type BootstrapResponse = {
   access_token: string;
@@ -27,6 +28,7 @@ export default function BootstrapPage() {
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCause, setErrorCause] = useState<unknown>(null);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -45,6 +47,7 @@ export default function BootstrapPage() {
 
     setLoading(true);
     setError(null);
+    setErrorCause(null);
     const key = bootstrapKey.trim();
     try {
       const result = await adminApiFetch<BootstrapResponse>("/platform/admins/bootstrap", {
@@ -71,7 +74,7 @@ export default function BootstrapPage() {
         } else if (err.body.code === "PLATFORM_ADMIN_REQUIRED") {
           setError("引导密钥无效，请检查后重试");
         } else {
-          setError(err.message);
+          setErrorCause(err);
         }
       } else {
         setError("引导失败，请检查网络连接后重试");
@@ -114,6 +117,7 @@ export default function BootstrapPage() {
           </Field>
 
           {error && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+          {errorCause != null && <AdminErrorNotice error={errorCause} fallback="管理员引导暂未成功，请检查信息后重试。" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" />}
           <button type="submit" disabled={loading} className="w-full rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
             {loading ? "创建中…" : "创建超级管理员"}
           </button>

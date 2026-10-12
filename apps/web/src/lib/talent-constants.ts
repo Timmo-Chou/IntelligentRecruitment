@@ -5,6 +5,10 @@ export const TALENT_INDUSTRIES = [
   "涂料", "胶黏剂", "电子化学品", "新能源材料", "医药化工", "化工装备", "环保", "其他",
 ] as const;
 
+export function talentTagDisplayName(tag: string): string {
+  return tag === "EHS专家" ? "环境、健康与安全（EHS）专家" : tag;
+}
+
 export const TALENT_TAGS = [
   "高潜人才", "技术专家", "工艺优化专家", "化工研发", "项目经理",
   "EHS专家", "设备专家", "质量专家", "管理人才",

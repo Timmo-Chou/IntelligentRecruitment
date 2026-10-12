@@ -5,9 +5,10 @@ import Link from "next/link";
 import React, { type ReactNode, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { apiFetch } from "@/lib/api-client";
+import { ApiError, apiFetch } from "@/lib/api-client";
 import { SessionSummary } from "./session-summary";
 import { useTenant } from "@/lib/tenant-context";
+import { getSafeErrorMessage } from "@intelligent-recruitment/display-dictionary";
 import { deleteTask, fetchTasks, renameTask, type TaskSummary } from "@/lib/recruitment-api";
 import { AIChatDialog } from "../ai-assistant/ai-chat-dialog";
 
@@ -110,7 +111,7 @@ function RecruitmentTaskMenu({ visible }: { visible: boolean }) {
       window.dispatchEvent(new Event("recruitment-tasks-changed"));
       setRenamingTask(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "重命名失败，请稍后重试");
+      setError(cause instanceof ApiError ? getSafeErrorMessage(cause.body.code, cause.body.request_id, "重命名暂未成功，请稍后重试。") : "重命名暂未成功，请稍后重试。");
     } finally { setBusy(false); }
   };
   const confirmDelete = async () => {
@@ -125,7 +126,7 @@ function RecruitmentTaskMenu({ visible }: { visible: boolean }) {
       setDeletingTask(null);
       if (wasSelected) router.push("/recruitment");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "删除失败，请稍后重试");
+      setError(cause instanceof ApiError ? getSafeErrorMessage(cause.body.code, cause.body.request_id, "删除暂未成功，请稍后重试。") : "删除暂未成功，请稍后重试。");
     } finally { setBusy(false); }
   };
   if (!visible) return null;
@@ -177,7 +178,7 @@ function RecruitmentTaskMenu({ visible }: { visible: boolean }) {
     })()}
     {/* 重命名 / 删除 两个确认弹窗：挂载到 document.body 彻底脱离 sidebar 层级，避免被主内容区卡片/阴影盖住 */}
     {portalHost && renamingTask && createPortal(<TaskDialog title="重命名招聘任务" busy={busy} error={error} onClose={() => setRenamingTask(null)}><label className="block text-sm font-medium text-[#36557f]">任务名称<input autoFocus value={title} onChange={event => setTitle(event.target.value)} maxLength={200} className="mt-2 h-10 w-full rounded-lg border border-[#cbdced] px-3 text-sm font-normal outline-none focus:border-[#16a99b]" placeholder="请输入任务名称"/></label><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setRenamingTask(null)} className="rounded-lg border border-[#d7e3ee] px-4 py-2 text-sm text-[#496587]">取消</button><button type="button" disabled={busy || !title.trim()} onClick={() => void submitRename()} className="rounded-lg bg-[#0ca58c] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "保存中..." : "保存"}</button></div></TaskDialog>, portalHost)}
-    {portalHost && deletingTask && createPortal(<TaskDialog title="删除招聘任务" busy={busy} error={error} onClose={() => setDeletingTask(null)}><p className="m-0 text-sm leading-6 text-[#58708f]">确定删除“{deletingTask.title}”吗？删除后将永久移除任务、需求对话和未确认的 JD 草稿，且无法恢复。</p><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setDeletingTask(null)} className="rounded-lg border border-[#d7e3ee] px-4 py-2 text-sm text-[#496587]">取消</button><button type="button" disabled={busy} onClick={() => void confirmDelete()} className="rounded-lg bg-[#d94a4a] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "删除中..." : "确认删除"}</button></div></TaskDialog>, portalHost)}
+    {portalHost && deletingTask && createPortal(<TaskDialog title="删除招聘任务" busy={busy} error={error} onClose={() => setDeletingTask(null)}><p className="m-0 text-sm leading-6 text-[#58708f]">确定删除“{deletingTask.title}”吗？删除后将永久移除任务、需求对话和未确认的职位描述草稿，且无法恢复。</p><div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setDeletingTask(null)} className="rounded-lg border border-[#d7e3ee] px-4 py-2 text-sm text-[#496587]">取消</button><button type="button" disabled={busy} onClick={() => void confirmDelete()} className="rounded-lg bg-[#d94a4a] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "删除中..." : "确认删除"}</button></div></TaskDialog>, portalHost)}
   </section>;
 }
 
@@ -188,7 +189,7 @@ function TaskDialog({ title, busy, error, onClose, children }: { title: string; 
 export function AppShell({ children, activeItem = "概览", pageHeader }: { children: ReactNode; activeItem?: string; pageHeader?: ReactNode }) {
   const router=useRouter(); const pathname=usePathname();
   const { tenantId, loading: tenantLoading, notAuthenticated } = useTenant();
-  // AI咨询助手开关
+  // 智能咨询助手开关
   const [aiOpen, setAiOpen] = useState(false);
   useEffect(() => {
     if (pathname === "/onboarding" || pathname === "/login" || tenantLoading) return;
@@ -220,17 +221,17 @@ export function AppShell({ children, activeItem = "概览", pageHeader }: { chil
             </React.Fragment>
           ))}
         </nav>
-        {/* AI咨询助手：放在左侧菜单栏的最右边（卡片内部靠右对齐） */}
+        {/* 智能咨询助手：放在左侧菜单栏的最右边（卡片内部靠右对齐） */}
         <button
           type="button"
           onClick={() => setAiOpen(true)}
           className="relative mt-auto w-full cursor-pointer overflow-hidden rounded-xl bg-gradient-to-br from-[#d8fff6] to-[#d7efff] p-4 text-left transition hover:shadow-md hover:brightness-105 active:scale-[0.99]"
-          aria-label="AI咨询助手"
-          title="点击打开AI咨询助手"
+          aria-label="智能咨询助手"
+          title="点击打开智能咨询助手"
         >
           {/* 未读红点：放到按钮右上角 */}
           <span className="absolute right-2 top-2 z-10 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white"/>
-          <p className="m-0 text-sm font-bold text-[#087aa4]">AI咨询助手</p>
+          <p className="m-0 text-sm font-bold text-[#087aa4]">智能咨询助手</p>
           <p className="mb-0 mt-2 text-xs font-medium text-[#2788a8]">随时提问招聘问题</p>
           {/* 机器人图标：卡片内部最右边 */}
           <span className="pointer-events-none absolute bottom-2 right-2 grid h-11 w-11 place-items-center rounded-full bg-white/70 text-[#236ee8] shadow-sm">
@@ -248,7 +249,7 @@ export function AppShell({ children, activeItem = "概览", pageHeader }: { chil
         <div className="px-4 py-4 sm:px-5 xl:px-6">{children}</div>
       </main>
     </div>
-    {/* AI咨询助手对话弹窗 */}
+    {/* 智能咨询助手对话弹窗 */}
     {aiOpen && <AIChatDialog onClose={() => setAiOpen(false)} />}
   </div>;
 }

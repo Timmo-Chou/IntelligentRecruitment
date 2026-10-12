@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError, setAccessToken } from "@/lib/api-client";
 import { useTenant } from "@/lib/tenant-context";
+import { getDisplayLabel } from "@intelligent-recruitment/display-dictionary";
 
 type Me = { userId: string; displayName?: string; maskedPhone?: string };
 type Billing = { availableCredits?: number; subscription?: { kind?: string; endsAt?: string } | null };
@@ -43,7 +44,7 @@ export function SessionSummary() {
 
   const displayName = tenant?.type === "PERSONAL" ? "个人账号" : tenant?.name ?? me?.displayName ?? "招聘用户";
   return <div className="flex items-center gap-3 text-xs text-[#405781]">
-    <details className="relative"><summary className="top-pill flex cursor-pointer list-none font-semibold text-[#07945f]">{billing === null ? "积分 --" : `${billing.availableCredits ?? 0} 积分`} <ChevronDown size={14}/></summary><div className="absolute right-0 z-50 mt-2 w-52 rounded-xl border border-[#d8dee8] bg-white p-3 text-xs shadow-[0_16px_36px_rgba(28,47,76,0.18)]"><p className="m-0 flex justify-between"><span>可用积分</span><strong>{billing?.availableCredits ?? "--"}</strong></p><p className="mb-0 mt-3 border-t border-[#e4edf7] pt-2 text-[#7187a8]">套餐：{billing?.subscription?.kind ?? "未开通"}</p>{tenant?.type === "ENTERPRISE" && tenant.owner ? <Link href="/enterprise-management?tab=billing" className="mt-2 block text-[#2467ca]">查看企业套餐与账单</Link> : tenant?.type === "PERSONAL" && <Link href="/billing" className="mt-2 block text-[#2467ca]">查看个人套餐与积分包</Link>}</div></details>
+    <details className="relative"><summary className="top-pill flex cursor-pointer list-none font-semibold text-[#07945f]">{billing === null ? "积分 --" : `${billing.availableCredits ?? 0} 积分`} <ChevronDown size={14}/></summary><div className="absolute right-0 z-50 mt-2 w-52 rounded-xl border border-[#d8dee8] bg-white p-3 text-xs shadow-[0_16px_36px_rgba(28,47,76,0.18)]"><p className="m-0 flex justify-between"><span>可用积分</span><strong>{billing?.availableCredits ?? "--"}</strong></p><p className="mb-0 mt-3 border-t border-[#e4edf7] pt-2 text-[#7187a8]">套餐：{billing?.subscription ? getDisplayLabel("subscription.kind", billing.subscription.kind, "套餐类型暂未识别") : "未开通"}</p>{tenant?.type === "ENTERPRISE" && tenant.owner ? <Link href="/enterprise-management?tab=billing" className="mt-2 block text-[#2467ca]">查看企业套餐与账单</Link> : tenant?.type === "PERSONAL" && <Link href="/billing" className="mt-2 block text-[#2467ca]">查看个人套餐与积分包</Link>}</div></details>
     <div className="relative hidden border-l border-[#d9e6f3] pl-3 md:block">
       <button type="button" aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => { setMenuOpen(value => !value); setSwitchOpen(false); }} className="flex items-center gap-2 text-left">
         <span className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-[#dff7f4] to-[#b7d5ff] text-[#0d57aa]"><UserRound size={18}/></span>

@@ -3,7 +3,7 @@
 import { Bot } from "lucide-react";
 
 /**
- * AI咨询助手悬浮按钮
+ * 智能咨询助手悬浮按钮
  * 固定在屏幕左下角，点击弹出对话窗口
  */
 export function AIAssistantFloat({ onClick, unreadCount = 0 }: { onClick: () => void; unreadCount?: number }) {
@@ -12,8 +12,8 @@ export function AIAssistantFloat({ onClick, unreadCount = 0 }: { onClick: () => 
       type="button"
       onClick={onClick}
       className="group fixed bottom-6 left-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-[#0ca58c] to-[#16a99b] text-white shadow-lg shadow-[#0ca58c]/30 transition-all hover:scale-105 hover:shadow-xl hover:shadow-[#0ca58c]/40 active:scale-95"
-      aria-label="AI咨询助手"
-      title="AI咨询助手"
+      aria-label="智能咨询助手"
+      title="智能咨询助手"
     >
       <Bot size={28} strokeWidth={2} />
       {/* 未读消息红点 */}

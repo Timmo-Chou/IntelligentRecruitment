@@ -11,6 +11,7 @@ import { z } from "zod";
 import { adminApiFetch } from "@/lib/admin-api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 // 表单校验
 const ticketSchema = z.object({
@@ -136,9 +137,7 @@ export default function NewTicketPage() {
 
           {/* 错误信息 */}
           {mutation.error && (
-            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-              {(mutation.error as Error).message}
-            </div>
+            <AdminErrorNotice error={mutation.error} fallback="工单提交暂未成功，请稍后重试。" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" />
           )}
 
           {/* 提交 */}

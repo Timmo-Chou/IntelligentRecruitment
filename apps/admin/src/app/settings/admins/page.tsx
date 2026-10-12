@@ -8,6 +8,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminApiFetch } from "@/lib/admin-api-client";
 import { usePermission } from "@/lib/use-permission";
 import { Badge } from "@/components/ui/badge";
+import { getDisplayLabel } from "@/lib/display-label";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 type Admin = {
   id: string;
@@ -26,6 +28,7 @@ export default function AdminsPage() {
   const { hasPermission } = usePermission();
   const canEdit = hasPermission("ADMIN_ADMIN_EDIT");
   const [showDialog, setShowDialog] = useState(false);
+  const [actionError, setActionError] = useState<unknown>(null);
   const [form, setForm] = useState({
     username: "",
     password: "",
@@ -34,7 +37,7 @@ export default function AdminsPage() {
     role: "OPERATOR",
   });
 
-  const { data: admins, isLoading } = useQuery({
+  const { data: admins, isLoading, error: loadError } = useQuery({
     queryKey: ["admins"],
     queryFn: () => adminApiFetch<Admin[]>("/platform/admins"),
   });
@@ -43,43 +46,42 @@ export default function AdminsPage() {
     mutationFn: () =>
       adminApiFetch("/platform/admins", { method: "POST", body: JSON.stringify(form) }),
     onSuccess: () => {
+      setActionError(null);
       setShowDialog(false);
       setForm({ username: "", password: "", displayName: "", phone: "", role: "OPERATOR" });
       queryClient.invalidateQueries({ queryKey: ["admins"] });
     },
-    onError: (e: Error) => alert("创建失败：" + e.message),
+    onError: setActionError,
   });
 
   const approveMutation = useMutation({
     mutationFn: ({ id, role }: { id: string; role: string }) =>
       adminApiFetch(`/platform/admins/${id}/approve`, { method: "POST", body: JSON.stringify({ role }) }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admins"] }),
+    onSuccess: () => { setActionError(null); return queryClient.invalidateQueries({ queryKey: ["admins"] }); },
+    onError: setActionError,
   });
 
   const rejectMutation = useMutation({
     mutationFn: (id: string) =>
       adminApiFetch(`/platform/admins/${id}/reject`, { method: "POST" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admins"] }),
+    onSuccess: () => { setActionError(null); return queryClient.invalidateQueries({ queryKey: ["admins"] }); },
+    onError: setActionError,
   });
 
   const disableMutation = useMutation({
     mutationFn: (id: string) =>
       adminApiFetch(`/platform/admins/${id}/disable`, { method: "POST" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admins"] }),
+    onSuccess: () => { setActionError(null); return queryClient.invalidateQueries({ queryKey: ["admins"] }); },
+    onError: setActionError,
   });
 
   function getRoleBadge(role: string) {
-    if (role === "SUPER_ADMIN") return <Badge variant="danger">超级管理员</Badge>;
-    if (role === "ADMIN") return <Badge variant="info">管理员</Badge>;
-    if (role === "OPERATOR") return <Badge variant="info">运营人员</Badge>;
-    return <Badge>{role}</Badge>;
+    return <Badge variant={role === "SUPER_ADMIN" ? "danger" : "info"}>{getDisplayLabel("admin.role", role, "管理员角色暂未识别")}</Badge>;
   }
 
   function getStatusBadge(status: string) {
-    if (status === "ACTIVE") return <Badge variant="success">正常</Badge>;
-    if (status === "DISABLED") return <Badge variant="danger">已禁用</Badge>;
-    if (status === "PENDING_REVIEW") return <Badge variant="warning">待审核</Badge>;
-    return <Badge>{status}</Badge>;
+    const variant = status === "ACTIVE" ? "success" : status === "DISABLED" ? "danger" : "warning";
+    return <Badge variant={variant}>{getDisplayLabel("admin.status", status, "管理员状态暂未识别")}</Badge>;
   }
 
   const items = admins ?? [];
@@ -98,10 +100,14 @@ export default function AdminsPage() {
           </button>
         )}
       </div>
+      {loadError && <div className="mb-4"><AdminErrorNotice error={loadError} fallback="管理员列表加载失败，请稍后重试。" /></div>}
+      {actionError != null && !showDialog && <AdminErrorNotice error={actionError} fallback="管理员操作暂未成功，请稍后重试。" className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" />}
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-slate-400">加载中…</div>
+        ) : loadError ? (
+          <div className="p-8 text-center text-sm text-slate-400">无法显示管理员列表</div>
         ) : items.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-400">暂无管理员</div>
         ) : (
@@ -164,6 +170,7 @@ export default function AdminsPage() {
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <h2 className="mb-4 text-lg font-bold text-slate-800">新增管理员</h2>
             <div className="space-y-4">
+              {actionError != null && <AdminErrorNotice error={actionError} fallback="管理员创建暂未成功，请稍后重试。" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" />}
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">用户名</label>
                 <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })}

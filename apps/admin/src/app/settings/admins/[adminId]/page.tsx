@@ -7,6 +7,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { adminApiFetch } from "@/lib/admin-api-client";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 // 后端权限目录中的 admin 端权限码
 const allPermissions = [
@@ -32,6 +33,8 @@ const allPermissions = [
   { code: "ADMIN_MENU_EDIT", label: "编辑菜单设置" },
   { code: "ADMIN_ADMIN_VIEW", label: "查看管理员管理" },
   { code: "ADMIN_ADMIN_EDIT", label: "编辑管理员管理" },
+  { code: "ADMIN_SCREENING_RULE_VIEW", label: "查看招聘筛选规则" },
+  { code: "ADMIN_SCREENING_RULE_EDIT", label: "维护招聘筛选规则" },
 ];
 
 export default function AdminPermissionsPage() {
@@ -40,7 +43,7 @@ export default function AdminPermissionsPage() {
   const queryClient = useQueryClient();
   const adminId = params.adminId as string;
 
-  const { data: currentPerms, isLoading } = useQuery({
+  const { data: currentPerms, isLoading, error: loadError } = useQuery({
     queryKey: ["admin-permissions", adminId],
     queryFn: () => adminApiFetch<string[]>(`/platform/admins/${adminId}/permissions`),
     enabled: !!adminId,
@@ -48,6 +51,8 @@ export default function AdminPermissionsPage() {
 
   const [selected, setSelected] = useState<string[]>([]);
   const [initialized, setInitialized] = useState(false);
+  const [actionError, setActionError] = useState<unknown>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   // 初始化选中状态
   if (currentPerms && !initialized) {
@@ -62,10 +67,11 @@ export default function AdminPermissionsPage() {
         body: JSON.stringify({ permissionCodes: codes }),
       }),
     onSuccess: () => {
+      setActionError(null);
+      setActionMessage("权限已保存");
       queryClient.invalidateQueries({ queryKey: ["admin-permissions", adminId] });
-      alert("权限已保存");
     },
-    onError: (e: Error) => alert("保存失败：" + e.message),
+    onError: (error: Error) => { setActionMessage(null); setActionError(error); },
   });
 
   function toggle(code: string) {
@@ -76,6 +82,14 @@ export default function AdminPermissionsPage() {
 
   if (isLoading) return <div className="p-8 text-center text-sm text-slate-400">加载中…</div>;
 
+  if (loadError) {
+    return <div className="space-y-4 p-4"><Link href="/settings/admins" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700"><ArrowLeft className="h-4 w-4" />返回管理员列表</Link><h1 className="text-2xl font-bold text-slate-800">配置管理员权限</h1><AdminErrorNotice error={loadError} fallback="管理员权限读取失败，请稍后重试。" /></div>;
+  }
+
+  if (!currentPerms) {
+    return <div className="space-y-4 p-4"><Link href="/settings/admins" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700"><ArrowLeft className="h-4 w-4" />返回管理员列表</Link><p className="text-sm text-red-600">未能读取当前权限，请重新加载后再修改。</p></div>;
+  }
+
   return (
     <div>
       <Link href="/settings/admins" className="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
@@ -83,7 +97,9 @@ export default function AdminPermissionsPage() {
       </Link>
 
       <h1 className="mb-6 text-2xl font-bold text-slate-800">配置管理员权限</h1>
-      <p className="mb-4 text-sm text-slate-500">管理员ID: {adminId}</p>
+      <p className="mb-4 text-sm text-slate-500">管理员编号: {adminId}</p>
+      {actionError != null && <AdminErrorNotice error={actionError} fallback="权限保存暂未成功，请稍后重试。" className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" />}
+      {actionMessage && <p role="status" className="mb-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{actionMessage}</p>}
 
       <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="mb-4 flex items-center justify-between">

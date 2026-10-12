@@ -6,6 +6,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminApiFetch } from "@/lib/admin-api-client";
 import { usePermission } from "@/lib/use-permission";
 import { Badge } from "@/components/ui/badge";
+import { getDisplayLabel } from "@/lib/display-label";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 import { Wallet, Plus } from "lucide-react";
 
 type CreditAdjustment = {
@@ -28,8 +30,9 @@ export default function BillingPage() {
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<unknown>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: loadError } = useQuery({
     queryKey: ["credit-adjustments"],
     queryFn: () => adminApiFetch<CreditAdjustment[]>("/platform/recruitment/credit-adjustments"),
   });
@@ -46,24 +49,19 @@ export default function BillingPage() {
         }),
       }),
     onSuccess: () => {
+      setActionError(null);
       setMessage("积分调整成功");
       setTenantId(""); setAmount(""); setReason("");
       setShowForm(false);
       queryClient.invalidateQueries({ queryKey: ["credit-adjustments"] });
     },
-    onError: (e: unknown) => setMessage(`调整失败：${e instanceof Error ? e.message : "操作失败，请稍后重试"}`),
+    onError: (error: unknown) => { setMessage(null); setActionError(error); },
   });
 
   const items = data ?? [];
 
   function getTypeLabel(t: string) {
-    const map: Record<string, string> = {
-      COMPENSATION: "补偿",
-      CORRECTION_ADD: "修正增加",
-      CORRECTION_DEDUCT: "修正扣减",
-      TRIAL_GRANT: "试用赠送",
-    };
-    return map[t] ?? t;
+    return getDisplayLabel("creditAdjustment.type", t, "调整类型暂未识别");
   }
 
   return (
@@ -75,7 +73,7 @@ export default function BillingPage() {
         </div>
         {canEdit && (
           <button
-            onClick={() => { setShowForm(!showForm); setMessage(null); }}
+            onClick={() => { setShowForm(!showForm); setMessage(null); setActionError(null); }}
             className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
           >
             <Plus className="h-4 w-4" /> 积分调整
@@ -83,14 +81,16 @@ export default function BillingPage() {
         )}
       </div>
 
+      {loadError && <div className="mb-4"><AdminErrorNotice error={loadError} fallback="积分调整记录加载失败，请稍后重试。" /></div>}
+
       {showForm && (
         <div className="mb-6 max-w-xl rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="mb-4 text-base font-semibold text-slate-700">企业积分调整</h2>
           <div className="space-y-4">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">企业ID</label>
+              <label className="mb-1 block text-sm font-medium text-slate-700">企业编号</label>
               <input value={tenantId} onChange={(e) => setTenantId(e.target.value)}
-                placeholder="请输入企业ID" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                placeholder="请输入企业编号" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -114,6 +114,7 @@ export default function BillingPage() {
               <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2}
                 placeholder="请说明调整原因" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             </div>
+            {actionError != null && <AdminErrorNotice error={actionError} fallback="积分调整暂未成功，请稍后重试。" className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700" />}
             {message && (
               <div className={`rounded-lg px-4 py-2 text-sm ${message.includes("失败") ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>
                 {message}
@@ -139,7 +140,7 @@ export default function BillingPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
-                <th className="px-4 py-3">企业ID</th>
+                <th className="px-4 py-3">企业编号</th>
                 <th className="px-4 py-3">类型</th>
                 <th className="px-4 py-3">数量</th>
                 <th className="px-4 py-3">原因</th>

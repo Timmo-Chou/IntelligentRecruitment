@@ -13,6 +13,9 @@ importers:
       '@hookform/resolvers':
         specifier: 3.10.0
         version: 3.10.0(react-hook-form@7.54.2(react@19.2.0))
+      '@intelligent-recruitment/display-dictionary':
+        specifier: workspace:*
+        version: link:../../packages/display-dictionary
       '@radix-ui/react-dialog':
         specifier: 1.1.6
         version: 1.1.6(@types/react-dom@19.0.3(@types/react@19.0.8))(@types/react@19.0.8)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -101,6 +104,9 @@ importers:
       '@hookform/resolvers':
         specifier: 3.10.0
         version: 3.10.0(react-hook-form@7.54.2(react@19.2.0))
+      '@intelligent-recruitment/display-dictionary':
+        specifier: workspace:*
+        version: link:../../packages/display-dictionary
       '@radix-ui/react-dialog':
         specifier: 1.1.6
         version: 1.1.6(@types/react-dom@19.0.3(@types/react@19.0.8))(@types/react@19.0.8)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -186,6 +192,8 @@ importers:
       vitest:
         specifier: 3.0.6
         version: 3.0.6(@types/node@22.13.4)(jiti@1.21.7)(jsdom@26.0.0(supports-color@7.2.0))(msw@2.7.0(@types/node@22.13.4)(typescript@5.9.3))(supports-color@7.2.0)(yaml@2.9.0)
+
+  packages/display-dictionary: {}
 
 packages:
 

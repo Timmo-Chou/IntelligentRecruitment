@@ -9,6 +9,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminApiFetch } from "@/lib/admin-api-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { getDisplayLabel } from "@/lib/display-label";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 type TicketMessage = {
   id: string;
@@ -43,8 +45,9 @@ export default function TicketDetailPage() {
   const ticketId = params.ticketId as string;
 
   const [message, setMessage] = useState("");
+  const [actionError, setActionError] = useState<unknown>(null);
 
-  const { data: detail, isLoading } = useQuery({
+  const { data: detail, isLoading, error: loadError } = useQuery({
     queryKey: ["ticket", ticketId],
     queryFn: () => adminApiFetch<TicketDetail>(`/platform/tickets/${ticketId}`),
     enabled: !!ticketId,
@@ -65,6 +68,7 @@ export default function TicketDetailPage() {
       setMessage("");
       queryClient.invalidateQueries({ queryKey: ["ticket", ticketId] });
     },
+    onError: setActionError,
   });
 
   // 修改状态
@@ -78,37 +82,29 @@ export default function TicketDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ticket", ticketId] });
     },
+    onError: setActionError,
   });
 
   function getStatusBadge(status: string) {
-    if (status === "OPEN") return <Badge variant="warning">待处理</Badge>;
-    if (status === "IN_PROGRESS") return <Badge variant="info">处理中</Badge>;
-    if (status === "RESOLVED") return <Badge variant="success">已解决</Badge>;
-    if (status === "CLOSED") return <Badge variant="neutral">已关闭</Badge>;
-    return <Badge>{status}</Badge>;
+    const variant = status === "RESOLVED" ? "success" : status === "CLOSED" ? "neutral" : status === "OPEN" || status === "WAITING" ? "warning" : "info";
+    return <Badge variant={variant}>{getDisplayLabel("ticket.status", status, "工单状态暂未识别")}</Badge>;
   }
 
   function getPriorityBadge(priority: string) {
-    if (priority === "URGENT") return <Badge variant="danger">紧急</Badge>;
-    if (priority === "HIGH") return <Badge variant="warning">高</Badge>;
-    if (priority === "NORMAL") return <Badge variant="info">普通</Badge>;
-    if (priority === "MEDIUM") return <Badge variant="info">中</Badge>;
-    return <Badge variant="neutral">低</Badge>;
+    const variant = priority === "URGENT" ? "danger" : priority === "HIGH" ? "warning" : priority === "LOW" ? "neutral" : "info";
+    return <Badge variant={variant}>{getDisplayLabel("ticket.priority", priority, "优先级暂未识别")}</Badge>;
   }
 
   function getCategoryLabel(category: string) {
-    const map: Record<string, string> = {
-      ACCOUNT: "账号问题",
-      BILLING: "账单问题",
-      TECHNICAL: "技术问题",
-      FEEDBACK: "功能反馈",
-      OTHER: "其他",
-    };
-    return map[category] ?? category;
+    return getDisplayLabel("ticket.category", category, "工单分类暂未识别");
   }
 
   if (isLoading) {
     return <div className="p-8 text-center text-sm text-slate-400">加载中…</div>;
+  }
+
+  if (loadError) {
+    return <div className="space-y-4 p-4"><Link href="/tickets" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700"><ArrowLeft className="h-4 w-4" />返回工单列表</Link><AdminErrorNotice error={loadError} fallback="工单详情加载失败，请稍后重试。" /></div>;
   }
 
   if (!ticket) {
@@ -152,7 +148,7 @@ export default function TicketDetailPage() {
                 >
                   <p className="text-xs font-semibold opacity-70">
                     {msg.senderName}
-                    {msg.senderType === "PLATFORM_ADMIN" ? " (平台管理员)" : ""}
+                    {`（${getDisplayLabel("ticket.senderType", msg.senderType, "消息发送方暂未识别")}）`}
                   </p>
                   <p className="mt-1 text-sm">{msg.body}</p>
                   <p className="mt-1 text-right text-xs opacity-60">{msg.createdAt}</p>
@@ -164,6 +160,7 @@ export default function TicketDetailPage() {
             )}
           </div>
 
+          {actionError != null && <AdminErrorNotice error={actionError} fallback="工单操作暂未成功，请稍后重试。" className="mx-4 rounded-lg bg-red-50 p-3 text-sm text-red-700" />}
           {/* 消息输入框 */}
           <div className="border-t border-slate-200 p-4">
             <div className="flex gap-3">
@@ -220,7 +217,7 @@ export default function TicketDetailPage() {
               </div>
               {ticket.tenantName && (
                 <div className="flex justify-between">
-                  <span className="text-slate-500">所属 Tenant</span>
+                  <span className="text-slate-500">所属企业</span>
                   <span className="font-medium text-slate-700">🏢 {ticket.tenantName}</span>
                 </div>
               )}

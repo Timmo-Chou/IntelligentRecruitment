@@ -7,6 +7,7 @@ import {
   collectExpandedIdsForSearch,
   collectLeafIds,
   filterCategoryTree,
+  jobCategoryDisplayName,
   type CategoryNode,
 } from "@/lib/job-categories";
 
@@ -121,7 +122,7 @@ export function CategoryTreePanel({
                 if (el) el.indeterminate = state === "some";
               }}
               onChange={() => toggleNode(node)}
-              aria-label={node.name}
+              aria-label={jobCategoryDisplayName(node.name)}
             />
 
             <button
@@ -129,7 +130,7 @@ export function CategoryTreePanel({
               className="min-w-0 flex-1 truncate py-1.5 text-left text-[13px] font-semibold text-[#36527f] hover:text-[#0874e8]"
               onClick={() => toggleNode(node)}
             >
-              {node.name}
+              {jobCategoryDisplayName(node.name)}
             </button>
           </div>
           {hasChildren && isExpanded && renderNodes(node.children!, depth + 1)}

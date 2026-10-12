@@ -8,6 +8,8 @@ import { useQuery } from "@tanstack/react-query";
 import { adminApiFetch } from "@/lib/admin-api-client";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { getDisplayLabel, resolveCatalogLabel } from "@/lib/display-label";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 type Tenant = {
   id: string;
@@ -52,10 +54,9 @@ export default function TenantsPage() {
   const totalPages = Math.ceil(total / 20);
 
   function getStatusBadge(status: string) {
-    if (status === "ACTIVE") return <Badge variant="success">正常</Badge>;
-    if (status === "DISABLED") return <Badge variant="danger">已禁用</Badge>;
-    if (status === "PENDING_REVIEW") return <Badge variant="warning">待审核</Badge>;
-    return <Badge>{status}</Badge>;
+    const label = getDisplayLabel("tenant.status", status, "租户状态暂未识别");
+    const variant = status === "ACTIVE" || status === "TRIAL_ACTIVE" ? "success" : status === "FROZEN" || status === "CLOSED" ? "danger" : "warning";
+    return <Badge variant={variant}>{label}</Badge>;
   }
 
   return (
@@ -82,8 +83,11 @@ export default function TenantsPage() {
         >
           <option value="">全部状态</option>
           <option value="ACTIVE">正常</option>
-          <option value="PENDING_REVIEW">待审核</option>
-          <option value="DISABLED">已禁用</option>
+          <option value="TRIAL_ACTIVE">试用中</option>
+          <option value="TRIAL_EXPIRED_NO_CONTRACT">试用已到期（未签约）</option>
+          <option value="EXPIRED_READONLY">已到期（只读）</option>
+          <option value="FROZEN">已冻结</option>
+          <option value="CLOSED">已关闭</option>
         </select>
       </div>
 
@@ -91,7 +95,7 @@ export default function TenantsPage() {
         {isLoading ? (
           <div className="p-8 text-center text-sm text-slate-400">加载中…</div>
         ) : error ? (
-          <div className="p-8 text-center text-sm text-red-500">加载失败，请稍后重试</div>
+          <div className="p-4"><AdminErrorNotice error={error} fallback="企业列表加载失败，请稍后重试。" /></div>
         ) : tenants.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-400">暂无企业数据</div>
         ) : (
@@ -116,7 +120,7 @@ export default function TenantsPage() {
                 >
                   <td className="px-4 py-3 text-sm font-medium text-slate-800">{tenant.legal_name}</td>
                   <td className="px-4 py-3 text-sm text-slate-500">{tenant.unified_social_credit_code}</td>
-                  <td className="px-4 py-3 text-sm text-slate-600">{tenant.plan_product_name || "无"}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{tenant.plan_product_name ? resolveCatalogLabel({ code: null, displayName: tenant.plan_product_name, displayNameIsCanonical: true, missingLabel: "套餐名称待补充" }).label : "无"}</td>
                   <td className="px-4 py-3">{getStatusBadge(tenant.status)}</td>
                   <td className="px-4 py-3 text-sm text-slate-600">{tenant.credit_balance ?? 0}</td>
                   <td className="px-4 py-3 text-sm text-slate-600">

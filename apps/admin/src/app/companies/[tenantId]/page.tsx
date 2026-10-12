@@ -9,11 +9,14 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminApiFetch } from "@/lib/admin-api-client";
 import { usePermission } from "@/lib/use-permission";
 import { Badge } from "@/components/ui/badge";
+import { getDisplayLabel, resolveCatalogLabel } from "@/lib/display-label";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 type Member = {
   id: string;
   user_id: string;
   role: string;
+  role_display_name?: string | null;
   status: string;
   joined_at: string;
   display_name: string;
@@ -46,6 +49,8 @@ export default function TenantDetailPage() {
   const canEdit = hasPermission("ADMIN_TENANT_EDIT");
   const [showTransfer, setShowTransfer] = useState(false);
   const [newOwnerId, setNewOwnerId] = useState("");
+  const [actionError, setActionError] = useState<unknown>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["tenant-detail", tenantId],
@@ -63,31 +68,34 @@ export default function TenantDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["tenant-detail", tenantId] });
       setShowTransfer(false);
       setNewOwnerId("");
-      alert("企业负责人已转移");
+      setActionError(null);
+      setActionMessage("企业负责人已转移");
     },
-    onError: (e: Error) => alert("转移失败：" + e.message),
+    onError: (error: Error) => { setActionMessage(null); setActionError(error); },
   });
 
   if (isLoading) return <div className="p-8 text-center text-sm text-slate-400">加载中…</div>;
-  if (error || !data) return <div className="p-8 text-center text-sm text-red-500">加载失败</div>;
+  if (error) return <div className="p-8"><AdminErrorNotice error={error} fallback="企业信息加载暂未成功，请稍后重试。" className="rounded-lg bg-red-50 p-3 text-sm text-red-700" /></div>;
+  if (!data) return <div className="p-8 text-center text-sm text-slate-500">企业信息暂不可用。</div>;
 
   const owner = data.members.find((m) => m.role === "OWNER");
   const otherMembers = data.members.filter((m) => m.role !== "OWNER");
 
   function getStatusBadge(status: string) {
-    if (status === "ACTIVE") return <Badge variant="success">正常</Badge>;
-    if (status === "DISABLED") return <Badge variant="danger">已禁用</Badge>;
-    return <Badge>{status}</Badge>;
+    const label = getDisplayLabel("tenant.status", status, "租户状态暂未识别");
+    return <Badge variant={status === "ACTIVE" || status === "TRIAL_ACTIVE" ? "success" : status === "FROZEN" || status === "CLOSED" ? "danger" : "warning"}>{label}</Badge>;
   }
 
-  function getRoleBadge(role: string) {
-    if (role === "OWNER") return <Badge variant="danger">负责人</Badge>;
-    if (role === "ADMIN") return <Badge variant="info">管理员</Badge>;
-    return <Badge variant="neutral">成员</Badge>;
+  function getRoleBadge(role: string, roleDisplayName?: string | null) {
+    const label = roleDisplayName?.trim()
+      || getDisplayLabel("role.builtin", role, "角色名称暂未配置");
+    return <Badge variant={role === "OWNER" ? "danger" : "neutral"}>{label}</Badge>;
   }
 
   return (
     <div>
+      {actionError != null && <AdminErrorNotice error={actionError} fallback="负责人转移暂未成功，请稍后重试。" className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" />}
+      {actionMessage && <p role="status" className="mb-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{actionMessage}</p>}
       <Link href="/companies" className="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
         <ArrowLeft className="h-4 w-4" /> 返回企业列表
       </Link>
@@ -137,7 +145,7 @@ export default function TenantDetailPage() {
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-slate-500">套餐</span>
-                <span className="font-medium text-slate-800">{data.plan_product_name || "无"}</span>
+                <span className="font-medium text-slate-800">{data.plan_product_name ? resolveCatalogLabel({ code: null, displayName: data.plan_product_name, displayNameIsCanonical: true, missingLabel: "套餐名称待补充" }).label : "无"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">席位</span>
@@ -184,8 +192,8 @@ export default function TenantDetailPage() {
                 <tr key={m.id} className="border-b border-slate-100 hover:bg-slate-50">
                   <td className="px-4 py-3 text-sm font-medium text-slate-800">{m.display_name}</td>
                   <td className="px-4 py-3 text-sm text-slate-500">{m.phone}</td>
-                  <td className="px-4 py-3">{getRoleBadge(m.role)}</td>
-                  <td className="px-4 py-3"><Badge variant={m.status === "ACTIVE" ? "success" : "neutral"}>{m.status}</Badge></td>
+                  <td className="px-4 py-3">{getRoleBadge(m.role, m.role_display_name)}</td>
+                  <td className="px-4 py-3"><Badge variant={m.status === "ACTIVE" ? "success" : "neutral"}>{getDisplayLabel("member.status", m.status, "成员状态暂未识别")}</Badge></td>
                   <td className="px-4 py-3 text-sm text-slate-500">{m.joined_at}</td>
                 </tr>
               ))
@@ -202,9 +210,10 @@ export default function TenantDetailPage() {
             <p className="mb-4 text-sm text-slate-500">
               当前负责人：<span className="font-medium text-slate-700">{owner?.display_name ?? "无"}</span>
             </p>
-            <label className="mb-1 block text-sm font-medium text-slate-700">新负责人用户ID</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">新负责人用户编号</label>
             <input value={newOwnerId} onChange={(e) => setNewOwnerId(e.target.value)}
-              placeholder="请输入新负责人的用户ID" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              placeholder="请输入新负责人的用户编号" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            {actionError != null && <AdminErrorNotice error={actionError} fallback="负责人转移暂未成功，请稍后重试。" className="mt-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" />}
             <p className="mt-2 text-xs text-slate-400">转移后，新负责人将拥有企业最高权限，请谨慎操作。</p>
             <div className="mt-4 flex justify-end gap-3">
               <button onClick={() => setShowTransfer(false)}

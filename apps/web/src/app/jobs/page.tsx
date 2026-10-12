@@ -7,7 +7,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppShell } from "@/components/layout/app-shell";
-import { apiDownload, apiFetch } from "@/lib/api-client";
+import { getDisplayLabel, getSafeErrorMessage } from "@intelligent-recruitment/display-dictionary";
+import { ApiError, apiDownload, apiFetch } from "@/lib/api-client";
 import { CategoryTreePanel } from "@/components/jobs/category-tree-panel";
 import { useTenant } from "@/lib/tenant-context";
 import { useTenantPermission } from "@/lib/tenant-permission";
@@ -23,6 +24,7 @@ import {
   findCategoryName,
   formatCategorySelectionSummary,
   getCategoryButtonLabel,
+  jobCategoryDisplayName,
 } from "@/lib/job-categories";
 
 const HIRE_STATUS_OPTIONS = [
@@ -132,7 +134,7 @@ export default function JobsPage() {
   const [stats, setStats] = useState<JobStats | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [poolTab, setPoolTab] = useState<"mine" | "enterprise">("mine");
-  const [enterpriseJobs, setEnterpriseJobs] = useState<Array<{ copyId: string; sourceJobId: string; sourceOwnerUserId: string; snapshotJson: string; sourceUpdatedAt: string; synchronizedAt: string }>>([]);
+  const [enterpriseJobs, setEnterpriseJobs] = useState<Array<{ copyId: string; sourceJobId: string; sourceOwnerUserId: string; sourceOwnerDisplayName?: string | null; snapshotJson: string; sourceUpdatedAt: string; synchronizedAt: string }>>([]);
   const [enterpriseJobsError, setEnterpriseJobsError] = useState<string | null>(null);
   const [jobPoolSharingEnabled, setJobPoolSharingEnabled] = useState(false);
   const [jobPoolAllowed, setJobPoolAllowed] = useState(false);
@@ -208,7 +210,7 @@ export default function JobsPage() {
     setEnterpriseJobsError(null);
     void apiFetch<typeof enterpriseJobs>(`/tenants/${tenantId}/enterprise-pools/jobs`)
       .then(setEnterpriseJobs)
-      .catch((cause) => setEnterpriseJobsError(cause instanceof Error ? cause.message : "企业职位池暂不可用"));
+      .catch((cause) => setEnterpriseJobsError(cause instanceof ApiError ? getSafeErrorMessage(cause.body.code, cause.body.request_id, "企业职位池暂不可用，请稍后重试。") : "企业职位池暂不可用，请稍后重试。"));
   }, [tenantId, poolTab, tenant?.type, jobPoolAllowed]);
 
   const loadData = useCallback(async () => {
@@ -246,7 +248,7 @@ export default function JobsPage() {
       });
     } catch (err) {
       if (requestId !== loadRequestRef.current) return;
-      setError(err instanceof Error ? err.message : "加载职位数据失败");
+      setError(err instanceof ApiError ? getSafeErrorMessage(err.body.code, err.body.request_id, "职位列表加载暂未成功，请稍后重试。") : "职位列表加载暂未成功，请稍后重试。");
     } finally {
       if (requestId === loadRequestRef.current) setDataLoading(false);
     }
@@ -370,7 +372,7 @@ export default function JobsPage() {
       syncJob(saved);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "保存职位失败");
+      setError(err instanceof ApiError ? getSafeErrorMessage(err.body.code, err.body.request_id, "职位保存暂未成功，请稍后重试。") : "职位保存暂未成功，请稍后重试。");
     } finally {
       setEditSaving(false);
     }
@@ -383,7 +385,7 @@ export default function JobsPage() {
       syncJob(saved);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "更新职位状态失败");
+      setError(err instanceof ApiError ? getSafeErrorMessage(err.body.code, err.body.request_id, "职位状态更新暂未成功，请稍后重试。") : "职位状态更新暂未成功，请稍后重试。");
     }
   };
 
@@ -397,7 +399,7 @@ export default function JobsPage() {
       setJobs((prev) => prev.filter((item) => item.id !== jobId));
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "删除职位失败");
+      setError(err instanceof ApiError ? getSafeErrorMessage(err.body.code, err.body.request_id, "职位删除暂未成功，请稍后重试。") : "职位删除暂未成功，请稍后重试。");
     }
   };
 
@@ -410,7 +412,7 @@ export default function JobsPage() {
       setBatchConfirm(null);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "批量发布失败");
+      setError(err instanceof ApiError ? getSafeErrorMessage(err.body.code, err.body.request_id, "批量发布暂未成功，请稍后重试。") : "批量发布暂未成功，请稍后重试。");
     } finally {
       setBatchBusy(false);
     }
@@ -425,7 +427,7 @@ export default function JobsPage() {
       setBatchConfirm(null);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "批量停用失败");
+      setError(err instanceof ApiError ? getSafeErrorMessage(err.body.code, err.body.request_id, "批量停用暂未成功，请稍后重试。") : "批量停用暂未成功，请稍后重试。");
     } finally {
       setBatchBusy(false);
     }
@@ -443,7 +445,7 @@ export default function JobsPage() {
       setBatchConfirm(null);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "批量删除失败");
+      setError(err instanceof ApiError ? getSafeErrorMessage(err.body.code, err.body.request_id, "批量删除暂未成功，请稍后重试。") : "批量删除暂未成功，请稍后重试。");
     } finally {
       setBatchBusy(false);
     }
@@ -573,9 +575,9 @@ export default function JobsPage() {
       )}
       {poolTab === "enterprise" && tenant?.type === "ENTERPRISE" ? (
         <section className="rounded-xl border border-[#d6e5f5] bg-white p-4 shadow-[0_6px_20px_rgba(30,92,160,0.04)]">
-          <div className="mb-4 flex items-center justify-between"><div><h2 className="m-0 text-lg font-bold text-[#173568]">企业职位池</h2><p className="m-0 mt-1 text-xs text-[#6b80a4]">企业成员同步的只读职位副本。</p></div><div className="flex gap-2"><button type="button" className="outline-button" onClick={async () => { if (!tenantId) return; try { const blob = await apiDownload(`/tenants/${tenantId}/enterprise-pools/jobs/export`); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "enterprise-job-pool.csv"; link.click(); URL.revokeObjectURL(url); } catch { setEnterpriseJobsError("导出权限不足"); } }}>导出 CSV</button></div></div>
+          <div className="mb-4 flex items-center justify-between"><div><h2 className="m-0 text-lg font-bold text-[#173568]">企业职位池</h2><p className="m-0 mt-1 text-xs text-[#6b80a4]">企业成员同步的只读职位副本。</p></div><div className="flex gap-2"><button type="button" className="outline-button" onClick={async () => { if (!tenantId) return; try { const blob = await apiDownload(`/tenants/${tenantId}/enterprise-pools/jobs/export`); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "企业职位池.csv"; link.click(); URL.revokeObjectURL(url); } catch { setEnterpriseJobsError("导出权限不足"); } }}>导出 CSV</button></div></div>
           {enterpriseJobsError && <p className="rounded bg-[#fff5f5] p-3 text-sm text-[#dc2626]">{enterpriseJobsError}</p>}
-          {enterpriseJobs.length === 0 ? <p className="py-12 text-center text-sm text-[#6b80a4]">暂无企业职位副本</p> : <div className="overflow-x-auto"><table className="w-full text-left text-xs text-[#36527f]"><thead><tr className="border-b border-[#eaf1fa]"><th className="px-3 py-3">职位名称</th><th className="px-3 py-3">来源成员</th><th className="px-3 py-3">最近同步</th></tr></thead><tbody>{enterpriseJobs.map((job) => { let snapshot: Record<string, string> = {}; try { snapshot = JSON.parse(job.snapshotJson) as Record<string, string>; } catch { /* 服务端快照异常时保持只读空值 */ } return <tr key={job.copyId} className="border-b border-[#eaf1fa]"><td className="px-3 py-3 font-semibold">{snapshot.title || job.sourceJobId}</td><td className="px-3 py-3">{job.sourceOwnerUserId}</td><td className="px-3 py-3">{formatDate(job.synchronizedAt)}</td></tr>; })}</tbody></table></div>}
+          {enterpriseJobs.length === 0 ? <p className="py-12 text-center text-sm text-[#6b80a4]">暂无企业职位副本</p> : <div className="overflow-x-auto"><table className="w-full text-left text-xs text-[#36527f]"><thead><tr className="border-b border-[#eaf1fa]"><th className="px-3 py-3">职位名称</th><th className="px-3 py-3">来源成员</th><th className="px-3 py-3">最近同步</th></tr></thead><tbody>{enterpriseJobs.map((job) => { let snapshot: Record<string, string> = {}; try { snapshot = JSON.parse(job.snapshotJson) as Record<string, string>; } catch { /* 服务端快照异常时保持只读空值 */ } return <tr key={job.copyId} className="border-b border-[#eaf1fa]"><td className="px-3 py-3 font-semibold">{snapshot.title || "职位名称暂未获取"}</td><td className="px-3 py-3">{job.sourceOwnerUserId ? <><span>{job.sourceOwnerDisplayName?.trim() || "成员名称暂未获取"}</span><small className="mt-1 block text-[#7187a8]">成员编号：{job.sourceOwnerUserId}</small></> : "暂无"}</td><td className="px-3 py-3">{formatDate(job.synchronizedAt)}</td></tr>; })}</tbody></table></div>}
         </section>
       ) : (
       <div className="grid gap-3 2xl:grid-cols-[minmax(700px,1fr)_420px]">
@@ -645,7 +647,7 @@ export default function JobsPage() {
                 {canEdit && <button className="primary-button !h-10" type="button" onClick={() => handleOpenEdit()}>
                   <Plus size={16} /> 新建职位
                 </button>}
-                {tenant?.type === "ENTERPRISE" && jobPoolSharingEnabled && tenant?.status !== "EXPIRED_READONLY" && <button className="outline-button !h-10" type="button" onClick={() => { if (tenantId) void apiFetch(`/tenants/${tenantId}/enterprise-pools/jobs/sync`, { method: "POST" }).catch((cause) => setError(cause instanceof Error ? cause.message : "同步失败")); }}>同步至企业池</button>}
+                {tenant?.type === "ENTERPRISE" && jobPoolSharingEnabled && tenant?.status !== "EXPIRED_READONLY" && <button className="outline-button !h-10" type="button" onClick={() => { if (tenantId) void apiFetch(`/tenants/${tenantId}/enterprise-pools/jobs/sync`, { method: "POST" }).catch((cause) => setError(cause instanceof ApiError ? getSafeErrorMessage(cause.body.code, cause.body.request_id, "同步暂未成功，请稍后重试。") : "同步暂未成功，请稍后重试。")); }}>同步至企业池</button>}
 
                 {canEdit && <div className="relative" ref={batchMenuRef}>
                   <button
@@ -936,7 +938,7 @@ export default function JobsPage() {
               {detailJob.benefits && <DetailSection title="福利待遇"><p className="m-0 whitespace-pre-wrap">{detailJob.benefits}</p></DetailSection>}
 
               <div className="mt-4 grid grid-cols-1 gap-3 rounded-xl border border-[#deebf7] bg-[#f9fcff] p-4 sm:grid-cols-3">
-                <button className="primary-button" type="button" onClick={() => alert("AI招聘助手功能即将上线")}>
+                <button className="primary-button" type="button" onClick={() => alert("智能招聘助手功能即将上线")}>
                   AI招聘助手
                 </button>
                 {detailJob.status === "ACTIVE" ? (
@@ -1246,7 +1248,7 @@ function DepartmentTreeSelect({ value, onChange }: { value: string; onChange: (i
               className={`flex-1 truncate py-1.5 text-left text-[13px] hover:text-[#0874e8] ${value === node.id ? "font-semibold text-[#0874e8]" : "text-[#36527f]"}`}
               onClick={() => { onChange(node.id); setOpen(false); }}
             >
-              {node.name}
+              {jobCategoryDisplayName(node.name)}
             </button>
           </div>
           {hasChildren && isOpen && renderNodes(node.children!, depth + 1)}
@@ -1776,8 +1778,9 @@ function ConfirmModal({
 }
 
 function formatDate(iso: string): string {
-  if (!iso) return "--";
+  if (!iso) return "暂无";
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "时间暂不可用";
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
@@ -1786,13 +1789,9 @@ function pad(n: number): string {
 }
 
 function statusLabel(status: string): string {
-  switch (status) {
-    case "ACTIVE": return "招聘中";
-    case "CLOSED": return "已结束";
-    case "PENDING": return "待发布";
-    case "DRAFT": return "草稿";
-    default: return status;
-  }
+  return status === "PENDING"
+    ? getDisplayLabel("job.filterCompatibility", status, "职位状态暂未识别")
+    : getDisplayLabel("job.status", status, "职位状态暂未识别");
 }
 
 function findDeptName(nodes: DeptNode[], id: string): string | null {

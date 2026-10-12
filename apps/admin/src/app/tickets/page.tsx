@@ -9,6 +9,8 @@ import { adminApiFetch } from "@/lib/admin-api-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getDisplayLabel } from "@/lib/display-label";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 type Ticket = {
   id: string;
@@ -54,30 +56,17 @@ export default function TicketsPage() {
   const totalPages = Math.ceil(total / 20);
 
   function getStatusBadge(status: string) {
-    if (status === "OPEN") return <Badge variant="warning">待处理</Badge>;
-    if (status === "IN_PROGRESS") return <Badge variant="info">处理中</Badge>;
-    if (status === "RESOLVED") return <Badge variant="success">已解决</Badge>;
-    if (status === "CLOSED") return <Badge variant="neutral">已关闭</Badge>;
-    return <Badge>{status}</Badge>;
+    const variant = status === "RESOLVED" ? "success" : status === "CLOSED" ? "neutral" : status === "OPEN" || status === "WAITING" ? "warning" : "info";
+    return <Badge variant={variant}>{getDisplayLabel("ticket.status", status, "工单状态暂未识别")}</Badge>;
   }
 
   function getPriorityBadge(priority: string) {
-    if (priority === "URGENT") return <Badge variant="danger">紧急</Badge>;
-    if (priority === "HIGH") return <Badge variant="warning">高</Badge>;
-    if (priority === "NORMAL") return <Badge variant="info">普通</Badge>;
-    if (priority === "MEDIUM") return <Badge variant="info">中</Badge>;
-    return <Badge variant="neutral">低</Badge>;
+    const variant = priority === "URGENT" ? "danger" : priority === "HIGH" ? "warning" : priority === "LOW" ? "neutral" : "info";
+    return <Badge variant={variant}>{getDisplayLabel("ticket.priority", priority, "优先级暂未识别")}</Badge>;
   }
 
   function getCategoryLabel(category: string) {
-    const map: Record<string, string> = {
-      ACCOUNT: "账号问题",
-      BILLING: "账单问题",
-      TECHNICAL: "技术问题",
-      FEEDBACK: "功能反馈",
-      OTHER: "其他",
-    };
-    return map[category] ?? category;
+    return getDisplayLabel("ticket.category", category, "工单分类暂未识别");
   }
 
   return (
@@ -125,7 +114,7 @@ export default function TicketsPage() {
         {isLoading ? (
           <div className="p-8 text-center text-sm text-slate-400">加载中…</div>
         ) : error ? (
-          <div className="p-8 text-center text-sm text-red-500">加载失败，请稍后重试</div>
+          <div className="p-4"><AdminErrorNotice error={error} fallback="工单列表加载失败，请稍后重试。" /></div>
         ) : tickets.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-400">暂无工单数据</div>
         ) : (

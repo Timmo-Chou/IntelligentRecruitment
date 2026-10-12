@@ -8,6 +8,8 @@ import { adminApiFetch } from "@/lib/admin-api-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { usePermission } from "@/lib/use-permission";
+import { getDisplayLabel } from "@/lib/display-label";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 type Registration = {
   registration_id: string;
@@ -26,8 +28,9 @@ export default function ReviewsPage() {
   const { hasPermission } = usePermission();
   const canEdit = hasPermission("ADMIN_REVIEW_EDIT");
   const [status, setStatus] = useState("PENDING_REVIEW");
+  const [actionError, setActionError] = useState<unknown>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: loadError } = useQuery({
     queryKey: ["enterprise-registrations", status],
     queryFn: () => adminApiFetch<Registration[]>(`/platform/recruitment/enterprise-registrations?status=${status}`),
   });
@@ -35,7 +38,9 @@ export default function ReviewsPage() {
   const approveMutation = useMutation({
     mutationFn: (id: string) =>
       adminApiFetch(`/platform/recruitment/enterprise-registrations/${id}/approve`, { method: "POST" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["enterprise-registrations"] }),
+    onMutate: () => setActionError(null),
+    onSuccess: () => { setActionError(null); return queryClient.invalidateQueries({ queryKey: ["enterprise-registrations"] }); },
+    onError: setActionError,
   });
 
   const rejectMutation = useMutation({
@@ -44,7 +49,9 @@ export default function ReviewsPage() {
         method: "POST",
         body: JSON.stringify({ reason }),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["enterprise-registrations"] }),
+    onSuccess: () => { setActionError(null); return queryClient.invalidateQueries({ queryKey: ["enterprise-registrations"] }); },
+    onMutate: () => setActionError(null),
+    onError: setActionError,
   });
 
   const items = data ?? [];
@@ -53,7 +60,7 @@ export default function ReviewsPage() {
     if (s === "PENDING_REVIEW") return <Badge variant="warning">待审核</Badge>;
     if (s === "APPROVED" || s === "TRIAL_ACTIVE") return <Badge variant="success">已通过</Badge>;
     if (s === "REJECTED") return <Badge variant="danger">已拒绝</Badge>;
-    return <Badge>{s}</Badge>;
+    return <Badge>{getDisplayLabel("registration.status", s, "审核状态暂未识别")}</Badge>;
   }
 
   return (
@@ -84,9 +91,14 @@ export default function ReviewsPage() {
         </button>
       </div>
 
+      {loadError && <div className="mb-4"><AdminErrorNotice error={loadError} fallback="企业注册申请加载失败，请稍后重试。" /></div>}
+      {actionError != null && <div className="mb-4"><AdminErrorNotice error={actionError} fallback="审核操作暂未成功，请稍后重试。" /></div>}
+
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-slate-400">加载中…</div>
+        ) : loadError ? (
+          <div className="p-8 text-center text-sm text-slate-400">无法显示审核记录</div>
         ) : items.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-400">暂无审核记录</div>
         ) : (

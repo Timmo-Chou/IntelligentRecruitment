@@ -6,6 +6,8 @@ import { useMutation } from "@tanstack/react-query";
 import { adminApiFetch } from "@/lib/admin-api-client";
 import { usePermission } from "@/lib/use-permission";
 import { KeyRound, Save } from "lucide-react";
+import { getDisplayLabel } from "@/lib/display-label";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 export default function EntitlementsPage() {
   const { hasPermission } = usePermission();
@@ -16,6 +18,7 @@ export default function EntitlementsPage() {
   const [limitValue, setLimitValue] = useState("");
   const [reason, setReason] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<unknown>(null);
 
   const addOverrideMutation = useMutation({
     mutationFn: () =>
@@ -32,9 +35,10 @@ export default function EntitlementsPage() {
       }),
     onSuccess: () => {
       setMessage("权益覆盖已添加");
+      setActionError(null);
       setTenantId(""); setFeatureCode(""); setLimitValue(""); setReason("");
     },
-    onError: (e: unknown) => setMessage(`操作失败：${e instanceof Error ? e.message : "操作失败，请稍后重试"}`),
+    onError: (error: unknown) => { setMessage(null); setActionError(error); },
   });
 
   return (
@@ -52,14 +56,15 @@ export default function EntitlementsPage() {
 
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">企业ID (Tenant ID)</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">企业编号</label>
             <input value={tenantId} onChange={(e) => setTenantId(e.target.value)}
-              placeholder="请输入企业ID" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              placeholder="请输入企业编号" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">功能编码</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">权益代码</label>
             <input value={featureCode} onChange={(e) => setFeatureCode(e.target.value)}
-              placeholder="如：AI_RESUME_PARSE" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              placeholder="请输入服务端权益目录中的代码" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+            <p className="mt-1 text-xs text-slate-500">权益名称：{featureCode ? getDisplayLabel("entitlement.featureCode", featureCode, "权益名称待配置") : "输入代码后显示"}。此处填写权益代码，不是成员权限代码。</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -83,6 +88,7 @@ export default function EntitlementsPage() {
               placeholder="请说明操作原因" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
           </div>
 
+          {actionError != null && <AdminErrorNotice error={actionError} fallback="权益覆盖暂未成功，请稍后重试。" className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700" />}
           {message && (
             <div className={`rounded-lg px-4 py-2 text-sm ${message.includes("失败") ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>
               {message}

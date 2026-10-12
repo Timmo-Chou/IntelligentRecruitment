@@ -5,6 +5,21 @@ export type CategoryNode = {
   children?: CategoryNode[];
 };
 
+/** Display-only wording; ids and API values continue to use the source category names. */
+export function jobCategoryDisplayName(name: string): string {
+  const labels: Record<string, string> = {
+    "Aspen Plus": "Aspen Plus（流程模拟软件）",
+    "Aspen HYSYS": "Aspen HYSYS（流程模拟软件）",
+    CFD: "计算流体力学（CFD）",
+    DCS: "集散控制系统（DCS）",
+    PLC: "可编程逻辑控制器（PLC）",
+    QA: "质量保证（QA）",
+    QC: "质量控制（QC）",
+    "EHS类": "环境、健康与安全（EHS）",
+  };
+  return labels[name] ?? name;
+}
+
 function n(id: string, name: string, children?: CategoryNode[]): CategoryNode {
   return children?.length ? { id, name, children } : { id, name };
 }

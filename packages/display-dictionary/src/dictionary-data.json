@@ -1,0 +1,3416 @@
+[
+  {
+    "domain": "tenant.status",
+    "code": "ACTIVE",
+    "label": "正常",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "tenant.status",
+    "code": "TRIAL_ACTIVE",
+    "label": "试用中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "tenant.status",
+    "code": "TRIAL_EXPIRED_NO_CONTRACT",
+    "label": "试用已到期（未签约）",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "tenant.status",
+    "code": "EXPIRED_READONLY",
+    "label": "已到期（只读）",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "tenant.status",
+    "code": "FROZEN",
+    "label": "已冻结",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "tenant.status",
+    "code": "CLOSED",
+    "label": "已关闭",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "tenant.type",
+    "code": "PERSONAL",
+    "label": "个人账号",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "tenant.type",
+    "code": "ENTERPRISE",
+    "label": "企业账号",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "user.status",
+    "code": "ACTIVE",
+    "label": "正常",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "user.status",
+    "code": "DISABLED",
+    "label": "已禁用",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "admin.status",
+    "code": "ACTIVE",
+    "label": "正常",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "admin.status",
+    "code": "DISABLED",
+    "label": "已禁用",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "admin.status",
+    "code": "PENDING_REVIEW",
+    "label": "待审核",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "admin.role",
+    "code": "SUPER_ADMIN",
+    "label": "超级管理员",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "admin.role",
+    "code": "ADMIN",
+    "label": "管理员",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "admin.role",
+    "code": "OPERATOR",
+    "label": "运营人员",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "member.status",
+    "code": "ACTIVE",
+    "label": "正常",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "member.status",
+    "code": "REMOVED",
+    "label": "已移除",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "member.joinMethod",
+    "code": "REGISTRATION",
+    "label": "企业注册",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "member.joinMethod",
+    "code": "INVITATION",
+    "label": "邀请加入",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "member.joinMethod",
+    "code": "APPLICATION",
+    "label": "申请加入",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "member.joinMethod",
+    "code": "PLATFORM",
+    "label": "平台添加",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "role.builtin",
+    "code": "OWNER",
+    "label": "企业负责人",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "role.builtin",
+    "code": "RECRUITMENT_MANAGER",
+    "label": "招聘主管",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "role.builtin",
+    "code": "RECRUITMENT_SPECIALIST",
+    "label": "招聘专员",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "role.builtin",
+    "code": "READONLY_MEMBER",
+    "label": "只读成员",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "role.compatibility",
+    "code": "ADMIN",
+    "label": "管理员",
+    "applicationClass": "历史兼容（仅显示历史值）"
+  },
+  {
+    "domain": "role.compatibility",
+    "code": "MEMBER",
+    "label": "成员",
+    "applicationClass": "历史兼容（仅显示历史值）"
+  },
+  {
+    "domain": "seat.status",
+    "code": "ASSIGNED",
+    "label": "已分配",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "seat.status",
+    "code": "RELEASED",
+    "label": "已释放",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "registration.status",
+    "code": "PENDING_REVIEW",
+    "label": "待审核",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "registration.status",
+    "code": "APPROVED",
+    "label": "已通过",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "registration.status",
+    "code": "REJECTED",
+    "label": "已驳回",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "joinApplication.status",
+    "code": "PENDING",
+    "label": "待审批",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "joinApplication.status",
+    "code": "APPROVED",
+    "label": "已通过",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "joinApplication.status",
+    "code": "REJECTED",
+    "label": "已驳回",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "joinApplication.status",
+    "code": "CANCELLED",
+    "label": "已取消",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "invitation.status",
+    "code": "ACTIVE",
+    "label": "有效",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "invitation.status",
+    "code": "REVOKED",
+    "label": "已撤销",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "invitation.status",
+    "code": "EXHAUSTED",
+    "label": "已用完",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "invitation.status",
+    "code": "EXPIRED",
+    "label": "已过期",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "catalog.status",
+    "code": "ACTIVE",
+    "label": "已启用",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "catalog.status",
+    "code": "DISABLED",
+    "label": "已停用",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "catalog.frontend",
+    "code": "USER",
+    "label": "用户端",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "catalog.frontend",
+    "code": "ADMIN",
+    "label": "管理端",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "product.domain",
+    "code": "RECRUITMENT",
+    "label": "智能招聘",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "product.domain",
+    "code": "OPEN_API",
+    "label": "开放接口",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "product.audience",
+    "code": "PERSONAL",
+    "label": "个人",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "product.audience",
+    "code": "ENTERPRISE",
+    "label": "企业",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "subscription.kind",
+    "code": "TRIAL",
+    "label": "试用套餐",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "subscription.kind",
+    "code": "PLAN",
+    "label": "企业套餐",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "subscription.kind",
+    "code": "PERSONAL_PLAN",
+    "label": "个人套餐",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "subscription.status",
+    "code": "ACTIVE",
+    "label": "已生效",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "subscription.status",
+    "code": "ENDED",
+    "label": "已结束",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "subscription.status",
+    "code": "EXPIRED",
+    "label": "已到期",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "creditLot.sourceType",
+    "code": "TRIAL",
+    "label": "试用赠送",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "creditLot.sourceType",
+    "code": "PLAN",
+    "label": "套餐发放",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "creditLot.sourceType",
+    "code": "CREDIT_PACK",
+    "label": "积分包购买",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "creditLot.sourceType",
+    "code": "ADJUSTMENT",
+    "label": "积分调整",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "creditLot.status",
+    "code": "ACTIVE",
+    "label": "有效",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "creditLot.status",
+    "code": "EXPIRED",
+    "label": "已过期",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "creditLot.status",
+    "code": "VOIDED",
+    "label": "已作废",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "creditAdjustment.type",
+    "code": "COMPENSATION",
+    "label": "补偿发放",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "creditAdjustment.type",
+    "code": "CORRECTION_ADD",
+    "label": "修正增加",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "creditAdjustment.type",
+    "code": "CORRECTION_DEDUCT",
+    "label": "修正扣减",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "creditAdjustment.type",
+    "code": "TRIAL_GRANT",
+    "label": "试用赠送",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "contractOrder.status",
+    "code": "DRAFT",
+    "label": "草稿",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "contractOrder.status",
+    "code": "PENDING_BINDING",
+    "label": "待绑定企业",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "contractOrder.status",
+    "code": "READY_TO_ACTIVATE",
+    "label": "待激活",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "contractOrder.status",
+    "code": "ACTIVE",
+    "label": "已生效",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "contractOrder.status",
+    "code": "CANCELLED",
+    "label": "已取消",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "personalOrder.paymentStatus",
+    "code": "PENDING",
+    "label": "待支付",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "personalOrder.paymentStatus",
+    "code": "PAID",
+    "label": "已支付",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "personalOrder.paymentStatus",
+    "code": "FAILED",
+    "label": "支付失败",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "personalOrder.paymentStatus",
+    "code": "CANCELLED",
+    "label": "已取消",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "product.kind",
+    "code": "PLAN",
+    "label": "套餐",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "product.kind",
+    "code": "CREDIT_PACK",
+    "label": "积分包",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "product.status",
+    "code": "DRAFT",
+    "label": "草稿",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "product.status",
+    "code": "PUBLISHED",
+    "label": "已发布",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "product.status",
+    "code": "RETIRED",
+    "label": "已下线",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "plan.billingPeriod",
+    "code": "MONTH",
+    "label": "月度",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "plan.billingPeriod",
+    "code": "QUARTER",
+    "label": "季度",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "plan.billingPeriod",
+    "code": "YEAR",
+    "label": "年度",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "creditPack.validUnit",
+    "code": "MONTH",
+    "label": "月",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "creditPack.validUnit",
+    "code": "YEAR",
+    "label": "年",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "override.action",
+    "code": "ENABLE",
+    "label": "临时启用",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "override.action",
+    "code": "DISABLE",
+    "label": "临时停用",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "override.action",
+    "code": "SET_LIMIT",
+    "label": "设置额度上限",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.billingMethod",
+    "code": "TOKEN",
+    "label": "按模型用量计费",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.billingMethod",
+    "code": "FIXED_PER_EXECUTION",
+    "label": "按次固定积分",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.billingMethod",
+    "code": "FIXED_PER_CANDIDATE",
+    "label": "按候选人固定积分",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.agentId",
+    "code": "simple_recruitment_agent",
+    "label": "标准招聘执行服务",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.agentId",
+    "code": "complex_recruitment_agent",
+    "label": "高级招聘执行服务",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "REQUIREMENT_CHAT",
+    "label": "招聘需求沟通",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "JD_GENERATION",
+    "label": "职位描述生成",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "RESUME_PARSING",
+    "label": "简历解析",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "SCREENING_PLAN_GENERATION",
+    "label": "筛选方案生成",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "CANDIDATE_SCREENING",
+    "label": "简历筛选",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "CANDIDATE_SOURCING",
+    "label": "候选人寻访",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "JOB_DISTRIBUTION",
+    "label": "职位分发",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "CANDIDATE_OUTREACH",
+    "label": "候选人触达",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "INTERVIEW_KIT_GENERATION",
+    "label": "面试题包生成",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "CONVERSATION_ROUTE",
+    "label": "对话意图识别",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "CONVERSATION_CONTINUE",
+    "label": "继续招聘对话",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "JD_IN_PLACE_REVISION",
+    "label": "当前职位描述修订",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "TASK_ASSISTANCE",
+    "label": "招聘任务协助",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ai.capability",
+    "code": "RECRUITMENT_QA",
+    "label": "招聘问答",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "recruitment.featureType",
+    "code": "JD_GENERATION",
+    "label": "职位描述生成",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "recruitment.featureType",
+    "code": "RESUME_PARSING",
+    "label": "简历解析",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "recruitment.featureType",
+    "code": "CANDIDATE_SCREENING",
+    "label": "简历筛选",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "recruitment.featureType",
+    "code": "INTERVIEW_KIT",
+    "label": "面试题包生成",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "entitlement.featureCode",
+    "code": "AI_JD_GENERATION",
+    "label": "职位描述生成",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "entitlement.featureCode",
+    "code": "AI_RESUME_PARSING",
+    "label": "简历解析",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "entitlement.legacyExample",
+    "code": "AI_RESUME_PARSE",
+    "label": "简历解析（旧示例编码）",
+    "applicationClass": "旧示例（仅诊断，禁止用于正常选项）"
+  },
+  {
+    "domain": "commercial.operation",
+    "code": "create",
+    "label": "创建",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "commercial.operation",
+    "code": "analyze",
+    "label": "解析",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "commercial.operation",
+    "code": "match",
+    "label": "匹配",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "commercial.operation",
+    "code": "revise",
+    "label": "修订",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "commercial.operation",
+    "code": "generate",
+    "label": "生成",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "commercial.operation",
+    "code": "execute",
+    "label": "执行",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "route.operation",
+    "code": "create",
+    "label": "创建",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.operation",
+    "code": "revise",
+    "label": "修订",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.operation",
+    "code": "continue",
+    "label": "继续",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.operation",
+    "code": "inspect",
+    "label": "查看",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.operation",
+    "code": "confirm",
+    "label": "确认",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.operation",
+    "code": "cancel",
+    "label": "取消",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.operation",
+    "code": "retry",
+    "label": "重试",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.kind",
+    "code": "route",
+    "label": "执行建议",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.kind",
+    "code": "clarify",
+    "label": "补充信息",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.kind",
+    "code": "inform",
+    "label": "信息说明",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.kind",
+    "code": "unsupported",
+    "label": "暂不支持",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.kind",
+    "code": "fallback",
+    "label": "转交处理",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.nextAction",
+    "code": "collect_requirement",
+    "label": "补充招聘需求",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.nextAction",
+    "code": "select_job_version",
+    "label": "选择职位版本",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.nextAction",
+    "code": "select_candidates",
+    "label": "选择候选人",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.nextAction",
+    "code": "prepare_screening_plan",
+    "label": "准备筛选方案",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.nextAction",
+    "code": "show_quote",
+    "label": "查看费用预估",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.nextAction",
+    "code": "inspect_task",
+    "label": "查看任务",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "route.nextAction",
+    "code": "none",
+    "label": "暂无下一步",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.status",
+    "code": "DRAFT",
+    "label": "草稿",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.status",
+    "code": "ACTIVE",
+    "label": "招聘中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.status",
+    "code": "CLOSED",
+    "label": "已结束",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.filterCompatibility",
+    "code": "PENDING",
+    "label": "待发布",
+    "applicationClass": "历史兼容（仅显示历史值）"
+  },
+  {
+    "domain": "job.source",
+    "code": "MANUAL",
+    "label": "手动创建",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.source",
+    "code": "AI_GENERATED",
+    "label": "智能生成",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "task.status",
+    "code": "ACTIVE",
+    "label": "进行中",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "task.statusCompatibility",
+    "code": "COMPLETED",
+    "label": "已完成",
+    "applicationClass": "历史兼容（仅显示历史值）"
+  },
+  {
+    "domain": "task.statusCompatibility",
+    "code": "FAILED",
+    "label": "失败",
+    "applicationClass": "历史兼容（仅显示历史值）"
+  },
+  {
+    "domain": "task.statusCompatibility",
+    "code": "CANCELLED",
+    "label": "已取消",
+    "applicationClass": "历史兼容（仅显示历史值）"
+  },
+  {
+    "domain": "task.currentStage",
+    "code": "COLLECTING_REQUIREMENTS",
+    "label": "收集招聘需求",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "task.currentStage",
+    "code": "JD_GENERATING",
+    "label": "职位描述生成中",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "task.currentStage",
+    "code": "AWAITING_JD_CONFIRMATION",
+    "label": "职位描述待确认",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "task.currentStage",
+    "code": "JD_CONFIRMED",
+    "label": "职位描述已确认",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "task.currentStage",
+    "code": "JD_GENERATION_FAILED",
+    "label": "职位描述生成失败",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "task.currentStage",
+    "code": "RESUME_PARSING",
+    "label": "简历解析中",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "task.currentStage",
+    "code": "AWAITING_RESUME_PARSE_CONFIRM",
+    "label": "简历解析结果待确认",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "task.currentStage",
+    "code": "RESUME_PARSE_CONFIRMED",
+    "label": "简历解析结果已确认",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "task.currentStage",
+    "code": "INTERVIEW_KIT_GENERATING",
+    "label": "面试题生成中",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "task.currentStage",
+    "code": "AWAITING_INTERVIEW_KIT_CONFIRMATION",
+    "label": "面试题包待确认",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "task.currentStage",
+    "code": "INTERVIEW_KIT_GENERATION_FAILED",
+    "label": "面试题生成失败",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "draft.status",
+    "code": "DRAFT",
+    "label": "草稿",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "draft.status",
+    "code": "CONFIRMED",
+    "label": "已确认",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "interviewKit.status",
+    "code": "DRAFT",
+    "label": "草稿",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "interviewKit.status",
+    "code": "CONFIRMED",
+    "label": "已发布",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiRun.status",
+    "code": "QUEUED",
+    "label": "排队中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiRun.status",
+    "code": "RUNNING",
+    "label": "执行中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiRun.status",
+    "code": "COMPLETED",
+    "label": "执行完成",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiRun.status",
+    "code": "FAILED",
+    "label": "执行失败",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiTask.status",
+    "code": "QUEUED",
+    "label": "排队中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiTask.status",
+    "code": "RUNNING",
+    "label": "执行中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiTask.status",
+    "code": "WAITING_FOR_INPUT",
+    "label": "等待补充信息",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiTask.status",
+    "code": "PARTIALLY_COMPLETED",
+    "label": "部分完成",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiTask.status",
+    "code": "CANCEL_REQUESTED",
+    "label": "正在申请取消",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiTask.status",
+    "code": "RECONCILIATION_REQUIRED",
+    "label": "结果待核对",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiTask.status",
+    "code": "RESULT_MAPPING_FAILED",
+    "label": "结果处理失败",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiTask.status",
+    "code": "COMPLETED",
+    "label": "已完成",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiTask.status",
+    "code": "FAILED",
+    "label": "失败",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "aiTask.status",
+    "code": "CANCELLED",
+    "label": "已取消",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "execution.status",
+    "code": "AUTHORIZED",
+    "label": "积分已预占",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "execution.status",
+    "code": "AGENT_ACCEPTED",
+    "label": "执行服务已接收",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "execution.status",
+    "code": "RUNNING",
+    "label": "执行中",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "execution.status",
+    "code": "CANCEL_REQUESTED",
+    "label": "正在申请取消",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "execution.status",
+    "code": "RECONCILIATION_REQUIRED",
+    "label": "结果待核对",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "execution.status",
+    "code": "USAGE_PENDING",
+    "label": "扣费结算处理中",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "execution.status",
+    "code": "RELEASE_PENDING",
+    "label": "预占积分释放处理中",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "execution.status",
+    "code": "SETTLED",
+    "label": "结算完成",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "execution.status",
+    "code": "RELEASED",
+    "label": "预占积分已释放",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "execution.status",
+    "code": "SETTLEMENT_FAILED",
+    "label": "结算失败",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "execution.compatibility",
+    "code": "CANCELLATION_PENDING",
+    "label": "取消结算处理中",
+    "applicationClass": "历史兼容（仅显示历史值）"
+  },
+  {
+    "domain": "execution.compatibility",
+    "code": "CANCELLED",
+    "label": "已取消",
+    "applicationClass": "历史兼容（仅显示历史值）"
+  },
+  {
+    "domain": "settlementOutbox.status",
+    "code": "PENDING",
+    "label": "等待结算",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "settlementOutbox.status",
+    "code": "PROCESSING",
+    "label": "结算处理中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "settlementOutbox.status",
+    "code": "COMPLETED",
+    "label": "结算完成",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "settlementOutbox.status",
+    "code": "FAILED",
+    "label": "结算失败",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "SETTLEMENT_FAILED",
+    "label": "结算失败",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "PENDING",
+    "label": "结算处理中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "SETTLED",
+    "label": "结算完成",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "CANCELLED",
+    "label": "已取消",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "EXECUTING",
+    "label": "执行中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "candidate.status",
+    "code": "ACTIVE",
+    "label": "有效",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "candidate.status",
+    "code": "DELETED",
+    "label": "已删除",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "resume.parseStatus",
+    "code": "QUEUED",
+    "label": "排队中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "resume.parseStatus",
+    "code": "PROCESSING",
+    "label": "解析中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "resume.parseStatus",
+    "code": "PARSED",
+    "label": "已解析",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "resume.parseStatus",
+    "code": "FAILED",
+    "label": "解析失败",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "resume.statusCompatibility",
+    "code": "PARSING",
+    "label": "解析中",
+    "applicationClass": "历史兼容（仅显示历史值）"
+  },
+  {
+    "domain": "resume.statusCompatibility",
+    "code": "PARSE_FAILED",
+    "label": "解析失败",
+    "applicationClass": "历史兼容（仅显示历史值）"
+  },
+  {
+    "domain": "candidate.segment",
+    "code": "ACTIVE_TALENT",
+    "label": "活跃人才",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "candidate.segment",
+    "code": "HIGH_MATCH",
+    "label": "高匹配人才",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "candidate.segment",
+    "code": "DORMANT",
+    "label": "待激活人才",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "candidate.segment",
+    "code": "IN_POOL",
+    "label": "已入库候选人",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.runStatus",
+    "code": "RUNNING",
+    "label": "筛选中",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "screening.runStatus",
+    "code": "COMPLETED",
+    "label": "已完成",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "screening.runStatus",
+    "code": "PARTIAL_FAILED",
+    "label": "部分失败",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "screening.runStatus",
+    "code": "FAILED",
+    "label": "失败",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "screening.runStatus",
+    "code": "CANCELLED",
+    "label": "已取消",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "screening.itemStatus",
+    "code": "PENDING",
+    "label": "等待筛选",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.itemStatus",
+    "code": "PROCESSING",
+    "label": "筛选中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.itemStatus",
+    "code": "SUCCEEDED",
+    "label": "完成",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.itemStatus",
+    "code": "HARD_FILTERED",
+    "label": "未满足必要条件",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.itemStatus",
+    "code": "NOT_EVALUATED",
+    "label": "未评分，需人工复核",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.itemStatus",
+    "code": "RECONCILIATION_REQUIRED",
+    "label": "结果待核对",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.itemStatus",
+    "code": "FAILED",
+    "label": "筛选失败",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.itemStatus",
+    "code": "CANCELLED",
+    "label": "已取消",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.missingPolicy",
+    "code": "REVIEW",
+    "label": "人工复核",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.missingPolicy",
+    "code": "NEGOTIABLE",
+    "label": "可协商",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.missingPolicy",
+    "code": "IGNORE",
+    "label": "忽略",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.planStatus",
+    "code": "ACTIVE",
+    "label": "生效中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.evidence",
+    "code": "sourceRef",
+    "label": "来源引用",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.evidence",
+    "code": "section",
+    "label": "章节",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.evidence",
+    "code": "page",
+    "label": "页码",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.evidence",
+    "code": "jsonPath",
+    "label": "字段路径",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.evidence",
+    "code": "excerpt",
+    "label": "引用摘要",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "pool.syncStatus",
+    "code": "SYNCED",
+    "label": "已同步",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "pool.syncStatus",
+    "code": "PENDING_UPDATE",
+    "label": "待更新",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "pool.syncStatus",
+    "code": "SYNC_FAILED",
+    "label": "同步失败",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ticket.status",
+    "code": "OPEN",
+    "label": "待处理",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ticket.status",
+    "code": "IN_PROGRESS",
+    "label": "处理中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ticket.status",
+    "code": "WAITING",
+    "label": "等待反馈",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ticket.status",
+    "code": "RESOLVED",
+    "label": "已解决",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ticket.status",
+    "code": "CLOSED",
+    "label": "已关闭",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ticket.priority",
+    "code": "LOW",
+    "label": "低",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "ticket.priority",
+    "code": "NORMAL",
+    "label": "普通",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "ticket.priority",
+    "code": "MEDIUM",
+    "label": "中",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "ticket.priority",
+    "code": "HIGH",
+    "label": "高",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "ticket.priority",
+    "code": "URGENT",
+    "label": "紧急",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "ticket.category",
+    "code": "ACCOUNT",
+    "label": "账号问题",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ticket.category",
+    "code": "BILLING",
+    "label": "账单问题",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ticket.category",
+    "code": "TECHNICAL",
+    "label": "技术问题",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ticket.category",
+    "code": "FEEDBACK",
+    "label": "功能反馈",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ticket.category",
+    "code": "OTHER",
+    "label": "其他",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "ticket.senderType",
+    "code": "PLATFORM_ADMIN",
+    "label": "平台工作人员",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "ticket.senderType",
+    "code": "USER",
+    "label": "用户",
+    "applicationClass": "开放目录（已知值，目录可扩展）"
+  },
+  {
+    "domain": "recharge.accountType",
+    "code": "BANK",
+    "label": "银行账户",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "recharge.accountType",
+    "code": "ALIPAY",
+    "label": "支付宝",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "recharge.accountType",
+    "code": "WECHAT",
+    "label": "微信支付",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "message.role",
+    "code": "USER",
+    "label": "用户",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "message.role",
+    "code": "ASSISTANT",
+    "label": "智能助手",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "message.role",
+    "code": "SYSTEM",
+    "label": "系统",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "assistant.stage",
+    "code": "GREETING",
+    "label": "初始问候",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "assistant.stage",
+    "code": "HELP_MAIN",
+    "label": "帮助菜单",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "assistant.stage",
+    "code": "HELP_QA",
+    "label": "帮助问答",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "assistant.stage",
+    "code": "FEEDBACK_COLLECT",
+    "label": "收集反馈",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "assistant.stage",
+    "code": "FEEDBACK_CONFIRM",
+    "label": "确认反馈",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "assistant.stage",
+    "code": "FEEDBACK_CONTACT",
+    "label": "收集联系方式",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "assistant.stage",
+    "code": "COOPERATION",
+    "label": "合作咨询",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "assistant.stage",
+    "code": "TICKET_CREATED",
+    "label": "工单已创建",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "recruitment.agentChoice",
+    "code": "RECRUITMENT_ASSISTANT",
+    "label": "招聘助手",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "recruitment.agentChoice",
+    "code": "TALENT_PLANNER",
+    "label": "人才规划助手",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "jd.sourceChoice",
+    "code": "TEMPLATE",
+    "label": "参考模板",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "jd.sourceChoice",
+    "code": "JOB_LIBRARY",
+    "label": "参考职位库",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "jd.sourceChoice",
+    "code": "UPLOAD",
+    "label": "上传文档",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "resume.dimension",
+    "code": "professional_capability",
+    "label": "专业能力",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "resume.dimension",
+    "code": "experience_depth",
+    "label": "经验深度",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "resume.dimension",
+    "code": "experience_breadth",
+    "label": "经验广度",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "resume.dimension",
+    "code": "achievement",
+    "label": "成果表现",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "resume.dimension",
+    "code": "career_stability",
+    "label": "职业稳定性",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "resume.dimension",
+    "code": "career_growth",
+    "label": "职业成长性",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "interview.questionCategory",
+    "code": "专业能力",
+    "label": "专业能力",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "interview.questionCategory",
+    "code": "项目实践",
+    "label": "项目实践",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "interview.questionCategory",
+    "code": "行为协作",
+    "label": "行为协作",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "interview.questionCategory",
+    "code": "场景决策",
+    "label": "场景决策",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "product.tab",
+    "code": "trial-rules",
+    "label": "试用规则",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "product.tab",
+    "code": "plans",
+    "label": "套餐",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "product.tab",
+    "code": "credit-packs",
+    "label": "积分包",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "product.tab",
+    "code": "ai-feature-rules",
+    "label": "智能功能规则",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "order.tab",
+    "code": "PERSONAL",
+    "label": "个人订单",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "order.tab",
+    "code": "CONTRACT",
+    "label": "企业合同订单",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "boolean.entitlement",
+    "code": "true",
+    "label": "已包含",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "boolean.entitlement",
+    "code": "false",
+    "label": "未包含",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "boolean.entitlement",
+    "code": "null",
+    "label": "权益信息暂未识别",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "boolean.seat",
+    "code": "true",
+    "label": "已开通账号权限",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "boolean.seat",
+    "code": "false",
+    "label": "未开通账号权限",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "boolean.sharing",
+    "code": "true",
+    "label": "已开启",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "boolean.sharing",
+    "code": "false",
+    "label": "已关闭",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "boolean.default",
+    "code": "true",
+    "label": "默认账户",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "boolean.default",
+    "code": "false",
+    "label": "普通账户",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "AI",
+    "label": "智能",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "JD",
+    "label": "职位描述",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "Owner",
+    "label": "企业负责人",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "Tenant",
+    "label": "账号或企业空间（按上下文）",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "ID",
+    "label": "编号",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "URL",
+    "label": "链接",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "Token",
+    "label": "模型计量单位",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "Tokenizer",
+    "label": "模型计量器",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "Agent",
+    "label": "智能体 / 执行服务（按字段上下文）",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "Trial",
+    "label": "试用",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "v",
+    "label": "版本",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "V",
+    "label": "版本",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "HR",
+    "label": "招聘人员",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "technical.term",
+    "code": "Markdown",
+    "label": "文本格式（Markdown）",
+    "applicationClass": "上下文术语（禁止全局替换）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "CFD",
+    "label": "计算流体力学",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "TPM",
+    "label": "全员生产维护",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "DCS",
+    "label": "分布式控制系统",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "PLC",
+    "label": "可编程逻辑控制器",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "SIS",
+    "label": "安全仪表系统",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "HPLC",
+    "label": "高效液相色谱",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "GC",
+    "label": "气相色谱",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "ICP",
+    "label": "电感耦合等离子体分析",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "FTIR",
+    "label": "傅里叶变换红外光谱",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "LIMS",
+    "label": "实验室信息管理系统",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "SPC",
+    "label": "统计过程控制",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "CAPA",
+    "label": "纠正与预防措施",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "HAZOP",
+    "label": "危险与可操作性分析",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "MRP",
+    "label": "物料需求计划",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "PMO",
+    "label": "项目管理办公室",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "EPC",
+    "label": "工程总承包",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "MES",
+    "label": "制造执行系统",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "ERP",
+    "label": "企业资源计划",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "BI",
+    "label": "商业智能",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "IT",
+    "label": "信息技术",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "QA",
+    "label": "质量保证",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "QC",
+    "label": "质量控制",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "profession.abbreviation",
+    "code": "EHS",
+    "label": "环境、健康与安全",
+    "applicationClass": "术语建议（待上下文审定）"
+  },
+  {
+    "domain": "technical.preserve",
+    "code": "PDF",
+    "label": "PDF 文档",
+    "applicationClass": "原值保留（中文标签）"
+  },
+  {
+    "domain": "technical.preserve",
+    "code": "DOCX",
+    "label": "Word 文档",
+    "applicationClass": "原值保留（中文标签）"
+  },
+  {
+    "domain": "technical.preserve",
+    "code": "Word",
+    "label": "Word 文档",
+    "applicationClass": "原值保留（中文标签）"
+  },
+  {
+    "domain": "technical.preserve",
+    "code": "TXT",
+    "label": "文本文件",
+    "applicationClass": "原值保留（中文标签）"
+  },
+  {
+    "domain": "technical.preserve",
+    "code": "CSV",
+    "label": "表格数据文件（CSV）",
+    "applicationClass": "原值保留（中文标签）"
+  },
+  {
+    "domain": "technical.preserve",
+    "code": "Excel",
+    "label": "Excel 表格",
+    "applicationClass": "原值保留（中文标签）"
+  },
+  {
+    "domain": "technical.preserve",
+    "code": "Ctrl+A",
+    "label": "Ctrl+A（快捷键）",
+    "applicationClass": "原值保留（中文标签）"
+  },
+  {
+    "domain": "technical.preserve",
+    "code": "P5",
+    "label": "职级代号（P5）",
+    "applicationClass": "原值保留（中文标签）"
+  },
+  {
+    "domain": "technical.preserve",
+    "code": "P6",
+    "label": "职级代号（P6）",
+    "applicationClass": "原值保留（中文标签）"
+  },
+  {
+    "domain": "boolean.required",
+    "code": "true",
+    "label": "必须满足",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "boolean.required",
+    "code": "false",
+    "label": "非必要条件",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_ADMIN_EDIT",
+    "label": "编辑管理员管理（创建/审核/禁用/权限配置）",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_ADMIN_VIEW",
+    "label": "查看管理员管理",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_BILLING_EDIT",
+    "label": "编辑账本调整（积分调整/履约）",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_BILLING_VIEW",
+    "label": "查看账本调整",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_ENTITLEMENT_EDIT",
+    "label": "编辑权益与权限（权限目录/权益覆盖）",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_ENTITLEMENT_VIEW",
+    "label": "查看权益与权限",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_MENU_EDIT",
+    "label": "编辑菜单设置",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_MENU_VIEW",
+    "label": "查看菜单设置",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_ORDER_EDIT",
+    "label": "编辑订单管理（合同预录入/激活）",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_ORDER_VIEW",
+    "label": "查看订单管理",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_PRODUCT_EDIT",
+    "label": "编辑产品运营（套餐/试用/积分包/智能规则）",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_PRODUCT_VIEW",
+    "label": "查看产品运营",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_RECHARGE_EDIT",
+    "label": "编辑收款账户",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_RECHARGE_VIEW",
+    "label": "查看收款账户",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_REVIEW_EDIT",
+    "label": "处理审核（通过/拒绝）",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_REVIEW_VIEW",
+    "label": "查看审核中心",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_SCREENING_RULE_EDIT",
+    "label": "维护招聘筛选规则",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_SCREENING_RULE_VIEW",
+    "label": "查看招聘筛选规则",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_TENANT_EDIT",
+    "label": "编辑企业管理（负责人转让）",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_TENANT_VIEW",
+    "label": "查看企业管理",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_TICKET_EDIT",
+    "label": "处理工单（回复/分配/关闭）",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_TICKET_VIEW",
+    "label": "查看工单管理",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_USER_EDIT",
+    "label": "编辑用户管理",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.admin",
+    "code": "ADMIN_USER_VIEW",
+    "label": "查看用户管理",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "AI_RECRUITMENT_USE",
+    "label": "使用智能招聘工具",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "BILLING_VIEW",
+    "label": "查看套餐、合同、积分和账单",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "CANDIDATE_ATTACHMENT_DOWNLOAD",
+    "label": "下载企业人才池附件",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "INTERVIEW_KIT_EDIT",
+    "label": "编辑面试题库",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "INTERVIEW_KIT_VIEW",
+    "label": "查看面试题库",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "JOB_LIBRARY_EDIT",
+    "label": "编辑本人职位源数据（新增/修改/删除）",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "JOB_LIBRARY_VIEW",
+    "label": "查看本人职位源数据",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "JOB_POOL_EXPORT",
+    "label": "导出企业职位池",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "JOB_POOL_VIEW",
+    "label": "查看企业职位池",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "MEMBER_MANAGE",
+    "label": "邀请、审批、移除普通成员",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "TALENT_LIBRARY_EDIT",
+    "label": "编辑本人人才源数据（新增/修改/删除）",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "TALENT_LIBRARY_VIEW",
+    "label": "查看本人人才源数据",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "TALENT_POOL_EXPORT",
+    "label": "导出企业人才池",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "permission.user",
+    "code": "TALENT_POOL_VIEW",
+    "label": "查看企业人才池",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "import.FIELD_OPTIONS",
+    "code": "姓名",
+    "label": "姓名",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "import.FIELD_OPTIONS",
+    "code": "手机号",
+    "label": "手机号",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "import.FIELD_OPTIONS",
+    "code": "邮箱",
+    "label": "邮箱",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "import.FIELD_OPTIONS",
+    "code": "当前公司",
+    "label": "当前公司",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "import.FIELD_OPTIONS",
+    "code": "当前职位",
+    "label": "当前职位",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "import.FIELD_OPTIONS",
+    "code": "技能",
+    "label": "技能",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "import.FIELD_OPTIONS",
+    "code": "学历",
+    "label": "学历",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "import.FIELD_OPTIONS",
+    "code": "忽略",
+    "label": "忽略",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.LOCATION_OPTIONS",
+    "code": "杭州",
+    "label": "杭州",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.LOCATION_OPTIONS",
+    "code": "上海",
+    "label": "上海",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.LOCATION_OPTIONS",
+    "code": "北京",
+    "label": "北京",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.LOCATION_OPTIONS",
+    "code": "深圳",
+    "label": "深圳",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.LOCATION_OPTIONS",
+    "code": "广州",
+    "label": "广州",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.LOCATION_OPTIONS",
+    "code": "成都",
+    "label": "成都",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.LOCATION_OPTIONS",
+    "code": "远程",
+    "label": "远程",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.JOB_TYPE_OPTIONS",
+    "code": "全职",
+    "label": "全职",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.JOB_TYPE_OPTIONS",
+    "code": "兼职",
+    "label": "兼职",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.JOB_TYPE_OPTIONS",
+    "code": "实习",
+    "label": "实习",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.JOB_TYPE_OPTIONS",
+    "code": "外包",
+    "label": "外包",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.EDUCATION_OPTIONS",
+    "code": "大专",
+    "label": "大专",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.EDUCATION_OPTIONS",
+    "code": "本科",
+    "label": "本科",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.EDUCATION_OPTIONS",
+    "code": "硕士",
+    "label": "硕士",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.EDUCATION_OPTIONS",
+    "code": "博士",
+    "label": "博士",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "job.EDUCATION_OPTIONS",
+    "code": "不限",
+    "label": "不限",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "page.size",
+    "code": "10",
+    "label": "10 条/页",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "page.size",
+    "code": "20",
+    "label": "20 条/页",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "page.size",
+    "code": "50",
+    "label": "50 条/页",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "invitation.validityHours",
+    "code": "2",
+    "label": "2 小时",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "invitation.validityHours",
+    "code": "5",
+    "label": "5 小时",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "invitation.validityHours",
+    "code": "12",
+    "label": "12 小时",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "invitation.validityHours",
+    "code": "24",
+    "label": "24 小时",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "trial.durationChoice",
+    "code": "3",
+    "label": "3 天",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "trial.durationChoice",
+    "code": "7",
+    "label": "7 天",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "trial.durationChoice",
+    "code": "10",
+    "label": "10 天",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.scoreFilter",
+    "code": "60",
+    "label": "不低于 60%",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.scoreFilter",
+    "code": "70",
+    "label": "不低于 70%",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.scoreFilter",
+    "code": "80",
+    "label": "不低于当前高匹配阈值",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.scoreFilter",
+    "code": "90",
+    "label": "不低于 90%",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "石油化工",
+    "label": "石油化工",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "精细化工",
+    "label": "精细化工",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "基础化工",
+    "label": "基础化工",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "新材料",
+    "label": "新材料",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "高分子",
+    "label": "高分子",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "化肥",
+    "label": "化肥",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "农药",
+    "label": "农药",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "涂料",
+    "label": "涂料",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "胶黏剂",
+    "label": "胶黏剂",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "电子化学品",
+    "label": "电子化学品",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "新能源材料",
+    "label": "新能源材料",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "医药化工",
+    "label": "医药化工",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "化工装备",
+    "label": "化工装备",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "环保",
+    "label": "环保",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_INDUSTRIES",
+    "code": "其他",
+    "label": "其他",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_TAGS",
+    "code": "高潜人才",
+    "label": "高潜人才",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_TAGS",
+    "code": "技术专家",
+    "label": "技术专家",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_TAGS",
+    "code": "工艺优化专家",
+    "label": "工艺优化专家",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_TAGS",
+    "code": "化工研发",
+    "label": "化工研发",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_TAGS",
+    "code": "项目经理",
+    "label": "项目经理",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_TAGS",
+    "code": "EHS专家",
+    "label": "环境健康与安全专家",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_TAGS",
+    "code": "设备专家",
+    "label": "设备专家",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_TAGS",
+    "code": "质量专家",
+    "label": "质量专家",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_TAGS",
+    "code": "管理人才",
+    "label": "管理人才",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_SOURCES",
+    "code": "简历上传",
+    "label": "简历上传",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_SOURCES",
+    "code": "内部推荐",
+    "label": "内部推荐",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_SOURCES",
+    "code": "猎头推荐",
+    "label": "猎头推荐",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_SOURCES",
+    "code": "校园招聘",
+    "label": "校园招聘",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_SOURCES",
+    "code": "主动投递",
+    "label": "主动投递",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.EDUCATION_OPTIONS",
+    "code": "大专",
+    "label": "大专",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.EDUCATION_OPTIONS",
+    "code": "本科",
+    "label": "本科",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.EDUCATION_OPTIONS",
+    "code": "硕士",
+    "label": "硕士",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.EDUCATION_OPTIONS",
+    "code": "博士",
+    "label": "博士",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.EDUCATION_OPTIONS",
+    "code": "其他",
+    "label": "其他",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.GENDER_OPTIONS",
+    "code": "男",
+    "label": "男",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.GENDER_OPTIONS",
+    "code": "女",
+    "label": "女",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.GENDER_OPTIONS",
+    "code": "其他",
+    "label": "其他",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.ACTIVITY_OPTIONS",
+    "code": "高活跃",
+    "label": "高活跃",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.ACTIVITY_OPTIONS",
+    "code": "中等活跃",
+    "label": "中等活跃",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.ACTIVITY_OPTIONS",
+    "code": "低活跃",
+    "label": "低活跃",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.ACTIVITY_OPTIONS",
+    "code": "待激活",
+    "label": "待激活",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_STATUS_OPTIONS",
+    "code": "在库",
+    "label": "在库",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_STATUS_OPTIONS",
+    "code": "待激活",
+    "label": "待激活",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_STATUS_OPTIONS",
+    "code": "已淘汰",
+    "label": "已淘汰",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.TALENT_STATUS_OPTIONS",
+    "code": "已入职",
+    "label": "已入职",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.YEARS_OPTIONS",
+    "code": "应届",
+    "label": "应届",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.YEARS_OPTIONS",
+    "code": "1-3年",
+    "label": "1-3年",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.YEARS_OPTIONS",
+    "code": "3-5年",
+    "label": "3-5年",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.YEARS_OPTIONS",
+    "code": "5-10年",
+    "label": "5-10年",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.YEARS_OPTIONS",
+    "code": "10年以上",
+    "label": "10年以上",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.LEVEL_OPTIONS",
+    "code": "初级",
+    "label": "初级",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.LEVEL_OPTIONS",
+    "code": "中级",
+    "label": "中级",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.LEVEL_OPTIONS",
+    "code": "高级",
+    "label": "高级",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.LEVEL_OPTIONS",
+    "code": "专家",
+    "label": "专家",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.LEVEL_OPTIONS",
+    "code": "经理",
+    "label": "经理",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "talent.LEVEL_OPTIONS",
+    "code": "总监",
+    "label": "总监",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "UNAUTHENTICATED",
+    "label": "登录已过期，请重新登录",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "CLIENT_UNEXPECTED_RESPONSE",
+    "label": "服务响应异常，请稍后重试",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "DOWNLOAD_FAILED",
+    "label": "文件下载失败，请稍后重试",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "EVENT_STREAM_FAILED",
+    "label": "生成进度连接失败，正在尝试恢复",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "BOOTSTRAP_NOT_ALLOWED",
+    "label": "系统已完成初始化",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "PLATFORM_ADMIN_REQUIRED",
+    "label": "需要平台管理员权限",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "AI_SCHEMA_INVALID",
+    "label": "结果格式暂时无法识别",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "AI_CONTRACT_INVALID",
+    "label": "结果格式暂时无法识别",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "AI_PROVIDER_UNAVAILABLE",
+    "label": "执行服务暂时不可用",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "OUTCOME_UNVERIFIABLE",
+    "label": "执行结果暂时无法确认，请联系平台工作人员",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "RD_CANDIDATE_FAILED",
+    "label": "该候选人的匹配处理失败",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "AUTHORIZED",
+    "label": "积分已预占",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "AGENT_ACCEPTED",
+    "label": "执行服务已接收",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "RUNNING",
+    "label": "筛选执行中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "RECONCILIATION_REQUIRED",
+    "label": "结果待核对",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "USAGE_PENDING",
+    "label": "等待用量确认",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "RELEASE_PENDING",
+    "label": "积分释放中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "RELEASED",
+    "label": "积分已释放",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "CANCEL_REQUESTED",
+    "label": "正在申请取消",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
+    "code": "CANCELLATION_PENDING",
+    "label": "取消处理中",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "INVALID_CREDENTIALS",
+    "label": "用户名或密码错误，请检查后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "USERNAME_EXISTS",
+    "label": "该用户名已注册，请更换用户名。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "INSUFFICIENT_CREDITS",
+    "label": "可用积分不足，请充值或联系企业管理员。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "BOSS_SEAT_REQUIRED",
+    "label": "当前套餐未包含可用席位，请联系企业管理员。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "CURRENT_PASSWORD_INVALID",
+    "label": "当前密码不正确，请检查后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "PASSWORD_POLICY_VIOLATION",
+    "label": "密码不符合要求，请按页面提示重新设置。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "EMAIL_ALREADY_EXISTS",
+    "label": "该邮箱已被使用，请检查后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "PHONE_ALREADY_EXISTS",
+    "label": "该手机号已被使用，请检查后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "INVITATION_EXPIRED",
+    "label": "邀请已失效，请联系企业管理员重新发送。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "INVITATION_ALREADY_USED",
+    "label": "该邀请已使用，请联系企业管理员。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "FORBIDDEN",
+    "label": "当前账号暂无此操作权限。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "NOT_FOUND",
+    "label": "请求的信息不存在或已被移除。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "VALIDATION_FAILED",
+    "label": "提交内容未通过校验，请检查后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "RATE_LIMITED",
+    "label": "操作过于频繁，请稍后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "ACCOUNT_NOT_ACTIVE",
+    "label": "账号尚未启用或已停用，请联系平台管理员。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "ADMIN_NOT_FOUND",
+    "label": "管理员账号不存在或状态已变化，请刷新后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "PLATFORM_USER_NOT_FOUND",
+    "label": "用户不存在。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "SUPER_ADMIN_PERMISSION_LOCKED",
+    "label": "超级管理员的权限不可单独配置。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "SUPER_ADMIN_REQUIRED",
+    "label": "此操作需要超级管理员权限。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "PERMISSION_DENIED",
+    "label": "当前管理员无权执行此操作。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "PLATFORM_PERMISSION_DENIED",
+    "label": "当前管理员角色没有此操作权限。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "AI_RULE_AGENT_INVALID",
+    "label": "执行服务标识无效，请检查规则配置。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "AI_RULE_OPERATION_INVALID",
+    "label": "所选能力与操作不匹配，请检查规则配置。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "AI_RULE_AGENT_CAPABILITY_INVALID",
+    "label": "所选执行服务不支持该招聘能力。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "AI_RULE_MODEL_CONFIG_REQUIRED",
+    "label": "请补齐模型、计量器和词元限制配置。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "AI_RULE_BILLING_INVALID",
+    "label": "计费方式与当前规则配置不匹配。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "AI_RULE_TOKEN_LIMIT_INVALID",
+    "label": "词元上限或积分换算配置无效，请检查填写的数值。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "AI_RULE_RESERVATION_TOO_LOW",
+    "label": "预占积分不足以覆盖最大用量，请提高预占积分。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "AI_RULE_PERMISSION_NOT_FOUND",
+    "label": "所选功能权限不存在或已停用，请刷新权限目录。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "TRIAL_DURATION_INVALID",
+    "label": "试用有效期只能设置为 3 天、7 天或 10 天。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "PLAN_AUDIENCE_INVALID",
+    "label": "套餐适用对象只能选择企业或个人。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "PLAN_PERIOD_INVALID",
+    "label": "套餐计费周期与有效期设置不匹配。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "CREDIT_PACK_AUDIENCE_INVALID",
+    "label": "积分包适用对象与当前租户不匹配。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "CREDIT_PACK_VALIDITY_INVALID",
+    "label": "积分包有效期仅支持按月或按年设置，数量须大于 0。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "CREDIT_ADJUSTMENT_AMOUNT_INVALID",
+    "label": "积分调整数量不能为 0。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "CREDIT_ADJUSTMENT_EXPIRY_INVALID",
+    "label": "发放积分时请设置未来的到期时间。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "INSUFFICIENT_CREDITS_FOR_ADJUSTMENT",
+    "label": "可用积分不足，无法完成扣减调整。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "CONTRACT_PERIOD_INVALID",
+    "label": "合同结束时间须晚于开始时间。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "CONTRACT_PLAN_AUDIENCE_INVALID",
+    "label": "合同订单须选择企业套餐。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "CONTRACT_NOT_READY",
+    "label": "企业合同尚未满足开通条件，请检查企业绑定和订单状态。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "CONTRACT_SEATS_BELOW_ASSIGNED",
+    "label": "套餐席位数不能少于企业当前已分配席位数。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "OVERRIDE_TARGETS_REQUIRED",
+    "label": "请至少选择一个企业，再添加权益覆盖。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "ENTITLEMENT_OVERRIDE_PERIOD_INVALID",
+    "label": "权益覆盖结束时间须晚于开始时间。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "OPERATOR_PRODUCT_NOT_ACTIVE",
+    "label": "该配置不存在或已下线，请刷新列表后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "ALREADY_TENANT_MEMBER",
+    "label": "该用户已是企业成员，无需重复加入或审批。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "ROLE_CODE_DUPLICATE",
+    "label": "角色编码已存在，请更换编码。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "ROLE_CODE_RESERVED",
+    "label": "该角色编码为系统保留编码，请更换。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "ROLE_NOT_FOUND",
+    "label": "所选角色不存在或已停用，请刷新后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "PERMISSION_NOT_FOUND",
+    "label": "所选权限不存在或已停用，请刷新权限目录。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "OWNER_REQUIRED",
+    "label": "仅企业负责人可执行此操作。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "OWNER_CANNOT_REMOVE_SELF",
+    "label": "企业负责人不能自行移除自己。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "OWNER_TARGET_NOT_MEMBER",
+    "label": "转移对象必须是当前企业成员。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "BILLING_OWNER_REQUIRED",
+    "label": "仅企业负责人可查看企业套餐与账单。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "BOSS_CONTEXT_REQUIRED",
+    "label": "当前账号没有可用的招聘企业，请检查企业加入状态。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "BOSS_TENANT_NOT_ACTIVE",
+    "label": "当前企业暂不可使用招聘功能，请联系企业管理员。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "TENANT_PERMISSION_DENIED",
+    "label": "当前账号没有执行此操作所需的企业权限。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "ENTERPRISE_POOL_READ_DENIED",
+    "label": "当前账号无权查看企业数据池，请联系企业管理员。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "PASSWORD_LOGIN_FAILED",
+    "label": "手机号或密码错误，请检查后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "CHALLENGE_INVALID",
+    "label": "验证码无效或已过期，请重新获取。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "CHALLENGE_RATE_LIMITED",
+    "label": "验证码请求过于频繁，请稍后再试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "INVALID_VERIFICATION_CODE",
+    "label": "验证码错误或已过期，请检查后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "SMS_RATE_LIMITED",
+    "label": "验证码发送过于频繁，请稍后再试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "SMS_SEND_FAILED",
+    "label": "验证码发送暂未成功，请稍后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "VERIFICATION_PROVIDER_UNAVAILABLE",
+    "label": "验证码服务暂不可用，请稍后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "ENTERPRISE_CREDIT_CODE_ALREADY_BOUND",
+    "label": "该统一社会信用代码已绑定企业，无法重复注册。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "ENTERPRISE_REGISTRATION_PENDING",
+    "label": "该统一社会信用代码已有待审核申请。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "INTERVIEW_KIT_NOT_FOUND",
+    "label": "面试题包不存在或已被移除。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "JOB_NOT_FOUND",
+    "label": "职位不存在或当前账号无权访问。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "CANDIDATE_NOT_FOUND",
+    "label": "人才不存在或当前账号无权访问。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "TICKET_NOT_FOUND",
+    "label": "工单不存在或已被移除。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "TICKET_ACCESS_DENIED",
+    "label": "当前管理员无权访问此工单。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "INVALID_STATUS",
+    "label": "当前操作与记录状态不匹配，请刷新后重试。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  }
+]

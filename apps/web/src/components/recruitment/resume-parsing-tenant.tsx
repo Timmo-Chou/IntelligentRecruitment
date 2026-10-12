@@ -12,11 +12,12 @@ import {
   type ResumeParseDraft, type ResumeSourceFile, type TaskDetail,
 } from "@/lib/recruitment-api";
 import { useTenant } from "@/lib/tenant-context";
+import { getDisplayLabel, getResumeParseStatusLabel, getSafeErrorMessage } from "@intelligent-recruitment/display-dictionary";
 // docx 文件前端渲染：用于弹窗内预览 Word 简历
 import { renderAsync as renderDocxAsync } from "docx-preview";
 
 /**
- * AI简历解析承接页面（左侧主体，嵌入式，类似JdEditor与ScreeningTenant的组合）
+ * 简历解析承接页面（左侧主体，嵌入式，类似JdEditor与ScreeningTenant的组合）
  *  - 顶部：职位信息卡片（如linkedJobId有值，只读不可修改）
  *  - 中部：原始简历文件列表，点击可预览
  *  - 底部：结构化解析阅读视图；需要人工修订时再切换到编辑模式
@@ -118,7 +119,7 @@ export function ResumeParsingTenant({
   }
 
   /**
-   * 发布到人才库：把解析结果对应的简历创建为人才库候选人（与 JD「确认发布」对称）。
+   * 发布到人才库：把解析结果对应的简历创建为人才库候选人（与职位描述「确认发布」对应）。
    * 后端幂等：已发布或任务本就关联人才库人才时，仅把草稿置为 CONFIRMED。
    */
   async function handleConfirmToPool() {
@@ -159,7 +160,7 @@ export function ResumeParsingTenant({
   }
 
   /**
-   * 点击「AI解析 / 重新解析」：
+   * 点击「解析 / 重新解析」：
    *   1) 调 POST resume-parse-runs 创建 ai_runs + outbox；
    *   2) 后端 worker 会自动 claim 并跑 provider，解析完成写回 resume_parse_drafts 新版本；
    *   3) 每 1.5s 轮询一次 TaskDetail 最新进度，直到 latestAiRun.status ∈ {COMPLETED, FAILED}。
@@ -247,8 +248,7 @@ export function ResumeParsingTenant({
         if (cancelled) container.innerHTML = "";
       } catch (cause) {
         if (cancelled) return;
-        const msg = cause instanceof Error ? cause.message : String(cause);
-        setPreviewDocxError(`Word 文档解析失败：${msg}`);
+        setPreviewDocxError("Word 文档预览暂未成功，请下载文件后查看。");
       }
     })();
     return () => { cancelled = true; };
@@ -272,12 +272,12 @@ export function ResumeParsingTenant({
       {/* 标题栏 */}
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e4edf6] pb-4">
         <div>
-          <h2 className="m-0 flex items-center gap-2 text-base text-[#173568]"><File className="text-[#13977e]" size={18}/>AI简历解析</h2>
+          <h2 className="m-0 flex items-center gap-2 text-base text-[#173568]"><File className="text-[#13977e]" size={18}/>简历解析</h2>
           <p className="mb-0 mt-1 text-xs text-[#7185a3]">
-            {running ? `AI 正在解析简历 · ${progress}%`
+            {running ? `正在解析简历 · ${progress}%`
               : files.length ? `共 ${files.length} 份简历，下方为最新解析结果，可编辑保存。`
-                : linkedCandidate ? `已从人才库选择候选人「${linkedCandidate.displayNameMasked}」，AI 将基于其简历内容进行解析${Boolean(detail.task.linkedJobId) ? "并结合所选职位匹配" : ""}。`
-                  : "请先上传简历文件或从人才库选择候选人，AI 将自动提取简历内容并可与所选职位进行匹配分析。"}
+                : linkedCandidate ? `已从人才库选择候选人「${linkedCandidate.displayNameMasked}」，系统将基于其简历内容进行解析${Boolean(detail.task.linkedJobId) ? "并结合所选职位匹配" : ""}。`
+                  : "请先上传简历文件或从人才库选择候选人，系统将自动提取简历内容并可与所选职位进行匹配分析。"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -304,7 +304,7 @@ export function ResumeParsingTenant({
                 title={canAiParse ? "" : "请先上传简历或选择职位/人才后再解析"}
               >
                 {busy || running ? <Loader2 className="animate-spin" size={15}/> : <Sparkles size={15}/>}
-                {running ? `AI 解析中 ${progress}%` : detail.latestAiRun ? "重新解析" : "AI 解析"}
+                {running ? `解析中 ${progress}%` : detail.latestAiRun ? "重新解析" : "开始解析"}
               </button>
             );
           })()}
@@ -312,7 +312,7 @@ export function ResumeParsingTenant({
           <button type="button" className="outline-button" disabled={busy || confirming || !draftContent.trim()} onClick={() => void handleSave()}>
             {busy ? <Loader2 className="animate-spin" size={15}/> : <Save size={15}/>}保存草稿
           </button>
-          {/* 发布到人才库：与 JD「确认发布」对称，把简历创建为人才库候选人；已发布后变为跳转入口 */}
+          {/* 发布到人才库：与职位描述「确认发布」对应，把简历创建为人才库候选人；已发布后变为跳转入口 */}
           {published ? (
             <Link href="/candidates" className="primary-button inline-flex items-center gap-2" style={{ backgroundColor: "#0ca58c" }}>
               <CheckCircle2 size={15}/>已发布到人才库 · 查看
@@ -321,7 +321,7 @@ export function ResumeParsingTenant({
             <button type="button" className="primary-button inline-flex items-center gap-2"
               disabled={busy || confirming || running || !draftContent.trim()}
               onClick={() => void handleConfirmToPool()}
-              title={draftContent.trim() ? "把该简历发布到人才库" : "请先完成 AI 解析再发布到人才库"}>
+              title={draftContent.trim() ? "把该简历发布到人才库" : "请先完成简历解析再发布到人才库"}>
               {confirming ? <Loader2 className="animate-spin" size={15}/> : <UserPlus size={15}/>}
               {confirming ? "发布中…" : "发布到人才库"}
             </button>
@@ -370,10 +370,7 @@ export function ResumeParsingTenant({
                       : s === "PROCESSING" || s === "QUEUED" ? "border-[#cfe4f5] bg-[#f0faff] text-[#176ce5]"
                         : s === "FAILED" ? "border-[#fecaca] bg-[#fff1f2] text-[#b42318]"
                           : "border-[#e4dcd2] bg-[#fbf5ed] text-[#8b6d47]";
-                    const label = s === "PARSED" ? "已解析"
-                      : s === "PROCESSING" || s === "QUEUED" ? "解析中"
-                        : s === "FAILED" ? "解析失败"
-                          : s || "待解析";
+                    const label = getResumeParseStatusLabel(s);
                     return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${color}`}>{label}</span>;
                   })()}
                 </div>
@@ -446,9 +443,9 @@ export function ResumeParsingTenant({
               <p className="mb-0 mt-1 text-[11px] text-[#7085a4]">从简历内容提炼的招聘判断；点击下方模块可查看详细分析。</p>
             </div>
             <div className="flex items-center gap-2">
-              {running && <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1676d2]"><Loader2 className="animate-spin" size={12}/>AI 解析中…稍后结果将自动填入</span>}
+              {running && <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1676d2]"><Loader2 className="animate-spin" size={12}/>解析中…稍后结果将自动填入</span>}
               {draftDirty && <span className="text-[11px] text-[#c45b1f]">已修改，记得保存</span>}
-              {!draftDirty && detail.resumeParseDraft && <span className="text-[11px] text-[#7085a4]">版本 V{detail.resumeParseDraft.revision} · {formatDate(detail.resumeParseDraft.updatedAt)}</span>}
+              {!draftDirty && detail.resumeParseDraft && <span className="text-[11px] text-[#7085a4]">版本 {detail.resumeParseDraft.revision} · {formatDate(detail.resumeParseDraft.updatedAt)}</span>}
               {draftContent.trim() && !editingResult && (
                 <button type="button" className="outline-button inline-flex items-center gap-1.5 text-xs" onClick={() => setEditingResult(true)}>
                   <Pencil size={13}/>编辑完整报告
@@ -461,7 +458,7 @@ export function ResumeParsingTenant({
             <div className="mt-3 grid min-h-[280px] place-items-center rounded-xl border border-dashed border-[#cfdfef] bg-[#f8fbff] p-6 text-center">
               <div>
                 <Sparkles className="mx-auto text-[#176ce5]" size={26}/>
-                <p className="mb-0 mt-3 text-sm font-semibold text-[#36527f]">{running ? "AI 正在生成结构化简历分析" : "等待简历解析结果"}</p>
+                <p className="mb-0 mt-3 text-sm font-semibold text-[#36527f]">{running ? "智能正在生成结构化简历分析" : "等待简历解析结果"}</p>
                 <p className="mb-0 mt-1 text-xs leading-5 text-[#7185a3]">解析完成后，这里会展示人才概览、优势风险与六维分析。</p>
               </div>
             </div>
@@ -474,7 +471,7 @@ export function ResumeParsingTenant({
               <textarea
                 value={draftContent}
                 onChange={(event) => { setDraftContent(event.target.value); setDraftDirty(true); }}
-                placeholder="AI 解析结果将展示在此，你可以直接手动编辑或补充。"
+                placeholder="简历解析结果将展示在此，你可以直接手动编辑或补充。"
                 className="min-h-[380px] w-full resize-y rounded-xl border border-[#d4e0ee] bg-white px-4 py-3 text-[14px] leading-7 text-[#26466f] outline-none transition focus:border-[#3d83e8] focus:ring-2 focus:ring-[#eaf2ff]"
                 maxLength={200_000}
               />
@@ -665,8 +662,8 @@ export function ResumeParsingTenant({
       pageHeader={
         <section className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="m-0 text-[25px] font-bold text-[#09245d]">AI简历解析</h1>
-            <p className="mb-0 mt-1 text-sm text-[#60799f]">{tenant?.name ?? "当前工作空间"} · 上传简历后由 AI 提取关键内容，可与职位匹配度一起查看编辑</p>
+            <h1 className="m-0 text-[25px] font-bold text-[#09245d]">简历解析</h1>
+            <p className="mb-0 mt-1 text-sm text-[#60799f]">{tenant?.name ?? "当前工作空间"} · 上传简历后由智能分析提取关键内容，可与职位匹配度一起查看编辑</p>
           </div>
         </section>
       }
@@ -680,7 +677,7 @@ function Loading({ text }: { text: string }) {
 }
 
 function messageOf(cause: unknown) {
-  return cause instanceof ApiError ? cause.message : cause instanceof Error ? cause.message : "操作失败，请稍后重试";
+  return cause instanceof ApiError ? getSafeErrorMessage(cause.body.code, cause.body.request_id) : "操作暂未完成，请稍后重试。";
 }
 
 function formatSize(bytes: number) {
@@ -751,7 +748,7 @@ function buildResumePresentation(content: string): ResumePresentation {
     return {
       ...definition,
       score,
-      summary: score === null ? "待当前 AI 解析返回该维度评分" : `${scoreBand(score)} · ${definition.basis}`,
+      summary: score === null ? "待解析服务返回该维度评分" : `${scoreBand(score)} · ${definition.basis}`,
     };
   });
   const evaluation = cleanText(explicitEvaluation) || (match

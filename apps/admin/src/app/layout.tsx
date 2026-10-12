@@ -7,8 +7,8 @@ import { Providers } from "./providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "平台管理 - AI智能招聘",
-  description: "AI智能招聘平台管理后台",
+  title: "平台管理 - 智能招聘",
+  description: "智能招聘平台管理后台",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

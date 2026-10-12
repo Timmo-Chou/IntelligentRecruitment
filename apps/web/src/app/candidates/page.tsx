@@ -17,10 +17,11 @@ import {
 } from "@/lib/candidate-api";
 import {
   ACTIVITY_OPTIONS, EDUCATION_OPTIONS, LEVEL_OPTIONS, REGION_TREE, TALENT_INDUSTRIES, TALENT_SOURCES,
-  TALENT_STATUS_OPTIONS, TALENT_TAGS, YEARS_OPTIONS,
+  TALENT_STATUS_OPTIONS, TALENT_TAGS, talentTagDisplayName, YEARS_OPTIONS,
 } from "@/lib/talent-constants";
 import { useTenant } from "@/lib/tenant-context";
 import { useTenantPermission } from "@/lib/tenant-permission";
+import { getDisplayLabel, getResumeParseStatusLabel, getSafeErrorMessage } from "@intelligent-recruitment/display-dictionary";
 
 type StatKey = "total" | "active" | "highMatch" | "dormant" | "inPool";
 type DetailTab = "ai" | "basic" | "work" | "edu" | "skills" | "files" | "activity";
@@ -382,13 +383,13 @@ function CandidatesTenant({ embedded = false }: { embedded?: boolean }) {
 
   if (tenantLoading) {
     return embedded
-      ? <div className="grid h-64 place-items-center text-sm text-[#7085a4]">正在加载 Tenant...</div>
-      : <State text="正在加载 Tenant..." />;
+      ? <div className="grid h-64 place-items-center text-sm text-[#7085a4]">正在加载企业空间…</div>
+      : <State text="正在加载企业空间…" />;
   }
   if (!tenantId) {
     return embedded
-      ? <div className="grid h-64 place-items-center text-sm text-[#7085a4]">请先登录并选择一个可访问的 Tenant</div>
-      : <State text="请先登录并选择一个可访问的 Tenant" />;
+      ? <div className="grid h-64 place-items-center text-sm text-[#7085a4]">请先登录并选择一个可访问的企业空间</div>
+      : <State text="请先登录并选择一个可访问的企业空间" />;
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -682,7 +683,7 @@ function CandidatesTenant({ embedded = false }: { embedded?: boolean }) {
                       <input type="date" value={draftMore.createdTo} onChange={(e) => setDraftMore({ ...draftMore, createdTo: e.target.value })} />
                     </div>
                   </MoreField>
-                  <MoreField label="AI匹配度">
+                  <MoreField label="智能匹配度">
                     <select value={draftMore.minMatchScore} onChange={(e) => setDraftMore({ ...draftMore, minMatchScore: e.target.value })}>
                       <option value="">不限</option>
                       <option value="60">≥ 60%</option>
@@ -804,7 +805,7 @@ function CandidatesTenant({ embedded = false }: { embedded?: boolean }) {
                           <td className="border-b border-[#eef3f8] px-3 py-3 align-middle">
                             <div className="flex max-w-[160px] flex-wrap gap-1">
                               {tags.map((tag) => (
-                                <span key={tag} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tagClass(tag)}`}>{tag}</span>
+                                <span key={tag} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tagClass(tag)}`}>{talentTagDisplayName(tag)}</span>
                               ))}
                             </div>
                           </td>
@@ -967,7 +968,7 @@ function ImportTalentModal({
           next.push({
             name: file.name,
             ok: true,
-            message: value.parseStatus === "PARSED" ? "解析完成" : "已上传，解析失败",
+            message: value.parseStatus === "PARSED" ? "解析完成" : ["QUEUED", "PROCESSING", "PARSING", "RUNNING"].includes(value.parseStatus) ? "已上传，正在解析" : ["FAILED", "PARSE_FAILED"].includes(value.parseStatus) ? "已上传，解析失败" : "已上传，解析状态待核实",
           });
         } catch (cause) {
           next.push({ name: file.name, ok: false, message: messageOf(cause) });
@@ -1110,7 +1111,7 @@ function TalentDetailDrawer({
   const activity = String(profile.activityLevel || activityLabel(candidate));
   const activeDays = activityDays(candidate);
   const tabs: { id: DetailTab; label: string }[] = [
-    { id: "ai", label: "AI匹配" },
+    { id: "ai", label: "智能匹配" },
     { id: "basic", label: "基本信息" },
     { id: "work", label: "工作经历" },
     { id: "edu", label: "教育背景" },
@@ -1167,7 +1168,7 @@ function TalentDetailDrawer({
             <div className="flex flex-wrap items-center gap-2">
               <strong className="text-base text-[#163665]">{candidate.displayNameMasked}</strong>
               {tags.slice(0, 1).map((tag) => (
-                <span key={tag} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tagClass(tag)}`}>{tag}</span>
+                <span key={tag} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${tagClass(tag)}`}>{talentTagDisplayName(tag)}</span>
               ))}
             </div>
             <p className="mb-0 mt-1.5 text-xs text-[#7185a3]">
@@ -1241,7 +1242,7 @@ function TalentDetailDrawer({
                         <span className="font-semibold text-[#36527f]">匹配风险：</span>{card.risks}
                       </p>
                       <div className="mt-3 rounded-lg border border-[#e6eef7] bg-white p-3">
-                        <p className="mb-2 text-xs font-semibold text-[#173568]">AI匹配度：{card.score}%</p>
+                        <p className="mb-2 text-xs font-semibold text-[#173568]">智能匹配度：{card.score}%</p>
                         {card.breakdown.map((row) => (
                           <div key={row.label} className="mb-1.5 flex items-center justify-between text-[11px] text-[#56749a]">
                             <span>{row.label}</span>
@@ -1254,7 +1255,7 @@ function TalentDetailDrawer({
                         </div>
                       </div>
                       <div className="mt-3 flex gap-2">
-                        <button type="button" className="h-8 rounded-lg bg-[#2f6bff] px-3 text-[11px] font-semibold text-white" onClick={() => notify("已生成投递/邀请草稿，待 HR 确认发送")}>投递/邀请</button>
+                        <button type="button" className="h-8 rounded-lg bg-[#2f6bff] px-3 text-[11px] font-semibold text-white" onClick={() => notify("已生成投递/邀请草稿，待招聘人员确认发送")}>投递/邀请</button>
                         <button type="button" className="h-8 rounded-lg border border-[#d9e2ec] bg-white px-3 text-[11px] font-semibold text-[#36527f]" onClick={() => notify(`职位详情：${card.title}`)}>查看详情</button>
                       </div>
                     </article>
@@ -1343,7 +1344,7 @@ function TalentDetailDrawer({
               <section className="rounded-xl border border-[#fde68a] bg-[#fffbeb] p-3">
                 <h3 className="m-0 text-xs font-bold text-[#92400e]">人才激活建议</h3>
                 <p className="mb-2 mt-1 text-[11px] leading-5 text-[#a16207]">
-                  长期未联系 → AI 判断仍有价值 → 进入待激活 → 生成激活策略 → HR 确认后发送职位/沟通。
+                  长期未联系 → AI 判断仍有价值 → 进入待激活 → 生成激活策略 → 招聘人员确认后发送职位/沟通。
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" className="h-8 rounded-lg bg-[#12a974] px-3 text-[11px] font-semibold text-white" onClick={() => notify("已生成激活话术，待确认发送")}>AI推荐激活话术</button>
@@ -1367,7 +1368,7 @@ function TalentDetailDrawer({
             <InfoRow label="当前公司" value={String(profile.currentCompany || headline.company)} />
             <InfoRow label="当前职位" value={String(profile.currentTitle || headline.title)} />
             <div className="flex flex-wrap gap-2 pt-2">
-              {candidate.parseStatus === "PARSE_FAILED" && (
+              {["FAILED", "PARSE_FAILED"].includes(candidate.parseStatus) && (
                 <button type="button" className="outline-button !h-8" onClick={onRetry} disabled={busy}><RefreshCw size={13} />重试解析</button>
               )}
             </div>
@@ -1436,8 +1437,8 @@ function TalentDetailDrawer({
             {[
               `系统解析入库 · ${formatDateTime(candidate.createdAt)}`,
               `最近更新 · ${formatDateTime(candidate.updatedAt)}`,
-              `解析状态 · ${candidate.parseStatus === "PARSED" ? "已解析" : "解析失败"}`,
-              "查看记录 · HR 最近打开人才详情",
+              `解析状态 · ${resumeParseStatusLabel(candidate.parseStatus)}`,
+              "查看记录 · 招聘人员最近打开人才详情",
               "联系记录 · 暂无对外沟通记录",
               "邀请记录 · 暂无邀请",
               "面试记录 · 暂无面试",
@@ -1843,5 +1844,7 @@ function buildPageNumbers(current: number, total: number): (number | "...")[] {
 }
 
 function messageOf(cause: unknown) {
-  return cause instanceof ApiError ? cause.message : cause instanceof Error ? cause.message : "操作失败，请稍后重试";
+  return cause instanceof ApiError ? getSafeErrorMessage(cause.body.code, cause.body.request_id) : "操作暂未成功，请稍后重试。";
 }
+
+function resumeParseStatusLabel(status: string) { return getResumeParseStatusLabel(status); }

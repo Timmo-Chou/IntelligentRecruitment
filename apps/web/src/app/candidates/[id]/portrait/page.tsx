@@ -8,6 +8,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { ApiError } from "@/lib/api-client";
 import { fetchCandidate, parseProfile, type CandidateDetail } from "@/lib/candidate-api";
 import { useTenant } from "@/lib/tenant-context";
+import { getSafeErrorMessage } from "@intelligent-recruitment/display-dictionary";
 
 export default function TalentPortraitPage() {
   const params = useParams<{ id: string }>();
@@ -26,7 +27,7 @@ export default function TalentPortraitPage() {
     setLoading(true);
     void fetchCandidate(tenantId, candidateId)
       .then(setCandidate)
-      .catch((cause) => setError(cause instanceof ApiError ? cause.message : "加载失败"))
+      .catch((cause) => setError(cause instanceof ApiError ? getSafeErrorMessage(cause.body.code, cause.body.request_id, "人才画像加载暂未成功，请稍后重试。") : "人才画像加载暂未成功，请稍后重试。"))
       .finally(() => setLoading(false));
   }, [tenantId, candidateId]);
 
@@ -48,7 +49,7 @@ export default function TalentPortraitPage() {
     { title: "工作经历", body: candidate.workExperience?.join("；") || "待完善" },
     { title: "行业经验", body: String(profile.industry || "化工及相关制造业") },
     { title: "专业技能", body: candidate.skills.join("、") || "待识别" },
-    { title: "项目经验", body: candidate.summary || "基于简历解析生成的项目能力摘要待补充" },
+    { title: "项目经验", body: candidate.summary === "手动录入人才档案" ? "项目经验待补充" : candidate.summary || "项目经验待补充" },
     { title: "证书", body: String(profile.certificates || "待补充") },
     { title: "管理能力", body: String(profile.managementSkills || "待评估") },
     { title: "职业稳定性", body: `${candidate.yearsExperience || 0} 年从业经验，稳定性评估中` },
@@ -64,14 +65,13 @@ export default function TalentPortraitPage() {
           <Sparkles size={22} className="text-[#12a974]" /> 人才画像
         </h1>
         <p className="mb-0 mt-1 text-sm text-[#60799f]">
-          {candidate.displayNameMasked} · 简历解析 → 教育/经历/技能/证书 → 生成画像 → 用于 AI 匹配
+          {candidate.displayNameMasked} · 人才资料概览，用于查看当前已录入信息
         </p>
       </div>
 
       <section className="mb-4 rounded-2xl border border-[#d6e5f5] bg-gradient-to-br from-[#f7fbff] to-[#f0fbf7] p-5">
         <p className="m-0 text-sm leading-7 text-[#36527f]">
-          AI 综合判断：该人才在「{candidate.skills.slice(0, 2).join("、") || "专业领域"}」方向具备可复用能力，
-          适合工艺优化、项目改造类岗位；建议结合人岗匹配结果推进激活或邀约。
+          本页根据当前人才档案展示资料概览，不代表系统已生成 AI 评估或人岗匹配结论。请结合实际资料进行判断。
         </p>
       </section>
 

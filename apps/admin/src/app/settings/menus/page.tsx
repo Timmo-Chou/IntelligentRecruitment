@@ -5,7 +5,9 @@ import { Plus, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { adminApiFetch } from "@/lib/admin-api-client";
+import { getDisplayLabel } from "@/lib/display-label";
 import { usePermission } from "@/lib/use-permission";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 type MenuItem = {
   id: string;
@@ -25,6 +27,7 @@ export default function MenusPage() {
   const canEdit = hasPermission("ADMIN_MENU_EDIT");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<unknown>(null);
   const [form, setForm] = useState({
     parentId: "",
     code: "",
@@ -35,7 +38,7 @@ export default function MenusPage() {
     permissionCode: "",
   });
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: loadError } = useQuery({
     queryKey: ["menus"],
     queryFn: () => adminApiFetch<MenuItem[]>("/platform/menus"),
   });
@@ -43,18 +46,21 @@ export default function MenusPage() {
   const createMutation = useMutation({
     mutationFn: () =>
       adminApiFetch("/platform/menus", { method: "POST", body: JSON.stringify(form) }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["menus"] }); resetForm(); },
+    onSuccess: () => { setActionError(null); queryClient.invalidateQueries({ queryKey: ["menus"] }); resetForm(); },
+    onError: setActionError,
   });
 
   const updateMutation = useMutation({
     mutationFn: (id: string) =>
       adminApiFetch(`/platform/menus/${id}`, { method: "PUT", body: JSON.stringify(form) }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["menus"] }); resetForm(); },
+    onSuccess: () => { setActionError(null); queryClient.invalidateQueries({ queryKey: ["menus"] }); resetForm(); },
+    onError: setActionError,
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => adminApiFetch(`/platform/menus/${id}`, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["menus"] }),
+    onSuccess: () => { setActionError(null); queryClient.invalidateQueries({ queryKey: ["menus"] }); },
+    onError: setActionError,
   });
 
   function resetForm() {
@@ -99,6 +105,9 @@ export default function MenusPage() {
           </button>
         )}
       </div>
+
+      {loadError && <div className="mb-4"><AdminErrorNotice error={loadError} fallback="菜单列表加载失败，请稍后重试。" /></div>}
+      {actionError != null && <div className="mb-4"><AdminErrorNotice error={actionError} fallback="菜单操作暂未成功，请稍后重试。" /></div>}
 
       {showForm && (
         <div className="mb-6 max-w-2xl rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -150,13 +159,15 @@ export default function MenusPage() {
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-slate-400">加载中…</div>
+        ) : loadError ? (
+          <div className="p-8 text-center text-sm text-slate-400">无法显示菜单列表</div>
         ) : items.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-400">暂无菜单数据</div>
         ) : (
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
-                <th className="px-4 py-3">编码</th>
+                <th className="px-4 py-3">菜单名称</th>
                 <th className="px-4 py-3">名称</th>
                 <th className="px-4 py-3">路径</th>
                 <th className="px-4 py-3">图标</th>
@@ -168,12 +179,11 @@ export default function MenusPage() {
             <tbody>
               {items.map((item) => (
                 <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50">
-                  <td className="px-4 py-3 text-sm font-mono text-slate-600">{item.code}</td>
-                  <td className="px-4 py-3 text-sm font-medium text-slate-800">{item.name}</td>
-                  <td className="px-4 py-3 text-sm text-slate-500">{item.path}</td>
-                  <td className="px-4 py-3 text-sm text-slate-500">{item.icon}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-slate-800">{item.name}<details className="mt-1 text-xs font-normal text-slate-400"><summary className="cursor-pointer">查看菜单编码</summary><code>{item.code}</code><button type="button" className="ml-2 text-blue-600" onClick={() => void navigator.clipboard.writeText(item.code)}>复制</button></details></td>
+                  <td className="px-4 py-3 text-sm text-slate-500"><details><summary className="cursor-pointer">查看页面路径</summary><code>{item.path}</code><button type="button" className="ml-2 text-blue-600" onClick={() => void navigator.clipboard.writeText(item.path)}>复制</button></details></td>
+                  <td className="px-4 py-3 text-sm text-slate-500">{item.icon ? <details><summary className="cursor-pointer">图标已配置</summary><code>{item.icon}</code></details> : "未配置"}</td>
                   <td className="px-4 py-3 text-sm text-slate-600">{item.sort_order}</td>
-                  <td className="px-4 py-3 text-sm text-slate-500">{item.permission_code}</td>
+                  <td className="px-4 py-3 text-sm text-slate-500">{getDisplayLabel("permission.admin", item.permission_code, "权限名称待配置")}<details className="mt-1 text-xs"><summary className="cursor-pointer">查看权限代码</summary><code>{item.permission_code}</code><button type="button" className="ml-2 text-blue-600" onClick={() => void navigator.clipboard.writeText(item.permission_code)}>复制</button></details></td>
                   <td className="px-4 py-3">
                     {canEdit && (
                       <div className="flex gap-2">

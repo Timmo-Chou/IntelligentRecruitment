@@ -8,6 +8,8 @@ import { useQuery } from "@tanstack/react-query";
 import { adminApiFetch } from "@/lib/admin-api-client";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { getDisplayLabel } from "@/lib/display-label";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 // 用户数据类型
 type User = {
@@ -47,9 +49,7 @@ export default function UsersPage() {
   const totalPages = Math.ceil(total / 20);
 
   function getStatusBadge(status: string) {
-    if (status === "ACTIVE") return <Badge variant="success">正常</Badge>;
-    if (status === "DISABLED") return <Badge variant="danger">已禁用</Badge>;
-    return <Badge>{status}</Badge>;
+    return <Badge variant={status === "ACTIVE" ? "success" : "danger"}>{getDisplayLabel("user.status", status, "用户状态暂未识别")}</Badge>;
   }
 
   function maskPhone(phone: string) {
@@ -68,7 +68,7 @@ export default function UsersPage() {
         <div className="relative w-full max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <Input
-            placeholder="搜索用户ID或显示名…"
+            placeholder="搜索用户编号或显示名…"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             className="pl-10"
@@ -90,14 +90,14 @@ export default function UsersPage() {
         {isLoading ? (
           <div className="p-8 text-center text-sm text-slate-400">加载中…</div>
         ) : error ? (
-          <div className="p-8 text-center text-sm text-red-500">加载失败，请稍后重试</div>
+          <div className="p-4"><AdminErrorNotice error={error} fallback="用户列表加载失败，请稍后重试。" /></div>
         ) : users.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-400">暂无用户数据</div>
         ) : (
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
-                <th className="px-4 py-3">用户ID</th>
+                <th className="px-4 py-3">用户编号</th>
                 <th className="px-4 py-3">显示名</th>
                 <th className="px-4 py-3">手机号</th>
                 <th className="px-4 py-3">状态</th>

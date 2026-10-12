@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   agentRules: false,
   output: 'standalone', 
+  transpilePackages: ["@intelligent-recruitment/display-dictionary"],
 };
 
 export default nextConfig;

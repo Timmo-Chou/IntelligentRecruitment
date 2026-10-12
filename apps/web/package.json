@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@intelligent-recruitment/display-dictionary": "workspace:*",
     "@hookform/resolvers": "3.10.0",
     "@radix-ui/react-dialog": "1.1.6",
     "@radix-ui/react-dropdown-menu": "2.1.6",

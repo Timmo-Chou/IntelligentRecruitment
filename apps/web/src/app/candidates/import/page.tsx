@@ -10,6 +10,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { ApiError } from "@/lib/api-client";
 import { uploadResume } from "@/lib/candidate-api";
 import { useTenant } from "@/lib/tenant-context";
+import { getSafeErrorMessage } from "@intelligent-recruitment/display-dictionary";
 
 type ImportChannel = "excel" | "csv" | "resume";
 type StepId = "upload" | "mapping" | "validate" | "duplicate" | "parse" | "profile" | "done";
@@ -24,7 +25,7 @@ const FORMAT_CHANNELS: Record<ImportFormat, ImportChannel> = {
 const CHANNEL_META: Record<ImportChannel, { title: string; desc: string; accept: string }> = {
   excel: { title: "Excel 导入", desc: "支持 .xlsx / .xls 人才名册", accept: ".xlsx,.xls" },
   csv: { title: "CSV 导入", desc: "逗号分隔的结构化人才数据", accept: ".csv,text/csv" },
-  resume: { title: "PDF 简历导入", desc: "批量上传 PDF / DOCX 简历并 AI 解析", accept: ".pdf,.docx" },
+  resume: { title: "PDF 简历导入", desc: "批量上传 PDF / DOCX 简历并进行智能解析", accept: ".pdf,.docx" },
 };
 
 const STEPS: { id: StepId; label: string }[] = [
@@ -32,7 +33,7 @@ const STEPS: { id: StepId; label: string }[] = [
   { id: "mapping", label: "字段映射" },
   { id: "validate", label: "数据校验" },
   { id: "duplicate", label: "重复识别" },
-  { id: "parse", label: "AI解析" },
+  { id: "parse", label: "简历解析" },
   { id: "profile", label: "生成画像" },
   { id: "done", label: "进入人才库" },
 ];
@@ -154,10 +155,10 @@ function ImportTalentTenant() {
         else setMessage(`成功导入 ${ok} 人，已进入人才库。`);
       } else {
         setImportedCount(0);
-        setMessage("表格字段映射与校验已完成。当前版本请改用 PDF 简历导入完成入库，或由 HR 复核后手动新增。");
+        setMessage("表格字段映射与校验已完成。当前版本请改用 PDF 简历导入完成入库，或由 招聘人员复核后手动新增。");
       }
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : "导入失败，请稍后重试");
+      setError(cause instanceof ApiError ? getSafeErrorMessage(cause.body.code, cause.body.request_id, "导入暂未成功，请稍后重试。") : "导入暂未成功，请稍后重试。");
     } finally {
       setBusy(false);
     }
@@ -185,7 +186,7 @@ function ImportTalentTenant() {
           <ArrowLeft size={15} /> 返回人才库
         </Link>
         <h1 className="mb-0 mt-2 text-[25px] font-bold text-[#09245d]">导入人才 · {meta.title}</h1>
-        <p className="mb-0 mt-1 text-sm text-[#60799f]">文件上传 → 字段映射 → 数据校验 → 重复识别 → AI解析 → 生成画像 → 进入人才库</p>
+        <p className="mb-0 mt-1 text-sm text-[#60799f]">文件上传 → 字段映射 → 数据校验 → 重复识别 → 智能解析 → 生成画像 → 进入人才库</p>
       </div>
 
       <ol className="mb-5 flex flex-wrap gap-2">

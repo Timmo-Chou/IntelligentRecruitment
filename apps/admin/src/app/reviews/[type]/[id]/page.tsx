@@ -6,9 +6,11 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { adminApiFetch } from "@/lib/admin-api-client";
+import { adminApiFetch, ApiError } from "@/lib/admin-api-client";
 import { usePermission } from "@/lib/use-permission";
 import { Badge } from "@/components/ui/badge";
+import { getDisplayLabel } from "@/lib/display-label";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 type Registration = {
   registration_id: string;
@@ -29,22 +31,24 @@ export default function ReviewDetailPage() {
   const canEdit = hasPermission("ADMIN_REVIEW_EDIT");
   const registrationId = params.id as string;
 
-  // 从审核列表中获取该条记录的详情
-  const { data, isLoading } = useQuery({
-    queryKey: ["enterprise-registrations"],
-    queryFn: () => adminApiFetch<Registration[]>("/platform/recruitment/enterprise-registrations"),
+  const { data: item, isLoading, error: loadError } = useQuery({
+    queryKey: ["enterprise-registration", registrationId],
+    queryFn: () => adminApiFetch<Registration>(`/platform/recruitment/enterprise-registrations/${registrationId}`),
+    enabled: Boolean(registrationId),
   });
-
-  const item = data?.find((r) => r.registration_id === registrationId);
+  const [actionError, setActionError] = useState<unknown>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const approveMutation = useMutation({
     mutationFn: () =>
       adminApiFetch(`/platform/recruitment/enterprise-registrations/${registrationId}/approve`, { method: "POST" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["enterprise-registrations"] });
-      alert("已通过审核");
+      queryClient.invalidateQueries({ queryKey: ["enterprise-registration", registrationId] });
+      setActionError(null);
+      setActionMessage("已通过审核");
     },
-    onError: (e: Error) => alert("操作失败：" + e.message),
+    onError: (error: Error) => { setActionMessage(null); setActionError(error); },
   });
 
   const [rejectReason, setRejectReason] = useState("");
@@ -57,21 +61,26 @@ export default function ReviewDetailPage() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["enterprise-registrations"] });
+      queryClient.invalidateQueries({ queryKey: ["enterprise-registration", registrationId] });
       setShowReject(false);
       setRejectReason("");
-      alert("已拒绝");
+      setActionError(null);
+      setActionMessage("已拒绝");
     },
-    onError: (e: Error) => alert("操作失败：" + e.message),
+    onError: (error: Error) => { setActionMessage(null); setActionError(error); },
   });
 
   if (isLoading) return <div className="p-8 text-center text-sm text-slate-400">加载中…</div>;
-  if (!item) return <div className="p-8 text-center text-sm text-red-500">审核记录不存在</div>;
+  if (loadError instanceof ApiError && loadError.status === 404) return <div className="p-8 text-center text-sm text-slate-500">审核记录不存在。</div>;
+  if (loadError instanceof ApiError && loadError.status === 403) return <div className="p-8 text-center text-sm text-slate-500">当前账号无权查看该审核记录。</div>;
+  if (loadError) return <div className="p-8"><AdminErrorNotice error={loadError} fallback="审核信息加载暂未成功，请稍后重试。" className="rounded-lg bg-red-50 p-3 text-sm text-red-700" /></div>;
+  if (!item) return <div className="p-8 text-center text-sm text-slate-500">审核记录不存在。</div>;
 
   function getStatusBadge(status: string) {
     if (status === "PENDING_REVIEW") return <Badge variant="warning">待审核</Badge>;
-    if (status === "APPROVED" || status === "TRIAL_ACTIVE") return <Badge variant="success">已通过</Badge>;
+    if (status === "APPROVED") return <Badge variant="success">已通过</Badge>;
     if (status === "REJECTED") return <Badge variant="danger">已拒绝</Badge>;
-    return <Badge>{status}</Badge>;
+    return <Badge>{getDisplayLabel("registration.status", status, "审核状态暂未识别")}</Badge>;
   }
 
   return (
@@ -96,6 +105,8 @@ export default function ReviewDetailPage() {
       </div>
 
       <div className="max-w-2xl rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        {actionError != null && <AdminErrorNotice error={actionError} fallback="审核操作暂未成功，请稍后重试。" className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" />}
+        {actionMessage && <p role="status" className="mb-4 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{actionMessage}</p>}
         <h2 className="mb-4 text-base font-semibold text-slate-700">企业注册信息</h2>
         <dl className="space-y-3 text-sm">
           <Info label="企业名称" value={item.legal_name} />

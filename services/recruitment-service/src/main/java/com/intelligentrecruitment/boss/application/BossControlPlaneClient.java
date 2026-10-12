@@ -347,6 +347,20 @@ public class BossControlPlaneClient {
         return request("GET", "/internal/v1/recruitment-platform" + path, machineAccessToken(), null, null).body();
     }
 
+    /** Resolves only active members of the requested tenant; never exposes the full member directory. */
+    public Map<UUID, String> internalTenantMemberDisplayNames(UUID tenantId, List<UUID> userIds) {
+        if (userIds == null || userIds.isEmpty()) return Map.of();
+        String ids = userIds.stream().distinct().limit(200).map(UUID::toString).collect(java.util.stream.Collectors.joining(","));
+        JsonNode body = internalRecruitmentPlatformQuery("/tenant-member-display-names?tenantId=" + tenantId + "&userIds=" + encode(ids));
+        Map<UUID, String> names = new java.util.HashMap<>();
+        for (JsonNode item : body.path("items")) {
+            UUID id = uuid(item, "user_id");
+            String displayName = text(item, "display_name");
+            if (id != null && displayName != null && !displayName.isBlank()) names.put(id, displayName);
+        }
+        return Map.copyOf(names);
+    }
+
     /** Resolves a Recruitment tenant name for local records that persist only tenant_id. */
     public TenantIdentity internalTenantIdentity(UUID tenantId) {
         JsonNode body = internalRecruitmentPlatformQuery("/tenant?tenantId=" + tenantId);

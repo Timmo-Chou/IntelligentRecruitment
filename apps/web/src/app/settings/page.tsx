@@ -5,16 +5,12 @@ import { FormEvent, useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { apiFetch, ApiError } from "@/lib/api-client";
 import { useTenant } from "@/lib/tenant-context";
+import { getDisplayLabel, getSafeErrorMessage } from "@intelligent-recruitment/display-dictionary";
 
 /** /me 响应：后端字段为 id（驼峰由 IR MeResponse 序列化） */
 type Me = { id: string; displayName?: string; maskedPhone?: string };
 /** 企业注册申请（BOSS 蛇形命名透传）：status: PENDING_REVIEW/APPROVED/REJECTED */
 type Registration = { registration_id: string; tenant_id?: string | null; legal_name: string; credit_code: string; status: string; reject_reason?: string | null; submitted_at?: string };
-
-/** 注册申请状态中文文案 */
-const registrationStatusText: Record<string, string> = { PENDING_REVIEW: "待审核", APPROVED: "已通过", REJECTED: "已驳回" };
-/** 租户状态中文文案 */
-const tenantStatusText: Record<string, string> = { ACTIVE: "正常", TRIAL_EXPIRED_NO_CONTRACT: "试用到期", FROZEN: "已冻结", CLOSED: "已关闭" };
 
 export default function SettingsPage() {
   // 当前激活的 TAB：profile=个人设置，enterprises=所属企业
@@ -36,16 +32,18 @@ function ProfilePanel() {
   const [me, setMe] = useState<Me | null>(null); const [displayName, setDisplayName] = useState(""); const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
   useEffect(() => { void apiFetch<Me>("/me").then(item => { setMe(item); setDisplayName(item.displayName ?? ""); }).catch(() => undefined); }, []);
   async function save(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setMessage("");
+    event.preventDefault(); setMessage("");
+    if (!displayName.trim()) { setMessage("请输入个人显示名称。"); return; }
+    setBusy(true);
     try {
       // 接口路径为 /me/display-name（原 /me 路径不匹配导致"服务暂时不可用"提示）
       const updated = await apiFetch<Me>("/me/display-name", { method: "PUT", body: JSON.stringify({ displayName }) });
       setMe(updated); setMessage("个人资料已保存。");
-    } catch (cause) { setMessage(cause instanceof ApiError ? cause.message : "保存失败"); }
+    } catch (cause) { setMessage(cause instanceof ApiError ? getSafeErrorMessage(cause.body.code, cause.body.request_id, "资料保存暂未成功，请稍后重试。") : "资料保存暂未成功，请稍后重试。"); }
     finally { setBusy(false); }
   }
   return <div className="space-y-4">
-    <section className="rounded-2xl border border-[#d8e6f5] bg-white p-6"><h2 className="m-0 text-base font-bold">账号资料</h2><form className="mt-4 space-y-4" onSubmit={save}><label className="block text-sm font-medium">手机号<input disabled value={me?.maskedPhone ?? ""} className="mt-2 h-10 w-full rounded-lg border border-[#d8e6f5] bg-[#f7fbff] px-3"/></label><label className="block text-sm font-medium">显示名称<input value={displayName} maxLength={80} onChange={event => setDisplayName(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-[#cddbea] px-3"/></label>{message && <p className="rounded-lg bg-[#f4f8fc] px-3 py-2 text-sm text-[#526e96]">{message}</p>}<button className="primary-button" disabled={busy} type="submit">{busy ? "保存中…" : "保存"}</button></form></section>
+    <section className="rounded-2xl border border-[#d8e6f5] bg-white p-6"><h2 className="m-0 text-base font-bold">账号资料</h2><form className="mt-4 space-y-4" onSubmit={save}><label className="block text-sm font-medium">手机号<input disabled value={me?.maskedPhone ?? ""} className="mt-2 h-10 w-full rounded-lg border border-[#d8e6f5] bg-[#f7fbff] px-3"/></label><label className="block text-sm font-medium">个人显示名称 <span className="text-red-600">*</span><input required value={displayName} maxLength={80} onChange={event => setDisplayName(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-[#cddbea] px-3"/></label>{message && <p className="rounded-lg bg-[#f4f8fc] px-3 py-2 text-sm text-[#526e96]">{message}</p>}<button className="primary-button" disabled={busy} type="submit">{busy ? "保存中…" : "保存"}</button></form></section>
     <PasswordPanel />
   </div>;
 }
@@ -70,7 +68,7 @@ function PasswordPanel() {
       });
       setCurrentPassword(""); setPassword(""); setConfirmPassword("");
       setMessage("密码已更新，下次登录请使用新密码。");
-    } catch (cause) { setMessage(cause instanceof ApiError ? cause.message : "密码更新失败，请稍后重试。"); }
+    } catch (cause) { setMessage(cause instanceof ApiError ? getSafeErrorMessage(cause.body.code, cause.body.request_id, "密码更新暂未成功，请稍后重试。") : "密码更新暂未成功，请稍后重试。"); }
     finally { setBusy(false); }
   }
 
@@ -91,13 +89,25 @@ function PasswordPanel() {
 function EnterprisePanel() {
   const { tenant, tenants } = useTenant();
   const [registration, setRegistration] = useState<Registration | null>(null);
+  const [roleNames, setRoleNames] = useState<Record<string, Record<string, string>>>({});
+  useEffect(() => {
+    let cancelled = false;
+    const enterpriseTenants = tenants.filter(item => item.type === "ENTERPRISE");
+    void Promise.all(enterpriseTenants.map(async item => {
+      try {
+        const roles = await apiFetch<Array<{ code: string; displayName?: string; status?: string }>>(`/tenants/${item.id}/roles`);
+        return [item.id, Object.fromEntries(roles.map(role => [role.code, role.displayName?.trim() || ""]))] as const;
+      } catch { return [item.id, {}] as const; }
+    })).then(entries => { if (!cancelled) setRoleNames(Object.fromEntries(entries)); });
+    return () => { cancelled = true; };
+  }, [tenants]);
   useEffect(() => {
     // 查询最近一次企业注册申请（无申请记录时后端返回空对象）
     void apiFetch<Registration>("/tenants/enterprise-registrations/me")
       .then(item => setRegistration(item && item.legal_name ? item : null))
       .catch(() => setRegistration(null));
   }, []);
-  // 已注册企业：本人是 Owner；已加入企业：本人非 Owner 的企业租户
+  // 已注册企业：本人是企业负责人；已加入企业：本人非企业负责人 的企业租户
   const owned = tenants.filter(item => item.type === "ENTERPRISE" && item.owner);
   const joined = tenants.filter(item => item.type === "ENTERPRISE" && !item.owner);
   return <section className="rounded-2xl border border-[#d8e6f5] bg-white p-6">
@@ -109,21 +119,21 @@ function EnterprisePanel() {
         <h3 className="m-0 text-sm font-semibold text-[#27477f]">已提交注册待审核</h3>
         <div className="mt-2 flex items-center justify-between rounded-lg border border-[#d8e6f5] bg-[#f9fcff] p-3">
           <div className="min-w-0"><strong className="block truncate text-sm">{registration.legal_name}</strong><small className="text-[#7187a8]">{registration.credit_code}</small>{registration.status === "REJECTED" && registration.reject_reason && <p className="m-0 mt-1 text-xs text-[#c53c3c]">驳回原因：{registration.reject_reason}</p>}</div>
-          <span className={`ml-3 shrink-0 rounded-full px-2.5 py-1 text-xs ${registration.status === "PENDING_REVIEW" ? "bg-[#fff7e6] text-[#b06e00]" : registration.status === "REJECTED" ? "bg-[#fff1f1] text-[#c53c3c]" : "bg-[#eefaf4] text-[#0a7d55]"}`}>{registrationStatusText[registration.status] ?? registration.status}</span>
+          <span className={`ml-3 shrink-0 rounded-full px-2.5 py-1 text-xs ${registration.status === "PENDING_REVIEW" ? "bg-[#fff7e6] text-[#b06e00]" : registration.status === "REJECTED" ? "bg-[#fff1f1] text-[#c53c3c]" : "bg-[#eefaf4] text-[#0a7d55]"}`}>{getDisplayLabel("registration.status", registration.status, "审核状态暂未识别")}</span>
         </div>
       </div>}
-      {/* 已注册企业（本人为 Owner） */}
+      {/* 已注册企业（本人为企业负责人） */}
       <div>
         <h3 className="m-0 text-sm font-semibold text-[#27477f]">已注册企业</h3>
         {owned.length
-          ? <div className="mt-2 space-y-2">{owned.map(item => <div key={item.id} className="flex items-center justify-between rounded-lg border border-[#d8e6f5] p-3"><div className="min-w-0"><strong className="block truncate text-sm">{item.name}</strong><small className="text-[#7187a8]">角色：Owner</small></div><span className="ml-3 shrink-0 rounded-full bg-[#eef2fb] px-2.5 py-1 text-xs text-[#33518f]">{tenantStatusText[item.status] ?? item.status}</span></div>)}</div>
+          ? <div className="mt-2 space-y-2">{owned.map(item => <div key={item.id} className="flex items-center justify-between rounded-lg border border-[#d8e6f5] p-3"><div className="min-w-0"><strong className="block truncate text-sm">{item.name}</strong><small className="text-[#7187a8]">角色：企业负责人</small></div><span className="ml-3 shrink-0 rounded-full bg-[#eef2fb] px-2.5 py-1 text-xs text-[#33518f]">{getDisplayLabel("tenant.status", item.status, "企业状态暂未识别")}</span></div>)}</div>
           : <p className="mt-2 text-sm text-[#7187a8]">暂无已注册的企业</p>}
       </div>
       {/* 已加入企业（非 Owner） */}
       <div>
         <h3 className="m-0 text-sm font-semibold text-[#27477f]">已加入企业</h3>
         {joined.length
-          ? <div className="mt-2 space-y-2">{joined.map(item => <div key={item.id} className="flex items-center justify-between rounded-lg border border-[#d8e6f5] p-3"><div className="min-w-0"><strong className="block truncate text-sm">{item.name}</strong><small className="text-[#7187a8]">角色：{item.roleCode ?? "--"}</small></div><span className="ml-3 shrink-0 rounded-full bg-[#eef2fb] px-2.5 py-1 text-xs text-[#33518f]">{tenantStatusText[item.status] ?? item.status}</span></div>)}</div>
+          ? <div className="mt-2 space-y-2">{joined.map(item => <div key={item.id} className="flex items-center justify-between rounded-lg border border-[#d8e6f5] p-3"><div className="min-w-0"><strong className="block truncate text-sm">{item.name}</strong><small className="text-[#7187a8]">角色：{(item.roleCode ? roleNames[item.id]?.[item.roleCode] : "") || getDisplayLabel("role.builtin", item.roleCode, "角色名称暂未配置")}</small></div><span className="ml-3 shrink-0 rounded-full bg-[#eef2fb] px-2.5 py-1 text-xs text-[#33518f]">{getDisplayLabel("tenant.status", item.status, "企业状态暂未识别")}</span></div>)}</div>
           : <p className="mt-2 text-sm text-[#7187a8]">暂无已加入的企业</p>}
       </div>
     </div>

@@ -152,7 +152,7 @@ function roleLabel(role: string) {
     case "SUPER_ADMIN": return "超级管理员";
     case "ADMIN": return "管理员";
     case "OPERATOR": return "运营人员";
-    default: return role;
+    default: return "管理员角色暂未识别";
   }
 }
 

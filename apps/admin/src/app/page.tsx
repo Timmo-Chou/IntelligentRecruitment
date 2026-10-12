@@ -10,17 +10,18 @@ import {
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { adminApiFetch } from "@/lib/admin-api-client";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 // 简单统计：从现有接口获取计数
 export default function DashboardPage() {
   // 企业数量
-  const { data: tenants } = useQuery({
+  const { data: tenants, error: tenantError } = useQuery({
     queryKey: ["dashboard-tenants"],
     queryFn: () => adminApiFetch<{ total: number }>("/platform/recruitment/tenants?page=1&size=1"),
   });
 
   // 用户数量
-  const { data: users } = useQuery({
+  const { data: users, error: userError } = useQuery({
     queryKey: ["dashboard-users"],
     queryFn: () => adminApiFetch<{ total: number }>("/platform/users?page=1&size=1"),
   });
@@ -39,6 +40,9 @@ export default function DashboardPage() {
         <h1 className="text-2xl font-bold text-slate-800">首页</h1>
         <p className="mt-1 text-sm text-slate-500">平台运营数据概览</p>
       </div>
+
+      {tenantError && <div className="mb-3"><AdminErrorNotice error={tenantError} fallback="企业统计暂不可用，请稍后重试。" /></div>}
+      {userError && <div className="mb-3"><AdminErrorNotice error={userError} fallback="用户统计暂不可用，请稍后重试。" /></div>}
 
       <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {statCards.map(({ label, value, icon: Icon, color, href }) => (

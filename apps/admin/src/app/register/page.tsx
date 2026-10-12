@@ -5,6 +5,7 @@ import { LockKeyhole, Phone, Shield, UserRound } from "lucide-react";
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
 import { adminApiFetch, ApiError } from "@/lib/admin-api-client";
+import { AdminErrorNotice } from "@/components/admin-error-notice";
 
 export default function RegisterPage() {
   const [username, setUsername] = useState("");
@@ -15,6 +16,7 @@ export default function RegisterPage() {
   const [registerReason, setRegisterReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCause, setErrorCause] = useState<unknown>(null);
   const [submitted, setSubmitted] = useState(false);
 
   async function handleSubmit(event: FormEvent) {
@@ -38,6 +40,7 @@ export default function RegisterPage() {
 
     setLoading(true);
     setError(null);
+    setErrorCause(null);
     try {
       await adminApiFetch<void>("/platform/admins/register", {
         method: "POST",
@@ -51,7 +54,7 @@ export default function RegisterPage() {
       });
       setSubmitted(true);
     } catch (err) {
-      if (err instanceof ApiError) setError(err.message);
+      if (err instanceof ApiError) setErrorCause(err);
       else setError("提交失败，请检查网络连接后重试");
     } finally {
       setLoading(false);
@@ -108,6 +111,7 @@ export default function RegisterPage() {
           </div>
 
           {error && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+          {errorCause != null && <AdminErrorNotice error={errorCause} fallback="注册申请暂未提交，请检查信息后重试。" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" />}
           <button type="submit" disabled={loading} className="w-full rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
             {loading ? "提交中…" : "提交申请"}
           </button>

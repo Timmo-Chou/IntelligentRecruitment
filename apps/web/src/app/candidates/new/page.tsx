@@ -9,9 +9,11 @@ import { ApiError } from "@/lib/api-client";
 import { createTalent } from "@/lib/candidate-api";
 import {
   EDUCATION_OPTIONS, GENDER_OPTIONS, LEVEL_OPTIONS, REGION_TREE, TALENT_INDUSTRIES,
-  TALENT_TAGS, YEARS_OPTIONS, type TalentProfileInput,
+  TALENT_TAGS,
+  talentTagDisplayName, YEARS_OPTIONS, type TalentProfileInput,
 } from "@/lib/talent-constants";
 import { useTenant } from "@/lib/tenant-context";
+import { getSafeErrorMessage } from "@intelligent-recruitment/display-dictionary";
 
 const EMPTY: TalentProfileInput = {
   fullName: "", gender: "男", phone: "", email: "",
@@ -68,7 +70,7 @@ export default function NewTalentPage() {
       const created = await createTalent(tenantId, form);
       router.push(`/candidates?highlight=${created.id}`);
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : "保存失败，请稍后重试");
+      setError(cause instanceof ApiError ? getSafeErrorMessage(cause.body.code, cause.body.request_id, "保存暂未成功，请稍后重试。") : "保存暂未成功，请稍后重试。");
     } finally {
       setSaving(false);
     }
@@ -164,7 +166,7 @@ export default function NewTalentPage() {
                   onClick={() => update("tags", active ? form.tags.filter((t) => t !== tag) : [...form.tags, tag])}
                   className={`rounded-full px-3 py-1 text-xs font-medium ${active ? "bg-[#2f6bff] text-white" : "bg-[#edf5ff] text-[#3970ad]"}`}
                 >
-                  {tag}
+                  {talentTagDisplayName(tag)}
                 </button>
               );
             })}
@@ -183,7 +185,7 @@ export default function NewTalentPage() {
             <div className="mt-3 flex flex-wrap gap-2">
               {form.tags.map((tag) => (
                 <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-[#fff0e8] px-2.5 py-1 text-xs text-[#d45d1c]">
-                  {tag}
+                  {talentTagDisplayName(tag)}
                   <button type="button" onClick={() => update("tags", form.tags.filter((t) => t !== tag))}><X size={12} /></button>
                 </span>
               ))}

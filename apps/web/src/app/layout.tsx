@@ -4,8 +4,8 @@ import { AppProviders } from "./providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI 智能招聘",
-  description: "企业级 AI 招聘工作台",
+  title: "智能招聘",
+  description: "企业级智能招聘工作台",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
