@@ -20,7 +20,8 @@ public class JdStructuredResultMapper {
         }
         Map<String, Object> data = result.data();
         String title = required(data, "title");
-        String company = required(data, "company_name");
+        String company = text(data, "company_name");
+        if (company.isBlank()) company = "企业名称待确认";
         String location = text(data, "location");
         String experience = text(data, "experience_level");
         String education = text(data, "education");
@@ -28,7 +29,7 @@ public class JdStructuredResultMapper {
         String salary = text(data, "salary_range");
         String responsibilities = required(data, "responsibilities");
         String requirements = required(data, "requirements");
-        String skills = required(data, "skills");
+        String skills = text(data, "skills");
         String niceToHaves = text(data, "nice_to_haves");
         String benefits = text(data, "benefits");
         String profile = text(data, "talent_profile");

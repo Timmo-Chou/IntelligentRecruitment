@@ -14,6 +14,7 @@ describe("streamJdRunEvents", () => {
     const frames = [
       "id: 42\nevent: delta\ndata: {\"delta\":\"正在生成\",\"progress\":50}\n\n",
       "id: 43\nevent: completed\ndata: {\"status\":\"COMPLETED\",\"progress\":100}\n\n",
+      "id: 44\nevent: reconciliation_required\ndata: {\"status\":\"RECONCILIATION_REQUIRED\",\"errorCode\":\"PROVIDER_UNAVAILABLE\",\"message\":\"待核对\"}\n\n",
     ];
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -33,6 +34,7 @@ describe("streamJdRunEvents", () => {
     expect(events).toEqual([
       expect.objectContaining({ id: 42, type: "delta" }),
       expect.objectContaining({ id: 43, type: "completed" }),
+      expect.objectContaining({ id: 44, type: "reconciliation_required", data: expect.objectContaining({ status: "RECONCILIATION_REQUIRED" }) }),
     ]);
   });
 });

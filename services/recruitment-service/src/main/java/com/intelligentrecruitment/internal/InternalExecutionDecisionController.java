@@ -13,6 +13,15 @@ public class InternalExecutionDecisionController {
   if(id.isBlank()||secret.isBlank()||!equal(id,suppliedId)||!equal(secret,suppliedSecret))throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"内部服务凭证无效");
   return ledger.decideDeadline(authorizationId,request.reservationId(),request.acceptedTaskId()==null?null:request.acceptedTaskId().toString(),request.reconciliationDeadline());
  }
+ @PostMapping("/{authorizationId}/definitive-provider-rejection")
+ public Map<String,Object> definitiveProviderRejection(@PathVariable UUID authorizationId,@RequestBody ProviderRejection request,
+        @RequestHeader("X-Internal-Client-Id")String suppliedId,@RequestHeader("X-Internal-Client-Secret")String suppliedSecret){
+  if(id.isBlank()||secret.isBlank()||!equal(id,suppliedId)||!equal(secret,suppliedSecret))throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"内部服务凭证无效");
+  return ledger.releaseDefinitiveProviderRejection(authorizationId,request.reservationId(),request.acceptedTaskId().toString(),
+          request.inputHash(),request.providerRequestId(),request.providerErrorCode(),request.providerErrorPath());
+ }
  @com.fasterxml.jackson.databind.annotation.JsonNaming(com.fasterxml.jackson.databind.PropertyNamingStrategies.SnakeCaseStrategy.class)
  public record Deadline(UUID reservationId,UUID acceptedTaskId,Instant reconciliationDeadline){}
+ @com.fasterxml.jackson.databind.annotation.JsonNaming(com.fasterxml.jackson.databind.PropertyNamingStrategies.SnakeCaseStrategy.class)
+ public record ProviderRejection(UUID reservationId,UUID acceptedTaskId,String inputHash,String providerRequestId,String providerErrorCode,String providerErrorPath){}
 }

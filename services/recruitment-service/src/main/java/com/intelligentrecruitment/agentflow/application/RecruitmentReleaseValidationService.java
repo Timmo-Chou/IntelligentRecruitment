@@ -43,7 +43,28 @@ public class RecruitmentReleaseValidationService {
        new com.intelligentrecruitment.recruitment.application.JdStructuredResultMapper().toDraft(result);
        jdbc.update("UPDATE recruitment_release_validation_runs SET status='COMPLETED',result_ciphertext=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",cipher.encrypt(json.writeValueAsString(result)),id);
        ai.confirmResultPersisted(task.aiTaskId(),result);
-     }else if(task.status()==AiTaskStatus.FAILED||task.status()==AiTaskStatus.CANCELLED){jdbc.update("UPDATE recruitment_release_validation_runs SET status='FAILED',error_code=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",task.errorCode(),id);ai.confirmNoBillableResult(task.aiTaskId(),"RELEASE_VALIDATION_FAILED");}
-   }catch(Exception ex){jdbc.update("UPDATE recruitment_release_validation_runs SET error_code='VALIDATION_REQUIRES_RECONCILIATION',updated_at=CURRENT_TIMESTAMP WHERE id=?",id);}
+     }else if(task.status()==AiTaskStatus.FAILED||task.status()==AiTaskStatus.CANCELLED){
+       boolean alreadyReleased=releaseDecisionAlreadySelected(row.get("tenant_id"),id,task.aiTaskId());
+       jdbc.update("UPDATE recruitment_release_validation_runs SET status='FAILED',error_code=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",task.errorCode(),id);
+       if(!alreadyReleased)ai.confirmNoBillableResult(task.aiTaskId(),"RELEASE_VALIDATION_FAILED");
+     }
+   }catch(Exception ex){
+     if(ex instanceof com.intelligentrecruitment.aiplatform.infrastructure.HttpAiPlatformClient.DefinitiveSubmissionRejection){
+       jdbc.update("UPDATE recruitment_release_validation_runs SET status='FAILED',error_code='PLATFORM_ACCEPTANCE_NOT_FOUND',updated_at=CURRENT_TIMESTAMP WHERE id=?",id);
+     }else{
+       jdbc.update("UPDATE recruitment_release_validation_runs SET error_code='VALIDATION_REQUIRES_RECONCILIATION',updated_at=CURRENT_TIMESTAMP WHERE id=?",id);
+     }
+   }
+ }
+
+ private boolean releaseDecisionAlreadySelected(Object tenant,UUID validationId,String taskId){
+   var rows=jdbc.queryForList("SELECT e.final_decision,e.agent_task_id,o.effect_type FROM ai_execution_records e LEFT JOIN ai_settlement_outbox o ON o.execution_id=e.id AND o.effect_type IN ('USAGE','RELEASE') WHERE e.tenant_id=? AND e.business_task_id=?",tenant,validationId.toString());
+   if(rows.isEmpty())return false;
+   if(rows.size()!=1)throw new IllegalStateException("Validation execution binding is not unique");
+   var selected=rows.getFirst();
+   if(selected.get("final_decision")==null)return false;
+   if(!taskId.equals(selected.get("agent_task_id"))||!"RELEASE".equals(selected.get("final_decision"))||!"RELEASE".equals(selected.get("effect_type")))
+     throw new IllegalStateException("Failed validation conflicts with the saved financial decision");
+   return true;
  }
 }

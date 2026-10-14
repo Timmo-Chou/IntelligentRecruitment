@@ -338,6 +338,10 @@ public class RecruitmentService {
         requirePriorExecutionClosed(tenantId,taskId,"JD_GENERATION");
         String requirement = optional(input == null ? null : input.requirement(), 20_000);
         if (requirement.isBlank()) requirement = task.initialRequirement();
+        String title = JdTitleResolver.resolve(optional(value(input, GenerateJdInput::title), 200), requirement);
+        if (title.isBlank()) {
+            throw validation("请在职位需求中明确岗位名称，例如“岗位名称：Java工程师”后再生成");
+        }
         UUID runId = UUID.randomUUID();
         int attempt = nextAttempt(taskId);
         Instant now = Instant.now();
@@ -355,7 +359,7 @@ public class RecruitmentService {
                 """, runId, tenantId, taskId, attempt, key, payloadHash,
                 userId, timestamp(now), protectedPayload(Map.of(
                         "requirement", requirement,
-                        "title", nullable(value(input, GenerateJdInput::title)),
+                        "title", title,
                         "companyName", nullable(value(input, GenerateJdInput::companyName)),
                         "location", nullable(value(input, GenerateJdInput::location)),
                         "experienceLevel", nullable(value(input, GenerateJdInput::experienceLevel)),
@@ -430,6 +434,25 @@ public class RecruitmentService {
         RunExecution run = runExecution(runId, false);
         if (!"RUNNING".equals(run.status()) || run.providerTaskId() == null) return;
         AiTask task = aiPlatform.getTask(run.providerTaskId(), run.createdBy().toString());
+        if (task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.RECONCILIATION_REQUIRED
+                || task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.RESULT_MAPPING_FAILED) {
+            resultTransaction.executeWithoutResult(tx -> {
+                RunExecution current = runExecution(runId, true);
+                if (!"RUNNING".equals(current.status())
+                        || !java.util.Objects.equals(current.providerTaskId(), run.providerTaskId())) return;
+                String errorCode = task.errorCode() == null ? task.status().name() : task.errorCode();
+                String errorMessage = task.errorMessage() == null
+                        ? "执行结果待核对，核对完成前不能重新发起" : task.errorMessage();
+                jdbc.update("UPDATE ai_runs SET status=?,error_code=?,error_message=? WHERE id=? AND status='RUNNING'",
+                        task.status().name(), errorCode, errorMessage, current.id());
+                appendRunEvent(current, "reconciliation_required", Map.of(
+                        "status", task.status().name(), "progress", current.progress(),
+                        "errorCode", errorCode, "message", errorMessage));
+                jdbc.update("UPDATE recruitment_tasks SET current_stage='JD_GENERATION_RECONCILIATION_REQUIRED',updated_at=? WHERE id=?",
+                        timestamp(Instant.now()), current.taskId());
+            });
+            return;
+        }
         if (task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.FAILED
                 || task.status() == com.intelligentrecruitment.aiplatform.domain.AiTaskStatus.CANCELLED) {
             String errorCode = task.errorCode() == null ? "AI_PROVIDER_UNAVAILABLE" : task.errorCode();
@@ -498,8 +521,22 @@ public class RecruitmentService {
         jdbc.update("UPDATE outbox_events SET status='FAILED',sent_at=? WHERE id=?", timestamp(Instant.now()), claim.eventId());
     }
 
-    public List<RunEvent> runEvents(UUID userId, UUID tenantId, UUID taskId, long afterEventId) {
-        tenantAccess.requireBusinessAccess(userId, tenantId);
+    /**
+     * Authorize the SSE request on the servlet request thread, where the BOSS request context
+     * is available. The returned tenant scope is safe to capture for this short-lived stream;
+     * it contains no access token and is valid only for the requested task.
+     */
+    public TenantScope authorizeRunEventStream(UUID userId, UUID tenantId, UUID taskId) {
+        TenantScope scope = tenantAccess.requireBusinessAccess(userId, tenantId);
+        Boolean taskExists = jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM recruitment_tasks WHERE id=? AND tenant_id=?)
+                """, Boolean.class, taskId, tenantId);
+        if (!Boolean.TRUE.equals(taskExists)) throw taskNotFound();
+        return scope;
+    }
+
+    /** Poll persisted events using the already-authorized tenant scope; never calls BOSS from SSE async threads. */
+    public List<RunEvent> runEvents(TenantScope scope, UUID taskId, long afterEventId) {
         return jdbc.query("""
                 SELECT e.event_id,e.run_id,e.event_type,e.data::text,e.created_at
                 FROM jd_run_events e JOIN ai_runs r ON r.id=e.run_id
@@ -507,7 +544,7 @@ public class RecruitmentService {
                 ORDER BY e.event_id LIMIT 200
                 """, (rs, n) -> new RunEvent(rs.getLong("event_id"), rs.getObject("run_id", UUID.class),
                 rs.getString("event_type"), rs.getString("data"), rs.getTimestamp("created_at").toInstant()),
-                tenantId, taskId, Math.max(0, afterEventId));
+                scope.tenantId(), taskId, Math.max(0, afterEventId));
     }
 
     @Transactional

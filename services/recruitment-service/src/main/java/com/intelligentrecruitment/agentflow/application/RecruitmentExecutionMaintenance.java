@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Propagation;
 @Service
 public class RecruitmentExecutionMaintenance {
  private static final Set<FlowCapability> OVERLAP=Set.of(FlowCapability.JD_GENERATION,FlowCapability.RESUME_PARSING,FlowCapability.CANDIDATE_SCREENING);
+ private static final Set<String> TERMINAL_ROOT_EXECUTION_STATUSES=Set.of("SETTLED","RELEASED","CANCELLED");
  private final JdbcTemplate jdbc;private final ObjectMapper json;private final com.intelligentrecruitment.boss.application.BossControlPlaneClient boss;
  private final ThreadLocal<UUID> validationCutover=new ThreadLocal<>();
  public RecruitmentExecutionMaintenance(JdbcTemplate jdbc,ObjectMapper json,com.intelligentrecruitment.boss.application.BossControlPlaneClient boss){this.jdbc=jdbc;this.json=json;this.boss=boss;}
@@ -44,7 +45,7 @@ public class RecruitmentExecutionMaintenance {
    if("OPEN".equals(state)&&!"VALIDATING".equals(old))throw new ApiException("VALIDATION_REQUIRED","须先进入验证状态再开放",HttpStatus.CONFLICT);
    if("VALIDATING".equals(state)&&!"DRAINING".equals(old))throw new ApiException("DRAIN_REQUIRED","须先暂停新根入口",HttpStatus.CONFLICT);
    if(upgrade&&"VALIDATING".equals(state)){
-     Integer active=jdbc.queryForObject("SELECT count(*) FROM ai_execution_records WHERE agent_id IS NULL AND status NOT IN ('SETTLED','RELEASED')",Integer.class);
+     Integer active=jdbc.queryForObject("SELECT count(*) FROM ai_execution_records WHERE agent_id IS NULL AND status NOT IN ("+terminalRootExecutionStatusesSql()+")",Integer.class);
      if(active==null||active>0||!boss.legacyExecutionsDrained())throw new ApiException("LEGACY_EXECUTIONS_PENDING","v1执行和结算尚未排空",HttpStatus.CONFLICT);
    }
    if("OPEN".equals(state)) {
@@ -61,6 +62,8 @@ public class RecruitmentExecutionMaintenance {
      return jdbc.queryForMap("SELECT * FROM recruitment_execution_maintenance WHERE id=1");
    }catch(com.fasterxml.jackson.core.JsonProcessingException ex){throw new IllegalStateException(ex);}
  }
+ static boolean isTerminalRootExecutionStatus(String status){return TERMINAL_ROOT_EXECUTION_STATUSES.contains(status);}
+ private static String terminalRootExecutionStatusesSql(){return TERMINAL_ROOT_EXECUTION_STATUSES.stream().sorted().map(status->"'"+status+"'").collect(java.util.stream.Collectors.joining(","));}
  private static ApiException denied(){return new ApiException("RECRUITMENT_EXECUTION_MAINTENANCE","招聘服务正在维护，请稍后重试",HttpStatus.SERVICE_UNAVAILABLE);}
  private record Gate(String state,UUID cutover,String targetVersion,boolean protocolUpgrade){}
 }

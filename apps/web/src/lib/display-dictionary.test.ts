@@ -41,5 +41,6 @@ describe("display dictionary", () => {
     expect(getSafeErrorMessage("INSUFFICIENT_CREDITS")).toContain("积分不足");
     expect(getSafeErrorMessage("INVALID_CREDENTIALS")).toContain("用户名或密码");
     expect(getSafeErrorMessage("PLATFORM_USER_NOT_FOUND")).toBe("用户不存在。");
+    expect(getSafeErrorMessage("BOSS_SESSION_REQUIRED")).toContain("重新登录");
   });
 });

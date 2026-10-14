@@ -43,6 +43,21 @@ class JdStructuredResultMapperTest {
     }
 
     @Test
+    void usesExistingDraftPlaceholderWhenRdDoesNotReturnCompanyName() {
+        var draft = mapper.toDraft(result(Map.ofEntries(
+                Map.entry("title", "合成接口测试工程师"),
+                Map.entry("location", "苏州"),
+                Map.entry("responsibilities", List.of("负责接口测试")),
+                Map.entry("requirements", List.of("具备接口测试经验")),
+                Map.entry("skills", List.of()),
+                Map.entry("jd_text", "合成接口测试工程师 JD"))));
+
+        assertThat(draft.companyName()).isEqualTo("企业名称待确认");
+        assertThat(draft.jdText()).isEqualTo("合成接口测试工程师 JD");
+        assertThat(draft.skills()).isEmpty();
+    }
+
+    @Test
     void rendersStructuredArrayFieldsAsSeparateLines() {
         var draft = mapper.toDraft(result(Map.ofEntries(
                 Map.entry("title", "Java 工程师"), Map.entry("company_name", "示例科技"),

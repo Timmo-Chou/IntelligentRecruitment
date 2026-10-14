@@ -51,7 +51,7 @@ export type JdDraft = {
 export type AiRun = {
   id: string;
   providerTaskId: string | null;
-  status: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
+  status: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "RECONCILIATION_REQUIRED" | "RESULT_MAPPING_FAILED";
   progress: number;
   attemptNumber: number;
   errorCode: string | null;
@@ -236,7 +236,7 @@ export function confirmJdDraft(tenantId: string, taskId: string, draftId: string
 
 export type JdRunEvent = {
   id: number;
-  type: "status" | "delta" | "completed" | "failed";
+  type: "status" | "delta" | "completed" | "failed" | "reconciliation_required";
   data: { status?: string; progress?: number; delta?: string; message?: string; errorCode?: string };
 };
 

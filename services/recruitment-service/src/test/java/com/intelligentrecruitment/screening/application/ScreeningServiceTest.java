@@ -43,4 +43,21 @@ class ScreeningServiceTest {
                 .extracting(ExecutionContext.InputVersion::kind)
                 .containsExactly("job_version", "screening_plan_version", "resume_parse_version", "resume_file");
     }
+
+    @Test
+    void aggregatesSettlementStatesWithoutDependingOnQueryOrder() {
+        assertThat(ScreeningService.aggregateSettlementStatus(List.of("SETTLED", "RELEASED"))).isEqualTo("MIXED");
+        assertThat(ScreeningService.aggregateSettlementStatus(List.of("RELEASED", "SETTLED"))).isEqualTo("MIXED");
+        assertThat(ScreeningService.aggregateSettlementStatus(List.of("SETTLED", "USAGE_PENDING"))).isEqualTo("PENDING");
+        assertThat(ScreeningService.aggregateSettlementStatus(List.of("RELEASED", "RECONCILIATION_REQUIRED")))
+                .isEqualTo("RECONCILIATION_REQUIRED");
+        assertThat(ScreeningService.aggregateSettlementStatus(List.of("RELEASED", "SETTLEMENT_FAILED")))
+                .isEqualTo("SETTLEMENT_FAILED");
+        assertThat(ScreeningService.aggregateSettlementStatus(List.of("SETTLED", "AUTHORIZED"))).isEqualTo("EXECUTING");
+        assertThat(ScreeningService.aggregateSettlementStatus(List.of("RELEASED", "CANCELLED"))).isEqualTo("RELEASED");
+        assertThat(ScreeningService.aggregateSettlementStatus(List.of("SETTLED", "SETTLED"))).isEqualTo("SETTLED");
+        assertThat(ScreeningService.aggregateSettlementStatus(List.of("SETTLED", "UNRECOGNIZED_STATE")))
+                .isEqualTo("RECONCILIATION_REQUIRED");
+        assertThat(ScreeningService.aggregateSettlementStatus(List.of())).isNull();
+    }
 }

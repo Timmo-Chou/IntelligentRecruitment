@@ -82,7 +82,9 @@ export async function apiStream(path: string, init?: RequestInit, allowRefresh =
     ...init,
     credentials: "include",
     headers: {
-      Accept: "text/event-stream",
+      // The endpoint streams events on success and returns the normal API error
+      // envelope when authorization fails before the stream starts.
+      Accept: "text/event-stream, application/json",
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...init?.headers,
     },
@@ -91,9 +93,18 @@ export async function apiStream(path: string, init?: RequestInit, allowRefresh =
     const refreshed = await refreshAccessToken();
     if (refreshed) return apiStream(path, init, false);
   }
-  if (!response.ok) throw new ApiError(response.status, {
-    code: "EVENT_STREAM_FAILED", message: "生成进度连接失败，正在尝试恢复",
-  });
+  if (!response.ok) {
+    const fallback: ApiErrorBody = {
+      code: "EVENT_STREAM_FAILED",
+      message: "生成进度连接失败，正在尝试恢复",
+    };
+    const body = (await response.json().catch(() => null)) as Partial<ApiErrorBody> | null;
+    throw new ApiError(response.status, {
+      code: typeof body?.code === "string" ? body.code : fallback.code,
+      message: typeof body?.message === "string" ? body.message : fallback.message,
+      ...(typeof body?.request_id === "string" ? { request_id: body.request_id } : {}),
+    });
+  }
   return response;
 }
 

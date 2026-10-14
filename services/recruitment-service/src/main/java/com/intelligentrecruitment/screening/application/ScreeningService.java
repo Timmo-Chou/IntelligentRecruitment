@@ -649,16 +649,31 @@ public class ScreeningService {
                 SELECT DISTINCT er.status
                 FROM screening_run_items i
                 LEFT JOIN ai_execution_records er
-                  ON er.tenant_id=i.tenant_id AND er.business_task_id=i.id::text
+                  ON er.tenant_id=i.tenant_id
+                 AND er.business_task_id=COALESCE(i.batch_id::text,i.id::text)
                 WHERE i.run_id=? AND i.tenant_id=? AND er.status IS NOT NULL
                 """, (rs, n) -> rs.getString(1), runId, tenantId);
-        if (statuses.isEmpty()) return null;
+        return aggregateSettlementStatus(statuses);
+    }
+
+    static String aggregateSettlementStatus(List<String> statuses) {
+        if (statuses == null || statuses.isEmpty()) return null;
+        if (statuses.stream().anyMatch(status -> !Set.of("AUTHORIZED","AGENT_ACCEPTED","RUNNING","CANCEL_REQUESTED",
+                "USAGE_PENDING","RELEASE_PENDING","CANCELLATION_PENDING","RECONCILIATION_REQUIRED",
+                "SETTLEMENT_FAILED","SETTLED","RELEASED","CANCELLED").contains(status))) {
+            return "RECONCILIATION_REQUIRED";
+        }
         if (statuses.contains("SETTLEMENT_FAILED")) return "SETTLEMENT_FAILED";
-        if (statuses.contains("USAGE_PENDING") || statuses.contains("CANCELLATION_PENDING")) return "PENDING";
-        if (statuses.stream().allMatch("SETTLED"::equals)) return "SETTLED";
-        if (statuses.stream().allMatch("CANCELLED"::equals)) return "CANCELLED";
-        return statuses.stream().anyMatch(status -> "AUTHORIZED".equals(status) || "AGENT_ACCEPTED".equals(status))
-                ? "EXECUTING" : statuses.getFirst();
+        if (statuses.contains("RECONCILIATION_REQUIRED")) return "RECONCILIATION_REQUIRED";
+        if (statuses.stream().anyMatch(status -> Set.of("USAGE_PENDING","RELEASE_PENDING","CANCELLATION_PENDING").contains(status))) return "PENDING";
+        boolean settled = statuses.contains("SETTLED");
+        boolean released = statuses.contains("RELEASED") || statuses.contains("CANCELLED");
+        boolean finalOnly = statuses.stream().allMatch(status -> Set.of("SETTLED","RELEASED","CANCELLED").contains(status));
+        if (finalOnly && settled && released) return "MIXED";
+        if (finalOnly && settled) return "SETTLED";
+        if (finalOnly && released) return "RELEASED";
+        if (statuses.stream().anyMatch(status -> Set.of("AUTHORIZED","AGENT_ACCEPTED","RUNNING","CANCEL_REQUESTED").contains(status))) return "EXECUTING";
+        return "RECONCILIATION_REQUIRED";
     }
 
     private ScreeningPlanView planScoped(UUID tenantId, UUID planId) {
@@ -789,9 +804,13 @@ public class ScreeningService {
         }
         Integer unresolved = jdbc.queryForObject("""
                 SELECT count(*) FROM screening_run_items i
-                JOIN ai_execution_records e ON e.tenant_id=i.tenant_id AND e.business_task_id=i.id::text
                 WHERE i.run_id=? AND i.tenant_id=? AND i.status='FAILED'
-                  AND (e.final_decision IS NULL OR e.status NOT IN ('SETTLED','RELEASED'))
+                  AND NOT EXISTS (
+                    SELECT 1 FROM ai_execution_records e
+                    WHERE e.tenant_id=i.tenant_id
+                      AND e.business_task_id=COALESCE(i.batch_id::text,i.id::text)
+                      AND e.final_decision IS NOT NULL AND e.status IN ('SETTLED','RELEASED')
+                  )
                 """, Integer.class, originalRunId, tenantId);
         if (unresolved != null && unresolved > 0) {
             throw new ApiException("SCREENING_RUN_SETTLEMENT_PENDING", "前次执行尚未形成最终结算决定，暂不能重试", HttpStatus.CONFLICT);

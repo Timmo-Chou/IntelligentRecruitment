@@ -134,10 +134,15 @@ export default function RecruitmentPage() {
             cursor = event.id;
             sessionStorage.setItem(cursorKey, String(cursor));
             if (event.data.delta) setStreamText(current => current ? `${current}\n${event.data.delta}` : event.data.delta!);
-            if (event.data.progress !== undefined) setDetail(current => current?.latestAiRun ? {
-              ...current, latestAiRun: { ...current.latestAiRun, progress: event.data.progress!, status: (event.data.status ?? current.latestAiRun.status) as typeof current.latestAiRun.status },
+            if (event.data.progress !== undefined || event.data.status || event.data.errorCode || event.data.message) setDetail(current => current?.latestAiRun ? {
+              ...current, latestAiRun: { ...current.latestAiRun,
+                progress: event.data.progress ?? current.latestAiRun.progress,
+                status: (event.data.status ?? current.latestAiRun.status) as typeof current.latestAiRun.status,
+                errorCode: event.data.errorCode ?? current.latestAiRun.errorCode,
+                errorMessage: event.data.message ?? current.latestAiRun.errorMessage,
+              },
             } : current);
-            if (event.type === "completed" || event.type === "failed") stopped = true;
+            if (event.type === "completed" || event.type === "failed" || event.type === "reconciliation_required") stopped = true;
           }, controller.signal);
         } catch (cause) {
           if (controller.signal.aborted) return;
@@ -403,7 +408,7 @@ export default function RecruitmentPage() {
                   <p className="mb-0 mt-1 text-xs text-[#7185a3]">右侧 AI 招聘助手正在根据需求生成职位描述，完成后将在此展示草稿供你编辑确认。</p>
                 </div>
               </div>
-              <JdWaitingState task={detail.task} running={busy || ["QUEUED", "RUNNING"].includes(detail.latestAiRun?.status ?? "")} errorCode={detail.latestAiRun?.errorCode} errorMessage={detail.latestAiRun?.errorMessage} onRetry={() => void handleAddJdDraft()} /></>}
+              <JdWaitingState task={detail.task} running={busy || ["QUEUED", "RUNNING"].includes(detail.latestAiRun?.status ?? "")} runStatus={detail.latestAiRun?.status} errorCode={detail.latestAiRun?.errorCode} errorMessage={detail.latestAiRun?.errorMessage} onRetry={() => void handleAddJdDraft()} /></>}
       </main>
 
       <aside className="flex min-h-0 flex-col rounded-xl border border-[#d6e5f5] bg-white shadow-[0_6px_20px_rgba(30,92,160,0.04)] lg:h-[calc(100dvh-190px)] lg:overflow-hidden">
@@ -1239,14 +1244,16 @@ function CreateTaskPanel({ title, requirement, busy, onTitle, onRequirement, onC
   </div>;
 }
 
-function JdWaitingState({ task, running, errorCode, errorMessage, onRetry }: { task: TaskSummary; running: boolean; errorCode: string | null | undefined; errorMessage: string | null | undefined; onRetry: () => void }) {
+function JdWaitingState({ task, running, runStatus, errorCode, errorMessage, onRetry }: { task: TaskSummary; running: boolean; runStatus: AiRun["status"] | undefined; errorCode: string | null | undefined; errorMessage: string | null | undefined; onRetry: () => void }) {
+  const reconciliationRequired = runStatus === "RECONCILIATION_REQUIRED" || runStatus === "RESULT_MAPPING_FAILED";
   return <div className="mx-auto max-w-xl py-16 text-center">
     <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-[#e9f8ff] text-[#1778df]"><MessageSquareText size={27}/></span>
     <h2 className="mb-0 mt-5 text-xl font-bold text-[#173568]">{task.title}</h2>
     {running ? <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#60799f]">智能助手正在生成结构化职位描述，结果完成后会自动填入此处。</p>
-      : errorMessage || errorCode ? <div className="mx-auto mt-3 max-w-md rounded-lg border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-left text-sm leading-6 text-[#b42318]"><span className="font-semibold">生成暂未成功：</span>{getDisplayLabel("error.common", errorCode, "请稍后重试，或联系平台运营并提供任务编号。")}</div>
+      : reconciliationRequired ? <div className="mx-auto mt-3 max-w-md rounded-lg border border-[#f6d58a] bg-[#fffaf0] px-4 py-3 text-left text-sm leading-6 text-[#8d6200]"><span className="font-semibold">执行结果待核对：</span>{errorMessage || "运营核对完成前请勿重新生成，以免重复调用或结算。"}{errorCode && <div className="mt-1 text-xs">状态码：{errorCode}</div>}</div>
+      : errorMessage || errorCode ? <div className="mx-auto mt-3 max-w-md rounded-lg border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-left text-sm leading-6 text-[#b42318]"><span className="font-semibold">生成暂未成功：</span>{errorMessage || getDisplayLabel("error.common", errorCode, "请联系平台运营并提供任务编号。")}{errorCode && <div className="mt-1 text-xs">错误码：{errorCode}</div>}</div>
         : <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-[#60799f]">可继续补充招聘需求，或重新发起 职位描述生成。</p>}
-    {!running && <button type="button" className="primary-button mt-4" onClick={onRetry}><Plus size={15}/>重新生成职位描述</button>}
+    {!running && !reconciliationRequired && <button type="button" className="primary-button mt-4" onClick={onRetry}><Plus size={15}/>重新生成职位描述</button>}
   </div>;
 }
 
@@ -1302,6 +1309,7 @@ function aiRunStatusLabel(run: AiRun): string {
   if (run.executionStatus === "USAGE_PENDING" || run.executionStatus === "CANCELLATION_PENDING"
       || run.settlementStatus === "PENDING" || run.settlementStatus === "PROCESSING") return getDisplayLabel("execution.status", run.executionStatus, "结算处理中");
   if (run.status === "FAILED") return getDisplayLabel("aiRun.status", run.status, "生成失败");
+  if (run.status === "RECONCILIATION_REQUIRED" || run.status === "RESULT_MAPPING_FAILED") return "结果待核对";
   if (run.status === "COMPLETED") return "等待结算";
   if (run.retryCount > 0 && ["QUEUED", "RUNNING"].includes(run.status)) return "任务重试中";
   if (run.executionStatus === "AGENT_ACCEPTED") return getDisplayLabel("execution.status", run.executionStatus, "执行服务已接收");

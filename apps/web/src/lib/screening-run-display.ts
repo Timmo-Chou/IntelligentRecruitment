@@ -13,7 +13,7 @@ export function screeningRunSettlementSummary(run: {
   }
   if (run.settlementStatus === "SETTLEMENT_FAILED") return `筛选${status}，${settlement}，请联系平台运营。`;
   if (run.settlementStatus === "RECONCILIATION_REQUIRED") return `筛选${status}，${settlement}，请稍后查看。`;
-  if (["RELEASED", "CANCELLED"].includes(run.settlementStatus ?? "")) return `筛选${status}，${settlement}。`;
+  if (["RELEASED", "CANCELLED", "MIXED"].includes(run.settlementStatus ?? "")) return `筛选${status}，${settlement}。`;
   if (run.status === "COMPLETED" || run.status === "PARTIAL_FAILED") {
     if (run.settlementStatus === "SETTLED") return `筛选${status}，${settlement}，可在企业账单中查看本账号的积分消耗。`;
     return `筛选${status}，可在企业账单中查看本账号的积分消耗。`;

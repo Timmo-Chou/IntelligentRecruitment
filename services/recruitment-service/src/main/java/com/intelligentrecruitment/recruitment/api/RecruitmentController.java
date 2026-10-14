@@ -111,6 +111,7 @@ public class RecruitmentController {
                                  @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
                                  Authentication authentication, HttpServletResponse response) {
         UUID userId = CurrentUser.id(authentication);
+        var eventScope = recruitment.authorizeRunEventStream(userId, tenantId, taskId);
         long initialCursor = parseCursor(lastEventId);
         response.setHeader("Cache-Control", "no-cache, no-transform");
         response.setHeader("X-Accel-Buffering", "no");
@@ -118,7 +119,7 @@ public class RecruitmentController {
             long cursor = initialCursor;
             long deadline = System.currentTimeMillis() + 55_000;
             while (System.currentTimeMillis() < deadline) {
-                List<RecruitmentService.RunEvent> batch = recruitment.runEvents(userId, tenantId, taskId, cursor);
+                List<RecruitmentService.RunEvent> batch = recruitment.runEvents(eventScope, taskId, cursor);
                 if (batch.isEmpty()) {
                     output.write(": keep-alive\n\n".getBytes(StandardCharsets.UTF_8));
                     output.flush();
@@ -132,7 +133,8 @@ public class RecruitmentController {
                     output.write(frame.getBytes(StandardCharsets.UTF_8));
                     output.flush();
                     cursor = event.eventId();
-                    if ("completed".equals(event.eventType()) || "failed".equals(event.eventType())) return;
+                    if ("completed".equals(event.eventType()) || "failed".equals(event.eventType())
+                            || "reconciliation_required".equals(event.eventType())) return;
                 }
             }
         };

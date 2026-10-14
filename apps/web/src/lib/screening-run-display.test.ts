@@ -6,6 +6,7 @@ describe("screening settlement display", () => {
     const cases = [
       ["RELEASE_PENDING", "积分释放中"],
       ["RELEASED", "积分已释放"],
+      ["MIXED", "部分扣费、部分释放"],
       ["CANCEL_REQUESTED", "正在申请取消"],
       ["CANCELLATION_PENDING", "取消处理中"],
       ["RECONCILIATION_REQUIRED", "结果待核对"],

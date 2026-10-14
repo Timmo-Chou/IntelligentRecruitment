@@ -1189,6 +1189,12 @@
   },
   {
     "domain": "screening.settlementStatus",
+    "code": "MIXED",
+    "label": "部分扣费、部分释放",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "screening.settlementStatus",
     "code": "EXECUTING",
     "label": "执行中",
     "applicationClass": "正式显示映射（不证明功能可用）"
@@ -3297,6 +3303,12 @@
     "domain": "error.common",
     "code": "BILLING_OWNER_REQUIRED",
     "label": "仅企业负责人可查看企业套餐与账单。",
+    "applicationClass": "正式显示映射（不证明功能可用）"
+  },
+  {
+    "domain": "error.common",
+    "code": "BOSS_SESSION_REQUIRED",
+    "label": "招聘服务登录状态已失效，请重新登录后重试。",
     "applicationClass": "正式显示映射（不证明功能可用）"
   },
   {

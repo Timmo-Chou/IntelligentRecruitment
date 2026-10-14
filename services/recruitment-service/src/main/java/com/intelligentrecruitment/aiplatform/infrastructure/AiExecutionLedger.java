@@ -68,6 +68,28 @@ public class AiExecutionLedger {
         finalizeDecision(auth.idempotencyKey(),auth,"RELEASE","RECONCILIATION_REQUIRED",null,null,null,retryCountForAgentTask(auth.tenantId(),taskId),taskId,0,"UNVERIFIED_RESULT","RECONCILIATION_DEADLINE_EXPIRED");
     }
 
+    @Transactional
+    public Map<String,Object> releaseDefinitiveProviderRejection(UUID authorizationId,UUID reservationId,String taskId,
+                                                                  String inputHash,String providerRequestId,
+                                                                  String providerErrorCode,String providerErrorPath){
+        if(!"invalid_request".equals(providerErrorCode)||!"custom_fields.company_name".equals(providerErrorPath)
+                ||providerRequestId==null||providerRequestId.isBlank())throw new IllegalArgumentException("provider rejection evidence is incomplete");
+        List<ExecutionRejectionBinding> rows=jdbc.query("SELECT tenant_id,idempotency_key,agent_task_id,input_hash,status,platform_status FROM ai_execution_records WHERE authorization_id=? AND reservation_id=? FOR UPDATE",
+                (rs,n)->new ExecutionRejectionBinding(rs.getObject(1,UUID.class),rs.getString(2),rs.getString(3),rs.getString(4),rs.getString(5),rs.getString(6)),authorizationId,reservationId);
+        if(rows.size()!=1)return Map.of("decision_status","NOT_FOUND");
+        ExecutionRejectionBinding binding=rows.getFirst();ExecutionRecord record=lockRecord(binding.tenantId(),binding.idempotencyKey());
+        if(!java.util.Objects.equals(binding.agentTaskId(),taskId)||!java.util.Objects.equals(binding.inputHash(),inputHash)
+                ||!"RECONCILIATION_REQUIRED".equals(binding.status())||!"RECONCILIATION_REQUIRED".equals(binding.platformStatus())
+                ||lockSettlementEffect(record.id())!=null)
+            throw new IllegalStateException("provider rejection does not bind to the unresolved execution");
+        var auth=authorizationForExecution(binding.tenantId(),binding.idempotencyKey()).orElseThrow();
+        finalizeDecision(binding.idempotencyKey(),auth,"RELEASE","FAILED",null,null,null,
+                retryCountForAgentTask(binding.tenantId(),taskId),taskId,0,"CONFIRMED_NO_RESULT","RD_CONTRACT_REJECTED");
+        jdbc.update("INSERT INTO ai_execution_reconciliation_events(id,execution_id,event_type,evidence_reference,details) VALUES(?,?, 'DEFINITIVE_PROVIDER_REJECTION_CONFIRMED',?,jsonb_build_object('http_status',422,'provider_error_code',?,'provider_error_path',?))",
+                UUID.randomUUID(),record.id(),providerRequestId,providerErrorCode,providerErrorPath);
+        return Map.of("decision_status","SELECTED","decision","RELEASE","billing_reason_code","RD_CONTRACT_REJECTED");
+    }
+
     @Transactional(propagation=org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
     public PlatformExecutionStateProjection.Outcome observeTask(UUID tenant,String taskId,long version,String status){
         return PlatformExecutionStateProjection.project(jdbc,tenant,taskId,version,status);
@@ -289,8 +311,8 @@ public class AiExecutionLedger {
     }
 
     public Optional<BossControlPlaneClient.AiAuthorization> authorizationForExecution(UUID tenantId,String idempotencyKey){
-        return jdbc.query("SELECT authorization_id,grant_id,reservation_id,idempotency_key,model_id,tokenizer_id,tenant_id,business_task_id,product_domain,capability,agent_id,operation,attempt_id,route_config_version,input_hash,pricing_snapshot,agent_constraints,actor_id FROM ai_execution_records WHERE tenant_id=? AND idempotency_key=?",
-                (rs,n)->new BossControlPlaneClient.AiAuthorization(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),rs.getObject(3,UUID.class),null,rs.getString(4),null,rs.getString(5),rs.getString(6),rs.getObject(7,UUID.class),rs.getObject(18,UUID.class),rs.getString(8),rs.getString(9),rs.getString(10),rs.getString(11),rs.getString(12),rs.getObject(13,UUID.class),rs.getString(14),rs.getString(15),readJson(rs.getString(16)),readJson(rs.getString(17))),tenantId,idempotencyKey).stream().findFirst();
+        return jdbc.query("SELECT authorization_id,grant_id,reservation_id,idempotency_key,model_id,tokenizer_id,tenant_id,business_task_id,product_domain,capability,agent_id,operation,attempt_id,route_config_version,input_hash,pricing_snapshot,agent_constraints,actor_id,authorization_expires_at FROM ai_execution_records WHERE tenant_id=? AND idempotency_key=?",
+                (rs,n)->new BossControlPlaneClient.AiAuthorization(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),rs.getObject(3,UUID.class),null,rs.getString(4),rs.getTimestamp(19)==null?null:rs.getTimestamp(19).toInstant(),rs.getString(5),rs.getString(6),rs.getObject(7,UUID.class),rs.getObject(18,UUID.class),rs.getString(8),rs.getString(9),rs.getString(10),rs.getString(11),rs.getString(12),rs.getObject(13,UUID.class),rs.getString(14),rs.getString(15),readJson(rs.getString(16)),readJson(rs.getString(17))),tenantId,idempotencyKey).stream().findFirst();
     }
 
     private com.fasterxml.jackson.databind.JsonNode readJson(String value){try{return value==null?null:json.readTree(value);}catch(Exception e){throw new IllegalStateException(e);}}
@@ -393,6 +415,7 @@ public class AiExecutionLedger {
 
     private record ExecutionRecord(UUID id) { }
     private record DeadlineClose(UUID tenantId,String idempotencyKey) { }
+    private record ExecutionRejectionBinding(UUID tenantId,String idempotencyKey,String agentTaskId,String inputHash,String status,String platformStatus) { }
     private record SettlementEffect(String effectType, String status, String payload) { }
 
     private static String safeError(String error) {

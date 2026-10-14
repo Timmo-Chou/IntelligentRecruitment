@@ -142,6 +142,14 @@ public class HttpAiPlatformClient implements AiPlatformClient {
                 ledger.agentAccepted(execution.tenantId(),command.idempotencyKey(),accepted.aiTaskId());authorizations.put(accepted.aiTaskId(),prior);
                 acknowledgeAcceptance(prior,accepted.aiTaskId());
                 return accepted;
+            }
+            // The strong idempotency lookup succeeded but found no accepted platform task. Once
+            // the original grant has expired, resubmitting cannot be safe; close this attempt
+            // through the normal RELEASE outbox instead of requesting a second Grant or holding
+            // the tenant reservation until the long reconciliation deadline.
+            if(isExpiredUnacceptedGrant(prior.expiresAt(),Instant.now())){
+                ledger.enqueueRelease(prior,"FAILED","PLATFORM_ACCEPTANCE_NOT_FOUND",null);
+                throw new DefinitiveSubmissionRejection();
             }}
             authorization = boss.authorizeAiExecutionV2(execution.tenantId(), execution.actorId(),
                     execution.businessTaskId().toString(), command.capability().name(),operation,agentId,
@@ -163,6 +171,8 @@ public class HttpAiPlatformClient implements AiPlatformClient {
             ledger.agentAccepted(execution.tenantId(), command.idempotencyKey(), result.aiTaskId());
             acknowledgeAcceptance(authorization,result.aiTaskId());
             return result;
+        } catch (DefinitiveSubmissionRejection ex) {
+            throw ex;
         } catch (Exception ex) {
             if (authorization != null) {
                 try { ledger.submissionUnconfirmed(authorization, Instant.now().plusSeconds(reconciliationHoldSeconds)); }
@@ -171,6 +181,14 @@ public class HttpAiPlatformClient implements AiPlatformClient {
             log.error("调用 AIAgentPlatform 失败 capability={}", command.capability(), ex);
             throw new RuntimeException("AIAgentPlatform 调用失败: " + ex.getMessage(), ex);
         }
+    }
+
+    static boolean isExpiredUnacceptedGrant(java.time.Instant expiresAt,java.time.Instant now){
+        return expiresAt!=null&&!expiresAt.isAfter(now);
+    }
+
+    public static final class DefinitiveSubmissionRejection extends RuntimeException {
+        public DefinitiveSubmissionRejection(){super("平台未受理任务且原授权已过期");}
     }
 
     private static int authorizedUnits(StartAiTaskCommand command,String agentId){
@@ -240,7 +258,7 @@ public class HttpAiPlatformClient implements AiPlatformClient {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String,Object> directInput(AiCapability capability,Map<String,Object> input){
+    static Map<String,Object> directInput(AiCapability capability,Map<String,Object> input){
         if(capability==AiCapability.RESUME_PARSING){Map<String,Object> direct=new java.util.LinkedHashMap<>();direct.put("resumes",input.getOrDefault("resumes",List.of()));direct.put("files",input.getOrDefault("files",List.of()));return direct;}
         if(capability==AiCapability.CANDIDATE_SCREENING){Map<String,Object> direct=new java.util.LinkedHashMap<>();direct.put("job_text",input.get("job_text"));direct.put("resumes",input.getOrDefault("resumes",List.of()));direct.put("files",input.getOrDefault("files",List.of()));direct.put("policy_source","RD_STANDARD");return direct;}
         if(capability!=AiCapability.JD_GENERATION)return input;
@@ -253,22 +271,31 @@ public class HttpAiPlatformClient implements AiPlatformClient {
         putTextSlot(slots,"location",source.get("location"));
         putTextSlot(slots,"employment_type",source.get("jobType"));
         putTextSlot(slots,"education_requirement",source.get("education"));
+        putTextListSlot(slots,"responsibilities",source.get("responsibilities"));
         String experience=text(source.get("experienceLevel"));
         if(!experience.isBlank()){Map<String,Object> value=new java.util.LinkedHashMap<>();value.put("minimum_years",null);value.put("text",experience);slots.put("experience_requirement",Map.of("status","answered","value",value));}
-        String skills=text(source.get("skills"));
-        if(!skills.isBlank()){
-            List<Map<String,Object>> values=java.util.Arrays.stream(skills.split("[,，、;；/]+"))
-                    .map(String::trim).filter(s->!s.isBlank()).map(s->{Map<String,Object> v=new java.util.LinkedHashMap<>();v.put("name",s);v.put("minimum_years",null);v.put("note",null);return v;}).toList();
+        List<String> skills=textList(source.get("skills"));
+        if(!skills.isEmpty()){
+            List<Map<String,Object>> values=skills.stream()
+                    .map(s->{Map<String,Object> v=new java.util.LinkedHashMap<>();v.put("name",s);v.put("minimum_years",null);v.put("note",null);return v;}).toList();
             slots.put("required_skills",Map.of("status","answered","value",values));
         }
-        String requirement=text(source.get("requirement"));
-        if(!requirement.isBlank())slots.put("additional_requirements",Map.of("status","answered","value",List.of(requirement)));
+        // Structured qualifications are mandatory conditions; the free-form recruitment brief
+        // may also contain duties and benefits, so it must remain supplementary.
+        putTextListSlot(slots,"other_hard_requirements",source.get("requirements"));
+        putTextListSlot(slots,"additional_requirements",source.get("requirement"));
         Map<String,Object> custom=new java.util.LinkedHashMap<>();
-        String company=text(source.get("companyName"));if(!company.isBlank())custom.put("company_name",company);
+        String company=text(source.get("companyName"));if(!company.isBlank())custom.put("company_name",Map.of("status","answered","value",company));
         Map<String,Object> direct=new java.util.LinkedHashMap<>();direct.put("slots",slots);direct.put("custom_fields",custom);return direct;
     }
-    private void putTextSlot(Map<String,Object> slots,String key,Object raw){String value=text(raw);if(!value.isBlank())slots.put(key,Map.of("status","answered","value",value));}
-    private String text(Object value){return value==null?"":String.valueOf(value).trim();}
+    private static void putTextSlot(Map<String,Object> slots,String key,Object raw){String value=text(raw);if(!value.isBlank())slots.put(key,Map.of("status","answered","value",value));}
+    private static void putTextListSlot(Map<String,Object> slots,String key,Object raw){List<String> values=textList(raw);if(!values.isEmpty())slots.put(key,Map.of("status","answered","value",values));}
+    private static List<String> textList(Object raw){
+        if(raw instanceof List<?> values)return values.stream().map(HttpAiPlatformClient::text).filter(value->!value.isBlank()).toList();
+        String value=text(raw);if(value.isBlank())return List.of();
+        return java.util.Arrays.stream(value.split("[,，、;；/]+" )).map(String::trim).filter(s->!s.isBlank()).toList();
+    }
+    private static String text(Object value){return value==null?"":String.valueOf(value).trim();}
 
     private String canonicalHash(Map<String,Object> input,ExecutionContext context,AiCapability capability,String operation,String agentId){try{
         Map<String,Object> material=new java.util.LinkedHashMap<>();material.put("hash_contract_version","rd-input-hash-v1");material.put("agent_id",agentId);
